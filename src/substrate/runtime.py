@@ -101,18 +101,86 @@ class Runtime:
 
         # Persistent-bus exclusive lock (technical §11): a second runtime against the
         # same root fails fast with BusLockedError; Windows raises UnsupportedPlatformError
-        # at config time. Per-run mode (fresh ULID root) needs no lock.
+        # at config time. Per-run mode (fresh ULID root) needs no lock. Acquired INSIDE the
+        # try below so the finally releases it even if RecordWriter construction or state
+        # init then raises (otherwise the flock fd leaks and a same-process retry would
+        # self-deadlock).
         self._lock_fd: int | None = None
+        self._tasks: set[asyncio.Task[None]] = set()
+        self._record_closed = False
+        self._failed = False
+        self._paused = False
+        self._terminated = False
+        self._kernel_error: str | None = None
+
+        # Acquire the persistent-bus lock BEFORE the try so a BusLockedError /
+        # UnsupportedPlatformError propagates to the caller (a config-time refusal, not a
+        # failed run). The try then covers RecordWriter construction onward, so a failure
+        # there still hits the finally that releases this lock (no fd leak / self-deadlock).
         if self._persistent:
             self._lock_fd = locking.acquire_lock(self._record_root, start_time=time.time())
+        try:
+            self._record = RecordWriter(self._record_root, fsync=self._fsync)
+            self._init_run_state(reg)
+            self._bootstrap(reg)
+            self._flush_scheduled()
+            await self._writer_loop()
+        except FsyncError:
+            # fsyncgate (§5.2): the medium is untrustworthy. The writer MUST NOT append
+            # RunFinalised; the torn tail (absence of RunFinalised) is the correct
+            # encoding of medium failure. The record is already closed by _do_fsync.
+            self._failed = True
+            self._record_closed = True  # _do_fsync already closed the fd; do not re-close
+        except Exception as exc:
+            # The writer itself raised (a kernel bug, §6.3 "the writer itself raises").
+            # The run did not finalise normally; record the kernel error on the log if the
+            # record exists and is still open, so the failure is not silent.
+            self._failed = True
+            self._kernel_error = repr(exc)
+            self._try_record_kernel_error(exc)
+        finally:
+            # Cancellation + record close + lock release ALWAYS run, even if the writer
+            # raised — tasks must not leak, the record must be finalised, the lock freed.
+            for t in self._tasks:
+                t.cancel()
+            if self._tasks:
+                await asyncio.gather(*self._tasks, return_exceptions=True)
+            record = getattr(self, "_record", None)
+            if record is not None and not self._record_closed:
+                try:
+                    record.write_manifest(
+                        replay_ceiling=getattr(self, "_replay_ceiling", "3a"),
+                        extra={"run_id": getattr(self, "_run_id", "")},
+                    )
+                    record.close()
+                except FsyncError:
+                    # A close-time fsync failure is itself the §5.2 path: no clean
+                    # finalisation. Surface as a failed run rather than re-raising.
+                    self._failed = True
+            if self._lock_fd is not None:
+                locking.release_lock(self._lock_fd)
+                self._lock_fd = None
 
-        # runtime state
-        self._record = RecordWriter(self._record_root, fsync=self._fsync)
+        status: Literal["finalised", "paused", "failed"] = (
+            "failed" if self._failed else "paused" if self._paused else "finalised"
+        )
+        return RunResult(
+            run_id=getattr(self, "_run_id", ""),
+            record_root=str(self._record_root),
+            status=status,
+            final_event=getattr(self, "_final_event", None),
+            elapsed_seconds=time.monotonic() - started,
+            finalisation_payload=getattr(self, "_final_payload", None),
+        )
+
+    def _init_run_state(self, reg: Registration) -> None:
+        """Initialise the per-run mutable state (called inside run()'s try so a failure
+        here still hits the finally that releases the lock + closes the record). The
+        Priority-C refactor will move this into a _RunState dataclass."""
         self._inbox: asyncio.Queue[_Emission | _Lifecycle] = asyncio.Queue()
         self._credits = asyncio.Semaphore(self._admission_bound)
         self._control: deque[_Lifecycle] = deque()
         self._scheduled: list[tuple[str, Any, str, str | None]] = []
-        self._tasks: set[asyncio.Task[None]] = set()
         self._next_seq = 0
         self._in_cycle = False
         self._counts: dict[str, int] = {}
@@ -129,10 +197,6 @@ class Runtime:
         # subscription"), not raw bus seq deltas.
         self._trigger_match_count: dict[int, int] = {}  # idx -> #subscription-matched appends
         self._trigger_last_fired_match: dict[int, int] = {}  # idx -> match-count at last firing
-        self._terminated = False
-        self._paused = False
-        self._failed = False
-        self._record_closed = False
         self._last_event: Event | None = None
         self._final_event: Event | None = None
         self._final_payload: Any | None = None
@@ -147,52 +211,33 @@ class Runtime:
         self._poll_s = min(_QUIESCENCE_POLL_S, ws) if ws is not None else _QUIESCENCE_POLL_S
         self._run_id = str(ULID())
 
+    def _try_record_kernel_error(self, exc: Exception) -> None:
+        """On a writer-internal raise (§6.3 "the writer itself raises"), record the failure
+        on the log if the record exists and fsync has not failed — so a kernel bug is not
+        silent. Best-effort: a further failure here is swallowed (the run is already
+        failing; the finally will still close the record)."""
+        record = getattr(self, "_record", None)
+        if record is None or self._record_closed or self._terminated:
+            return
+        if not hasattr(self, "_next_seq"):
+            return  # state init never completed; nothing to append onto
         try:
-            self._bootstrap(reg)
-            self._flush_scheduled()
-            await self._writer_loop()
-        except FsyncError:
-            # fsyncgate (§5.2): the medium is untrustworthy. The writer MUST NOT append
-            # RunFinalised; the torn tail (absence of RunFinalised) is the correct
-            # encoding of medium failure. The record is already closed by _do_fsync.
-            self._failed = True
-            self._record_closed = True  # _do_fsync already closed the fd; do not re-close
+            seq = self._next_seq
+            self._next_seq += 1
+            payload = {"reason": "kernel_error", "error": repr(exc)}
+            record.append(
+                {
+                    "seq": seq,
+                    "kind": "substrate.RunFinalised",
+                    "schema": "substrate.RunFinalised@1",
+                    "producer": None,
+                    "t": time.time(),
+                    "payload": payload,
+                }
+            )
+            self._terminated = True
         except Exception:
-            # The writer loop raised (a kernel bug, §6.3 "the writer itself raises").
-            # The run did not finalise normally.
-            self._failed = True
-        finally:
-            # Cancellation + record close ALWAYS run, even if the writer raised — tasks
-            # must not leak and the record must be finalised on disk.
-            for t in self._tasks:
-                t.cancel()
-            if self._tasks:
-                await asyncio.gather(*self._tasks, return_exceptions=True)
-            if not getattr(self, "_record_closed", False):
-                try:
-                    self._record.write_manifest(
-                        replay_ceiling=self._replay_ceiling, extra={"run_id": self._run_id}
-                    )
-                    self._record.close()
-                except FsyncError:
-                    # A close-time fsync failure is itself the §5.2 path: no clean
-                    # finalisation. Surface as a failed run rather than re-raising.
-                    self._failed = True
-            if self._lock_fd is not None:
-                locking.release_lock(self._lock_fd)
-                self._lock_fd = None
-
-        status: Literal["finalised", "paused", "failed"] = (
-            "failed" if self._failed else "paused" if self._paused else "finalised"
-        )
-        return RunResult(
-            run_id=self._run_id,
-            record_root=str(self._record_root),
-            status=status,
-            final_event=self._final_event,
-            elapsed_seconds=time.monotonic() - started,
-            finalisation_payload=self._final_payload,
-        )
+            pass  # already failing; do not mask the original error or block the finally
 
     # ── bootstrap ────────────────────────────────────────────────────────────--
     def _bootstrap(self, reg: Registration) -> None:
@@ -248,6 +293,9 @@ class Runtime:
                     "kind": pk.kind,
                     "schema_version": version,
                     "schemas": schemas,
+                    # the author's determinism flag — load-bearing for the Level-3(a)
+                    # replay precondition (F-RPLY-1; replay._producer_kinds_deterministic).
+                    "deterministic": pk.deterministic,
                     "fingerprint": {
                         "qualname": getattr(pk.factory, "__qualname__", repr(pk.factory)),
                         "author_version": pk.author_version,
@@ -381,12 +429,20 @@ class Runtime:
         return {"$blob": blob_ref.sha256, "bytes": blob_ref.bytes}
 
     def _resolved_input_fields(self, resolved: Any) -> dict[str, Any]:
-        """The TriggerFired input field(s): per D-5 / the locked TriggerFired schema,
-        EXACTLY ONE of `resolved_input` (inline, ≤ threshold) or `$blob` (the BlobRef
-        when oversized) is present; the hash is recorded separately in input_sha256.
-        Returns the fragment to merge into the payload. None resolved input → an inline
-        resolved_input of None. Raises (caught by the caller as InputBuildFailed) if the
-        input is non-canonical."""
+        """The TriggerFired input field(s): per D-5, EXACTLY ONE of `resolved_input`
+        (inline, ≤ threshold) or `input_blob` (the BlobRef when oversized) is present; the
+        hash is always recorded separately in input_sha256. Returns the fragment to merge
+        into the payload. None resolved input → an inline resolved_input of None. Raises
+        (caught by the caller as InputBuildFailed) if the input is non-canonical.
+
+        The blob field is named `input_blob` (carrying the BlobRef object), NOT `$blob`:
+        the locked v0.1 schema named it `$blob`, but that produced the footgun
+        `{"$blob": {"$blob": ...}}` (the field key and the BlobRef's own key collide,
+        textually indistinguishable for a reader/CLI author). Renamed to `input_blob` under
+        P-TRIGGERFIRED-INPUT-BLOB (Architect-directed); carried implemented-ahead-of-
+        ratification, like the instance field. The emission-payload blob case keeps the
+        bare BlobRef shape ({"$blob":..,"bytes":..}) — there the payload genuinely IS a
+        BlobRef (the whitelist payload type), so no field-key collision arises."""
         if resolved is None:
             return {"resolved_input": None}
         sc = try_canonical(resolved)
@@ -395,9 +451,7 @@ class Runtime:
         if sc.nbytes <= BLOB_THRESHOLD_BYTES:
             return {"resolved_input": sc.builtins}
         blob_ref = self._record.blobs.put(sc.raw_bytes)
-        # field `$blob` carries the BlobRef object (locked TriggerFired schema), mutually
-        # exclusive with resolved_input.
-        return {"$blob": {"$blob": blob_ref.sha256, "bytes": blob_ref.bytes}}
+        return {"input_blob": {"$blob": blob_ref.sha256, "bytes": blob_ref.bytes}}
 
     def _track_lifecycle(self, event: Event) -> None:
         if event.kind == "substrate.ProducerStarted":
@@ -491,6 +545,19 @@ class Runtime:
                 self._pred_violations[idx] = 0
             if not fired:
                 continue
+            # Trigger-level logical cooldown (kernel §6 / technical §10): suppress a firing
+            # within `appends` subscription-matching cycles of this trigger's last firing.
+            # CHECKED BEFORE policy.admit so a cooldown-suppressed cycle does NOT consume
+            # the policy's firing state — e.g. PerKey.admit mutates its seen-set, and a
+            # later cooldown `continue` would permanently consume a key that never fired
+            # (silent data loss). Logical cooldowns are append-counted and fully replayable;
+            # wall-clock cooldowns are handled at registration (replay-ceiling demotion) —
+            # pending-timer enforcement is deferred (see BLACKBOARD ## Deferred).
+            cd = t.cooldown
+            if isinstance(cd, Logical) and cd.appends > 0:
+                last = self._trigger_last_fired_match.get(idx)
+                if last is not None and self._trigger_match_count[idx] - last < cd.appends:
+                    continue
             # The firing-policy admit (PerKey canonical-encodes the key for dedup) can
             # raise on a non-canonical key; treat that as an input-build failure rather
             # than crashing the writer (technical §10, §6.3).
@@ -506,16 +573,6 @@ class Runtime:
                 continue
             if not do_fire:
                 continue
-            # Trigger-level logical cooldown (kernel §6 / technical §10): suppress a firing
-            # within `appends` subscription-matching cycles of this trigger's last firing.
-            # Logical cooldowns are append-counted and fully replayable; wall-clock
-            # cooldowns are handled at registration (replay-ceiling demotion) — pending-
-            # timer enforcement is deferred (see BLACKBOARD ## Deferred).
-            cd = t.cooldown
-            if isinstance(cd, Logical) and cd.appends > 0:
-                last = self._trigger_last_fired_match.get(idx)
-                if last is not None and self._trigger_match_count[idx] - last < cd.appends:
-                    continue
             # Build → seal → canonicalize the resolved input, ALL inside one guard: a
             # non-canonical builder output is an InputBuildFailed (no Producer starts),
             # never an uncaught crash (technical §6.2 step 5 / §6.3 / F-TRIG-5). The hash
@@ -648,7 +705,28 @@ class Runtime:
                     {"policy": self._termination.name, "decision": decision.value},
                 )
             )
-            self._cycle(_Lifecycle("substrate.RunFinalised", {}))
+            # The policy may attach a final output payload (RunFinalised.finalisation_payload
+            # → RunResult.finalisation_payload). Sanitize it: a non-canonical (or raising)
+            # payload does not crash finalisation, but the drop is NOT silent — the reason is
+            # recorded on the RunFinalised frame (nothing consequential is silent, product §1).
+            payload: dict[str, Any] = {}
+            fp: Any = None
+            drop_reason: str | None = None
+            try:
+                fp = self._termination.finalisation_payload(ctx)
+            except Exception as exc:
+                drop_reason = f"finalisation callback raised: {exc!r}"
+            if fp is not None and drop_reason is None:
+                sc = try_canonical(fp)
+                if sc.ok:
+                    final_builtins = self._maybe_offload(sc)
+                    payload["finalisation_payload"] = final_builtins
+                    self._final_payload = final_builtins
+                else:
+                    drop_reason = f"finalisation payload not canonical: {sc.reason} at {sc.at_path}"
+            if drop_reason is not None:
+                payload["finalisation_payload_dropped"] = drop_reason
+            self._cycle(_Lifecycle("substrate.RunFinalised", payload))
             self._terminated = True
         elif decision is Decision.PAUSE_AWAIT_INPUT:
             self._cycle(

@@ -42,7 +42,13 @@ class TerminationPolicy:
 
     `watchdog_seconds`, when set, is the writer's idle-poll window (how often the
     writer wakes to test quiescence when the inbox is idle) — set by
-    quiescence_with_watchdog(seconds=). None means "use the runtime default poll"."""
+    quiescence_with_watchdog(seconds=). None means "use the runtime default poll".
+
+    `finalisation`, when set, is a callable run at finalise-run time that produces the
+    run's final output payload; it is recorded in substrate.RunFinalised.finalisation_payload
+    and surfaced on RunResult.finalisation_payload. None → no payload (an empty RunFinalised).
+    The payload must be canonical (§4.2); a non-canonical payload is dropped to None with the
+    failure noted, never crashing finalisation."""
 
     def __init__(
         self,
@@ -50,14 +56,21 @@ class TerminationPolicy:
         fn: Callable[[TermContext], Decision],
         resume_condition: str | None = None,
         watchdog_seconds: float | None = None,
+        finalisation: Callable[[TermContext], Any] | None = None,
     ) -> None:
         self.name = name
         self._fn = fn
         self.resume_condition = resume_condition
         self.watchdog_seconds = watchdog_seconds
+        self.finalisation = finalisation
 
     def decide(self, ctx: TermContext) -> Decision:
         return self._fn(ctx)
+
+    def finalisation_payload(self, ctx: TermContext) -> Any | None:
+        """The run's final output payload at finalise time, or None if the policy declares
+        none. Exceptions propagate to the caller (which records the failure, not silently)."""
+        return self.finalisation(ctx) if self.finalisation is not None else None
 
 
 def threshold_count(kind: str, n: int) -> TerminationPolicy:

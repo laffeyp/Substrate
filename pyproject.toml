@@ -22,7 +22,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "pytest", "pytest-asyncio", "pytest-benchmark",
+  "pytest", "pytest-asyncio", "pytest-benchmark", "pytest-timeout",
   "mypy", "ruff", "hypothesis", "coverage",
 ]
 openai-compat = ["httpx"]           # optional extra; kernel imports none of these
@@ -36,6 +36,10 @@ packages = ["src/substrate"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Hard safety net: any test (e.g. a never-quiescent writer or a self-feeding Trigger
+# loop) FAILS FAST instead of wedging the machine. The whole suite runs in <1s; 30s is
+# generous headroom that still catches non-termination immediately.
+timeout = 30
 
 [tool.ruff]
 target-version = "py312"

@@ -75,6 +75,24 @@
 
 ---
 
+### 2026-06-13 (round 6) — the safety net that should have come first, and a class of bug tests can't catch
+
+**What happened:** A third review pass (Architect-run, external channel) caught that an earlier non-terminating revision of mine had spun orphaned pytest processes to load-avg 66 on a shared machine, plus five correctness defects. Priority A (a hard test timeout + liveness regression tests) was sequenced FIRST, then B (PerKey/cooldown data loss, lock-outside-try leak, swallowed kernel errors, dead finalisation_payload, overloaded $blob), then a hard-gated God-module refactor before any more features.
+
+**What worked:**
+- **A hard `timeout` in the test config is the cheapest possible safety net and it was missing.** The bug class that bit here — a never-quiescent writer / self-feeding Trigger — manifests as a HANG, not a failed assertion, so the entire green test suite said nothing while the machine drowned. `pytest-timeout` + a 30s suite cap + per-test 10s marks on the liveness tests turns "wedge the box" into "one red test in 2s." This belongs in the kit's default project scaffold for any project with a concurrency/event-loop runtime, not as a thing you add after the first hang.
+- **Test the hazard the spec NAMES.** The kernel explicitly says a self-feeding Trigger "will fire unboundedly… the substrate does not detect it." That sentence is a test spec: the liveness suite encodes the three sanctioned bounds (Once / cooldown / PerKey-dedup) and asserts termination + finite counts. A spec sentence describing a hazard the system deliberately does NOT guard is exactly where a timeout-backed regression test earns its place.
+
+**What got in the way:**
+- **Ordering side effects vs. gates is a silent-data-loss trap.** The PerKey+cooldown bug (admit consumes the key, THEN the cooldown suppresses the firing → key consumed but never fired) is invisible to a count-only assertion and only shows up when the same key recurs after the window. The general lesson: when two gates compose and one has a side effect, the side-effecting one must run last. Worth a TECHNIQUES note for stateful-policy composition.
+- **Two-phase construction made the run() method's failure paths fragile** (the lock-outside-try leak, the `getattr(self,"_record",…)` defensiveness, the swallowed-error branch needing existence guards). All of it is symptomatic of ~25 run-state attributes living on the Runtime instance instead of a per-run state object — which is exactly the God-module the Architect then hard-gated for refactor. The correctness fixes are real, but several of them are patches over a structural smell; the refactor is the actual fix.
+
+**What this says about the next kit version:**
+- 7. Ship a default `pytest-timeout`+timeout in the kit's project scaffold for runtime/event-loop/concurrency project classes. A hung test on a shared or CI machine is a denial-of-service the green-suite invariant cannot see.
+- 8. "Nothing consequential is silent" is a product principle here, but it has to be enforced uniformly across EVERY ingestion/drop point or it rots: the review found the finalisation-payload drop was the one path in the sanitize-or-log cluster that still vanished silently. A checklist-grade rule ("every drop/skip of user data emits a typed record") is more reliable than per-site judgement.
+
+---
+
 ## Phase boundary syntheses
 
 *(one per phase close)*

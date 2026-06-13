@@ -299,7 +299,50 @@ async def test_logical_cooldown_counts_subscription_matched_appends(tmp_path):
     assert len(fired) == 2
 
 
-# ── oversized resolved input -> $blob field, not inside resolved_input (D-5) ──--
+# ── PerKey + cooldown: the cooldown must NOT consume a PerKey key it then suppresses ──
+async def emit_keys(inp):
+    for n in inp["keys"]:
+        yield Ok(n=n)
+
+
+def _perkey_cooldown_topo(b):
+    b.producer_kind("src", schemas=[Ok], schema_version=1, factory=lambda: emit_keys)
+    b.producer_kind("c", schemas=[Spawned], schema_version=1, factory=lambda: spawned_producer)
+    b.initial("src", input={"keys": [1, 2, 9, 9, 9, 2]})
+    # PerKey on the value, cooldown of 2 matching appends. Walk (match#, key, cd-check):
+    #   m1 k1: fire (last=1)              m4 k9: 4-3<2 suppress
+    #   m2 k2: 2-1<2 suppress             m5 k9: 5-3>=2 pass, dedup -> no fire
+    #   m3 k9: 3-1>=2 pass, fire (last=3) m6 k2: 6-3>=2 pass, fire IFF k2 not consumed
+    # BUG (admit before cooldown): m2 consumes k2 -> m6 dedupes -> k2 lost -> 2 firings.
+    # FIX (cooldown before admit): m2 does not consume k2 -> m6 fires k2 -> 3 firings.
+    b.trigger(
+        "t",
+        subscription=Subscription(kinds=frozenset({"Ok"})),
+        predicate=lambda event, views: True,
+        starts="c",
+        input_builder=lambda views, staged, event: None,
+        policy=PerKey(lambda event: event.payload["n"]),
+        cooldown=Logical(2),
+    )
+    b.termination(quiescence_with_watchdog(seconds=1))
+
+
+async def test_perkey_cooldown_does_not_consume_a_suppressed_key(tmp_path):
+    # regression: PerKey.admit consumes the key; if the cooldown gate ran AFTER admit and
+    # suppressed that cycle, the key would be consumed-but-never-fired (silent data loss),
+    # and a later post-cooldown occurrence of the same key would wrongly dedupe. The fix
+    # gates the cooldown BEFORE admit, so a suppressed cycle never consumes the key.
+    await Runtime(tmp_path / "run").run(_perkey_cooldown_topo)
+    fired = [
+        e
+        for e in read_record(tmp_path / "run")
+        if e["kind"] == "substrate.TriggerFired" and e["payload"]["trigger_id"] == "t"
+    ]
+    keys = sorted(e["payload"]["firing_key"] for e in fired)
+    assert keys == [1, 2, 9]  # all three distinct keys fired; key 2 was NOT lost
+
+
+# ── oversized resolved input -> input_blob field, not inside resolved_input (D-5) ──--
 def _big_resolved_topo(b):
     b.producer_kind("src", schemas=[Ok], schema_version=1, factory=lambda: producer_ok)
     b.producer_kind("c", schemas=[Spawned], schema_version=1, factory=lambda: spawned_producer)
@@ -324,11 +367,13 @@ async def test_oversized_resolved_input_uses_top_level_blob_field(tmp_path):
     ]
     assert len(tf) == 1
     payload = tf[0]["payload"]
-    # exactly one of resolved_input | $blob present (locked TriggerFired schema / D-5)
-    assert "$blob" in payload
+    # exactly one of resolved_input | input_blob present (D-5; input_blob avoids the
+    # $blob/$blob field-key collision — P-TRIGGERFIRED-INPUT-BLOB)
+    assert "input_blob" in payload
     assert "resolved_input" not in payload
-    assert payload["$blob"]["$blob"].startswith("sha256:")
-    assert payload["$blob"]["bytes"] > 16 * 1024
+    assert "$blob" not in payload  # not the overloaded sentinel name
+    assert payload["input_blob"]["$blob"].startswith("sha256:")
+    assert payload["input_blob"]["bytes"] > 16 * 1024
     # input_sha256 is always present, hashing the original canonical bytes
     assert payload["input_sha256"].startswith("sha256:")
 
@@ -420,3 +465,107 @@ def test_empty_view_subscription_rejected():
     b = TopologyBuilder()
     with pytest.raises(RegistrationError, match="subscription is empty"):
         b.view("empty", Empty())
+
+
+# ── finalisation payload flows policy -> RunFinalised -> RunResult (Priority B item 6) ──
+from substrate.policies import Decision, TerminationPolicy  # noqa: E402
+
+
+def _final_payload_policy():
+    return TerminationPolicy(
+        "finalise_with_payload",
+        lambda c: (
+            Decision.FINALISE_RUN
+            if c.counts("substrate.ProducerCompleted") >= 1
+            else Decision.CONTINUE
+        ),
+        finalisation=lambda c: {"summary": "done", "ticks": c.counts("Ok")},
+    )
+
+
+def _final_payload_topo(b):
+    b.producer_kind("p", schemas=[Ok], schema_version=1, factory=lambda: count_three)
+    b.initial("p", input=None)
+    b.termination(_final_payload_policy())
+
+
+async def test_finalisation_payload_flows_to_record_and_result(tmp_path):
+    result = await Runtime(tmp_path / "run").run(_final_payload_topo)
+    assert result.status == "finalised"
+    # surfaced on RunResult
+    assert result.finalisation_payload == {"summary": "done", "ticks": 3}
+    # AND recorded in the RunFinalised frame
+    fin = assert_event(tmp_path / "run", "substrate.RunFinalised")
+    assert fin["payload"]["finalisation_payload"] == {"summary": "done", "ticks": 3}
+
+
+def _no_payload_topo(b):
+    b.producer_kind("p", schemas=[Ok], schema_version=1, factory=lambda: count_three)
+    b.initial("p", input=None)
+    b.termination(threshold_count("substrate.ProducerCompleted", 1))
+
+
+async def test_no_finalisation_payload_is_none_not_empty_promise(tmp_path):
+    # a policy with no finalisation callback -> RunResult.finalisation_payload is None and
+    # the RunFinalised frame carries no finalisation_payload key (not a dead always-None).
+    result = await Runtime(tmp_path / "run").run(_no_payload_topo)
+    assert result.finalisation_payload is None
+    fin = assert_event(tmp_path / "run", "substrate.RunFinalised")
+    assert "finalisation_payload" not in fin["payload"]
+
+
+def _bad_final_payload_topo(b):
+    b.producer_kind("p", schemas=[Ok], schema_version=1, factory=lambda: count_three)
+    b.initial("p", input=None)
+    b.termination(
+        TerminationPolicy(
+            "finalise_bad_payload",
+            lambda c: (
+                Decision.FINALISE_RUN
+                if c.counts("substrate.ProducerCompleted") >= 1
+                else Decision.CONTINUE
+            ),
+            finalisation=lambda c: {"big": 2**60},  # non-canonical (out-of-JCS-range int)
+        )
+    )
+
+
+async def test_non_canonical_finalisation_payload_drop_is_recorded_not_silent(tmp_path):
+    # a non-canonical finalisation payload must NOT crash finalisation AND must NOT vanish
+    # silently — the drop reason is recorded on the RunFinalised frame (product §1: nothing
+    # consequential is silent).
+    result = await Runtime(tmp_path / "run").run(_bad_final_payload_topo)
+    assert result.status == "finalised"
+    assert result.finalisation_payload is None
+    fin = assert_event(tmp_path / "run", "substrate.RunFinalised")
+    assert "finalisation_payload" not in fin["payload"]
+    assert "finalisation_payload_dropped" in fin["payload"]
+    assert "not canonical" in fin["payload"]["finalisation_payload_dropped"]
+
+
+# ── kernel error is recorded on the log, not silent (Priority B item 5) ────────--
+class _RaisingPolicy(TerminationPolicy):
+    """A TerminationPolicy whose decide() raises — drives the §6.3 'the writer itself
+    raises' path (an unexpected exception inside the cycle), distinct from the view-failure
+    and FsyncError paths."""
+
+    def __init__(self):
+        super().__init__("raising", lambda c: Decision.CONTINUE)
+
+    def decide(self, ctx):
+        raise RuntimeError("policy exploded")
+
+
+def _kernel_error_topo(b):
+    b.producer_kind("p", schemas=[Ok], schema_version=1, factory=lambda: count_three)
+    b.initial("p", input=None)
+    b.termination(_RaisingPolicy())
+
+
+async def test_kernel_error_is_recorded_not_silent(tmp_path):
+    # an unexpected writer-internal raise must yield status=failed AND a RunFinalised
+    # {reason: kernel_error} on the log — never a silently truncated record.
+    result = await Runtime(tmp_path / "run").run(_kernel_error_topo)
+    assert result.status == "failed"
+    fin = assert_event(tmp_path / "run", "substrate.RunFinalised", reason="kernel_error")
+    assert "policy exploded" in fin["payload"]["error"]
