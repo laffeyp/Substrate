@@ -232,14 +232,14 @@ is built from. A `topology(b)` function receives one of these and calls its meth
 runtime builds + statically validates it (`build`) before the run opens. This is the primary
 authoring surface.
 
-- `baseline(self, **metadata: 'Any') -> 'None'` — Attach run metadata (fixtures, seeds, environment identifiers) recorded in the
-- `build(self) -> 'Registration'` — Freeze and statically validate (design §5.5). Raises RegistrationError.
-- `initial(self, kind: 'str', *, input: 'Any' = None) -> 'None'` — Declare an initial Producer started at run open (seq 0), with `input`. A topology
-- `producer_kind(self, kind: 'str', *, schemas: 'Sequence[type]', schema_version: 'int', factory: 'Callable[[], Producer]', deterministic: 'bool' = False, author_version: 'str | None' = None) -> 'None'` — Register a Producer kind: its name, the frozen msgspec Struct event schemas it may
-- `route(self, id: 'str', *, subscription: 'Subscription', slot: 'str', transform: 'Callable[[Any], Any]') -> 'None'` — Register a Route: on an event matching `subscription`, stage `transform(event)` into
-- `termination(self, policy: 'TerminationPolicy', *, scope: 'str' = 'run') -> 'None'` — Set the TerminationPolicy that decides when the run ends (see the termination recipes:
-- `trigger(self, id: 'str', *, subscription: 'Subscription', predicate: 'Callable[..., bool]', starts: 'str', input_builder: 'Callable[..., Any]', policy: 'FiringPolicy | None' = None, cooldown: 'Cooldown | None' = None) -> 'None'` — Register a Trigger: when an event matching `subscription` is appended and `predicate`
-- `view(self, name: 'str', view: 'View') -> 'None'` — Register a named View — a deterministic incremental projection over the bus (e.g.
+- `baseline(self, **metadata: 'Any') -> 'None'` — Attach run metadata (fixtures, seeds, environment identifiers) recorded in the RunStarted manifest, so every record is interpretable from a known baseline.
+- `build(self) -> 'Registration'` — Freeze and statically validate (design §5.5).
+- `initial(self, kind: 'str', *, input: 'Any' = None) -> 'None'` — Declare an initial Producer started at run open (seq 0), with `input`.
+- `producer_kind(self, kind: 'str', *, schemas: 'Sequence[type]', schema_version: 'int', factory: 'Callable[[], Producer]', deterministic: 'bool' = False, author_version: 'str | None' = None) -> 'None'` — Register a Producer kind: its name, the frozen msgspec Struct event schemas it may emit (+ schema_version), and a `factory()` returning the Producer callable.
+- `route(self, id: 'str', *, subscription: 'Subscription', slot: 'str', transform: 'Callable[[Any], Any]') -> 'None'` — Register a Route: on an event matching `subscription`, stage `transform(event)` into the named `slot` so a later Trigger's input_builder can read it (carrying context — e.g. a failure reason — forward into the Producer it starts).
+- `termination(self, policy: 'TerminationPolicy', *, scope: 'str' = 'run') -> 'None'` — Set the TerminationPolicy that decides when the run ends (see the termination recipes: quiescence_with_watchdog, threshold_count, all_completed, pause_await_input, ...). v0.1 ships run-scoped termination; per-Producer scoping is a documented extension.
+- `trigger(self, id: 'str', *, subscription: 'Subscription', predicate: 'Callable[..., bool]', starts: 'str', input_builder: 'Callable[..., Any]', policy: 'FiringPolicy | None' = None, cooldown: 'Cooldown | None' = None) -> 'None'` — Register a Trigger: when an event matching `subscription` is appended and `predicate` (over the Views) holds, start a `starts` Producer with the input from `input_builder`. `policy` (default PerEvent) controls how often it fires — Once, PerEvent, PerKey, WhileTrue; `cooldown` throttles it.
+- `view(self, name: 'str', view: 'View') -> 'None'` — Register a named View — a deterministic incremental projection over the bus (e.g. KindBuffer, KindCount) that Predicates read.
 
 ### `register_topology(name: 'str', factory: 'Callable[[TopologyBuilder], None]') -> 'None'`
 
@@ -255,7 +255,7 @@ unknown (naming the registered topologies).
 Executes one topology and produces one run record (single-use).
 
 - `resume(self, topology: 'Callable[[TopologyBuilder], None]', *, resume_event: 'Any') -> 'RunResult'` — Resume a PAUSED persistent-bus run at its existing record (F-TERM-3 / F-PERS-2).
-- `run(self, topology: 'Callable[[TopologyBuilder], None]') -> 'RunResult'` — Run a topology to a fresh run record. Opens at seq 0 with substrate.RunStarted.
+- `run(self, topology: 'Callable[[TopologyBuilder], None]') -> 'RunResult'` — Run a topology to a fresh run record.
 
 ### `RunResult(run_id: str, record_root: str, status: Literal['finalised', 'paused', 'failed'], final_event: substrate.types.Event | None, elapsed_seconds: float, finalisation_payload: typing.Any | None)`
 
@@ -320,8 +320,8 @@ segment); the trailing partial line is ignored until it completes. `follow()` is
 blocking generator that polls for growth. The follower opens files read-only, takes
 no lock, and never writes — F-PERS-4 by construction.
 
-- `follow(self, *, until_finalised: 'bool' = True) -> 'Iterator[dict[str, Any]]'` — Blocking generator: yield frames as they appear, polling for growth. Stops after
-- `read_new(self) -> 'list[dict[str, Any]]'` — Every complete frame appended since the last call, in seq order: all sealed
+- `follow(self, *, until_finalised: 'bool' = True) -> 'Iterator[dict[str, Any]]'` — Blocking generator: yield frames as they appear, polling for growth.
+- `read_new(self) -> 'list[dict[str, Any]]'` — Every complete frame appended since the last call, in seq order: all sealed segments (newly-appearing ones are picked up), then the recoverable prefix of the hot segment.
 
 ## Off-bus sidecars (technical §3.8 / §6.4)
 

@@ -10,6 +10,7 @@ incomplete).
 from __future__ import annotations
 
 import inspect
+import re
 from pathlib import Path
 
 import substrate.api as api
@@ -114,6 +115,19 @@ def _own_doc(obj: object) -> str:
     return inspect.cleandoc(doc).strip() if doc else "_(no docstring)_"
 
 
+def _summary(own: str) -> str:
+    """A one-line method-list summary: the first SENTENCE of the first paragraph, with source
+    line-wraps collapsed (not the first physical line, which would trail off mid-sentence). The
+    sentence boundary requires the terminator to be followed by whitespace + a capital/`(` or
+    end-of-string (so it never cuts at a qualified name like `msgspec.Struct` or `§4.2`), and a
+    negative lookbehind exempts the common lowercase abbreviations `e.g.` / `i.e.` / `etc.`."""
+    if own == "_(no docstring)_":
+        return ""
+    para = " ".join(own.split("\n\n")[0].split())  # first paragraph, whitespace collapsed
+    m = re.match(r"(.+?[.!?])(?<!e\.g\.)(?<!i\.e\.)(?<!etc\.)(?=\s+[A-Z(]|\s*$)", para)
+    return m.group(1) if m else para
+
+
 def generate() -> str:
     grouped = {n for names in GROUPS.values() for n in names}
     missing = set(api.__all__) - grouped
@@ -145,9 +159,7 @@ def generate() -> str:
                 for m, mo in inspect.getmembers(obj, predicate=inspect.isfunction):
                     if m.startswith("_"):
                         continue
-                    own = _own_doc(mo)
-                    mdoc = "" if own == "_(no docstring)_" else own.split("\n")[0]
-                    out.append(f"- `{m}{_signature(mo)}` — {mdoc}")
+                    out.append(f"- `{m}{_signature(mo)}` — {_summary(_own_doc(mo))}")
                 out.append("")
     return "\n".join(out) + "\n"
 

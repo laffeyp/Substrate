@@ -1,57 +1,112 @@
 # Substrate
 
-A Python runtime for orchestrating LLMs and other computations where **the log is
-the product**.
+Substrate is a Python runtime for running many computations together — LLMs, ML
+models, deterministic transforms, subprocesses, parsers, simulators: anything that
+takes typed input and emits typed events — and coordinating them through a single
+shared, append-only log.
 
-When you wire LLMs and agents together, the hard part isn't running them — it's
-having a trustworthy account of *what happened and why* when a run misbehaves.
-Tools like LangGraph, AutoGen, and Aider hold that state in memory and Python
-control flow, so a bad run leaves you with logs to grep, not a record to replay.
-Substrate inverts this: every decision the runtime makes is a recorded event, and
-the persisted **run record** is the canonical, replayable, citable account of the
-run — not a side-effect of it.
+## What it is
 
-## How it works
+Say you have several computations that need to work together: a few models
+answering the same question, or a parser feeding a checker feeding a fixer, or a
+planner that hands pieces of work to solvers. The awkward part is rarely running
+any one of them — it's getting them to coordinate, and being able to say afterward
+what actually happened.
 
-You bring computations — LLMs, ML models, deterministic transforms, subprocesses,
-parsers — as **Producers**: callables that take typed input and emit a stream of
-typed **Events**. The runtime runs them concurrently and coordinates them through a
-single totally-ordered append-only **Bus**; new Producers are created dynamically
-when conditions over the log are met. Everything — every event, every firing, every
-termination decision — lands on the **run record**, a framed, CRC-protected,
-canonically-encoded JSONL log. *Nothing consequential is silent.*
+The usual ways to wire that up are to connect the pieces directly to each other, or
+to let them share and mutate some common state. Both get tangled as the number of
+pieces grows, and both leave the history of a run implicit — spread across logs,
+in-memory state, and control flow you can't replay.
 
-(That's the front door. The full vocabulary — Views, Predicates, Triggers, Routes,
-TerminationPolicy — is introduced where it's load-bearing, in the tutorial.)
+Substrate takes one approach throughout: everything goes through a single,
+totally-ordered, append-only log. Each computation reads from the log and emits
+typed events back onto it; none of them talk to each other directly. That one
+shared log is the only place coordination happens.
+
+The set of running computations isn't fixed ahead of time. Instead of declaring a
+static graph, you write small conditions over the log — "once three answers are
+in", "when this step fails" — and when a condition holds, the runtime starts
+another computation. The shape of a run grows as it unfolds, including computations
+that start more of themselves (so recursion falls out for free).
+
+What you actually write is called a **topology**: a small Python program that
+declares which computations can run, which conditions start them, and how data
+flows between them. You hand the topology to the runtime; it executes it and
+produces the log.
+
+And because every event *and* every decision the runtime makes — each time a
+computation starts, each condition that fires, how the run ends — is written onto
+that same log, the log is a complete, ordered account of the run. You can read back
+exactly what happened and why, replay it, or inspect any point in it. Nothing
+important is stranded in memory or hidden in control flow.
+
+That combination — concurrent computations, one shared log, conditions that create
+new work as the run goes, and a complete replayable record of it — is what makes a
+lot of things straightforward to build.
+
+## The pieces
+
+A topology is assembled from a small, fixed set of named pieces:
+
+- **Producer** — a callable that takes typed input and emits a stream of typed
+  **Events**. An LLM, an ML model, a transform, a subprocess, a parser — anything
+  with that shape.
+- **Event** — one typed, numbered fact on the log (e.g. `AnswerEmitted`, `RowParsed`).
+- **Bus** — the single totally-ordered, append-only log every event goes onto.
+  There is exactly one; Producers coordinate only through it.
+- **View** — a running summary maintained over the log as events land (e.g.
+  "everything Producer X has emitted so far", "how many answers are in").
+- **Predicate** — a cheap yes/no question asked of the Views when an event lands.
+- **Trigger** — starts a new Producer when its Predicate holds. This is the only
+  way new Producers come into existence.
+- **Route** — carries data from past events into the input of a future Producer.
+- **TerminationPolicy** — decides when the run ends, or pauses to wait for outside
+  input.
+- **run record** — the log persisted to disk: framed, CRC-protected,
+  canonically-encoded JSONL. Every event and every decision is on it; nothing
+  consequential is left off.
 
 ## What you can build
 
-The reference topologies (with real recorded LLM runs) show the shape. An
-ensemble-and-adjudicator run, for example, records each weak model genuinely
-disagreeing and a stronger model adjudicating — on its own replayable log:
+Each of these is a topology — a short Python program against the runtime:
 
-```
-Candidate m0: 'Charisma'   Candidate m1: 'Vision'   Candidate m2: 'Integrity'
-VERDICT: m2 -> 'Integrity'
-CANCELLED (lingering loser): member-slowA   member-slowB
-```
+- An ensemble of several cheap models on the same task, with a stronger model
+  adjudicating and the losing runs cancelled once a verdict lands.
+- A pipeline that retries a failed step with the failure reason fed back in,
+  escalates after N attempts, and pauses for a human when it can't recover.
+- A code-writing setup where one Producer streams code while a parser and a
+  type/test checker run against it concurrently, each firing the moment its input
+  is ready.
+- A planner that emits subtasks, each starting a solver that can itself emit more
+  subtasks — recursive decomposition to arbitrary depth.
+- An adversarial pair — one Producer writes, another attacks — streaming at each
+  other from the start.
+- A simulation: many agent Producers acting each tick against a shared world-state
+  Producer, the whole run replayable from the log.
+- A conversation between models as alternating Producers, ended on a convergence
+  condition.
+- A tool-using agent loop as a chain of model → tool → model Producers, each call
+  independently replayable.
 
-The error-cascade reference (R-2) records an invalid emission, a retry enriched
-with the failure reason, an exhausted-retry escalation, a pause awaiting human
-input, and a resume — all as events on one continuous record. See
-`docs/walkthroughs/README.md`.
+Runnable versions of several of these, with real recorded LLM runs, are linked
+under Docs.
 
 ## Docs
 
-- **First topology** — zero to a working two-Producer run: `docs/tutorial.md`.
-- **Reference topologies (R-1/R-2/R-3)** — CI + real-LLM walkthroughs with actual
-  recorded runs: `docs/walkthroughs/README.md`.
-- **What replay means** — the four replay tiers and what ships in v1.0:
-  `docs/replay.md`. (Short version: Levels 1/2/3a + D-8 log-equivalence ship;
-  full byte-identical re-execution is post-1.0 — don't rely on byte-for-byte
-  replay in v1.0.)
-- **API reference** — the public surface (`substrate.api`): `docs/api.md`.
-- **Conformance** — `uv run substrate conformance` runs the 17-check release gate.
+- **Write your first topology** — `docs/tutorial.md`: from install to a running
+  two-Producer topology, step by step. Start here.
+- **Worked example topologies** — `docs/walkthroughs/README.md`: three complete
+  topologies that ship with the runtime — an ensemble-and-adjudicator, an
+  error-cascade pipeline, and code-synthesis with concurrent checking — each shown
+  with a real recorded LLM run you can read back.
+- **What replay means** — `docs/replay.md`: replaying a run from its log has four
+  levels of fidelity; this explains which ship in v1.0. (Short version: state and
+  decision reconstruction plus log-equivalence diffing ship; full byte-for-byte
+  re-execution is post-1.0 — don't rely on it yet.)
+- **API reference** — `docs/api.md`: the public surface (`substrate.api`),
+  generated from the code.
+- **Conformance** — `uv run substrate conformance` runs the release gate: a suite
+  of checks that proves the runtime behaves the way the spec says.
 
 ## Develop
 
