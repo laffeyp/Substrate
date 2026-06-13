@@ -162,6 +162,24 @@
 
 ---
 
+### 2026-06-13 (round 11) — Wave 9 Batch A: the gate measures the truth, and the truth is the floor isn't met
+
+**What happened:** Assembled the 17-check conformance harness behind `substrate conformance`. 15 PASS, check 6 a genuine DEFERRED third state, and check 15 (N-PERF-1) **FAIL with a real measured ~32K appends/sec against a 100K floor.** Profiled it: not the predicate/view load (44K bare → 32K loaded), but the per-event asyncio round-trip. Surfaced to the Architect with the numbers and a recommended fix; did not fudge the floor, did not weaken the check.
+
+**What worked:**
+- **The whole point of "honesty over green-ness" paid off here.** A conformance harness that prints all-green is worthless if a check can't actually pass; the instruction to make check 6 a genuine third state and to report check 15's real number meant the gate told the truth on its first real run — the floor gap surfaced immediately instead of being papered over with a fudged threshold or a skip-that-reads-green. The honest harness found a real architectural cost in its first execution.
+- **Profiling before surfacing turned "it's slow" into a decision.** Measuring bare (44K) vs loaded (32K) localized the cost to the per-event asyncio hop, not the cycle work — which both rules out the obvious suspect (predicate load) and names a concrete, semantics-preserving fix (batch the inbox drain). A surfaced blocker with a root cause + a specific recommended fix is an Architect *decision*, not a vague "perf is bad."
+- **The F-API-6 AST lint caught my own violation in the act.** Wiring the harness, I wrote `from substrate import conformance` inside cli.py — a private-module import. The import-lint test failed instantly, and the fix (break the api↔conformance cycle by having conformance import concrete modules directly, route the CLI through `api.run_conformance`) is the right shape. The lint is doing exactly its job: keeping the CLI an honest existence-proof of the public surface.
+
+**What got in the way:**
+- **A wired feature breaks the stub's test, and the stub's test was asserting the stub.** `test_conformance_reports_not_wired` asserted exit-64; wiring the harness correctly made it exit-0/1. The test had to be rewritten to assert the NEW honest behavior (deferred shown distinctly, real perf number). Reminder: a placeholder's test encodes the placeholder; replacing the placeholder means replacing its test, and the replacement test must assert the *real* contract, not just flip the expected exit code.
+
+**What this says about the next kit version:**
+- 17. A conformance/acceptance harness should be built with a THREE-state result (pass/fail/deferred) and REAL measured numbers from day one, not pass/fail booleans. The moment a gate can only say green/red, the pressure to make everything green corrupts it (fudge the threshold, skip-as-green). The three-state + measured-number design is what let this gate stay honest under a real shortfall.
+- 18. "Surface a blocker" is far more useful as "surface a blocker WITH a root cause and a specific, semantics-preserving recommended fix." The profiling step (bare vs loaded) is cheap and converts a complaint into a decision. Worth naming as the expected form of a perf/halt surface.
+
+---
+
 ## Phase boundary syntheses
 
 *(one per phase close)*

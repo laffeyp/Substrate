@@ -387,15 +387,37 @@ def stats(root: str, sidecar: str) -> None:
 
 
 @main.command()
-def conformance() -> None:
-    """Run the 17-check conformance suite (F-CLI-4). The harness is wired in Wave 9; until
-    then this reports the not-yet-assembled status honestly (exit 64) rather than a false
-    green."""
-    _err.print(
-        "[config] the conformance harness is assembled in Wave 9 (product §7). "
-        "Per-check coverage exists in the test suite; `substrate conformance` is not yet wired."
-    )
-    sys.exit(EXIT_CONFIG)
+@click.option("--no-perf", is_flag=True, help="skip the perf-floor probe (check 15)")
+def conformance(no_perf: bool) -> None:
+    """Run the 17-check conformance suite — the v1.0 release gate (F-CLI-4, product §7).
+
+    Each check prints PASS / FAIL / DEFERRED. A DEFERRED check (check 6, Level-3b
+    byte-identity — spec amendment A1.1) is a GENUINE THIRD state: it is neither a pass nor a
+    fail, is shown distinctly, and does NOT print green. Exit: 0 if no check FAILED (deferred
+    checks are reported but do not fail the gate per A1.1), 1 if any FAILED."""
+    report = asyncio.run(api.run_conformance(include_perf=not no_perf))
+    n = len(report.results)
+    _err.print(f"Running {n} conformance checks (product §7)...")
+    for r in report.results:
+        # PASS/FAIL on stdout-adjacent stderr narration with a distinct DEFERRED token; the
+        # machine-readable verdict is the exit code + the final summary line.
+        tag = {"PASS": "PASS", "FAIL": "FAIL", "DEFERRED": "DEFERRED (spec-amended)"}[
+            r.status.value
+        ]
+        click.echo(f"  [{r.number:02d}/17] {r.name:<32} ... {tag}")
+        if r.status.value != "PASS":
+            _err.print(f"         {r.detail}")
+    summary = f"{report.passed} passed, {report.failed} failed, {report.deferred} deferred"
+    if report.all_non_failing:
+        click.echo(f"\n{summary}. No check FAILED.")
+        if report.deferred:
+            _err.print(
+                f"NOTE: {report.deferred} check(s) DEFERRED (spec-amended, A1.1) — distinct "
+                f"from pass; v1.0 ships with these deferred. NOT a green pass."
+            )
+        sys.exit(EXIT_OK)
+    click.echo(f"\n{summary}. {report.failed} FAILED — release gate not met.")
+    sys.exit(EXIT_FAILED)
 
 
 @main.command()

@@ -10,6 +10,13 @@ is the entire backpressure story (§20) — outer congestion slows the embedded 
 yields; the inner run proceeds untouched at its own root, throttled only at this export
 point. There is no second backpressure path.
 
+OPERATOR NOTE: because the inner run is NOT throttled by outer congestion, under sustained
+outer backpressure with a fast inner Producer the INNER RECORD is the buffer and grows ON
+DISK at the inner root (bounded by inner termination — the inner run finishes regardless of
+how fast the outer side drains). A congested export point therefore manifests as inner-root
+disk growth, not as inner stalling; size it for the inner run's full output, not the export
+rate.
+
 Rules (§20):
   - The boundary translator subscribes to EXACTLY the export-mapped inner kinds (an
     inner-side read of the inner record via the read-only follower). Per matching inner
@@ -135,8 +142,16 @@ def embedded_substrate(
                 rule = rules.get(kind)
                 if rule is None:
                     continue  # unmapped (incl. every inner substrate.* unless mapped): no cross
-                outer_type, transform = rule
                 payload = env.get("payload") or {}
+                # A FAILURE RunFinalised (reason: view_failure / kernel_error) must NOT be
+                # translated through a success carrier: its payload is {reason,view,seq,error},
+                # which would mis-splat into the success Struct -> an outer
+                # ProducerEmittedInvalidEvent IN ADDITION to the ProducerFailed (double signal).
+                # The default/RunFinalised export carries the SUCCESS finalisation only;
+                # inner-run failure surfaces solely as the one outer ProducerFailed below.
+                if kind == _RUN_FINALISED and isinstance(payload, dict) and payload.get("reason"):
+                    continue
+                _outer_type, transform = rule
                 # build the outer Struct; the outer append cycle validates it at the boundary
                 yield transform(payload if isinstance(payload, dict) else {})
 
@@ -179,15 +194,26 @@ def embedded_substrate(
     return start
 
 
-def _inner_root_from_input(input: Any) -> Path:
-    """The inner record root, read from the resolved input when present (the outer
-    TriggerFired records it, §20), else a fresh per-embedding directory. The sealed input is
-    typically a (read-only) mapping; any mapping with a truthy `inner_root` wins."""
-    import uuid
+class InnerRootRequired(ValueError):
+    """An embedded substrate's resolved input did not carry `inner_root`. §20 requires the
+    inner record root to be RECORDED in the outer TriggerFired's resolved input so the inner
+    run is citable from the outer record (run-granularity provenance). A fallback root chosen
+    here would be recorded NOWHERE on the outer bus and the inner run would be un-citable, so
+    we refuse rather than create an un-traceable inner run. Raised inside the embedded
+    Producer; surfaces as a recorded outer event (ProducerFailed/InputBuildFailed)."""
 
+
+def _inner_root_from_input(input: Any) -> Path:
+    """The inner record root, read REQUIRED from the resolved input (the outer TriggerFired
+    records it, §20 — that recording IS the run-granularity provenance link). Refuse if
+    absent: a fabricated fallback root would be citable from nowhere on the outer record.
+    The sealed input is typically a (read-only) mapping."""
     get = getattr(input, "get", None)
     if callable(get):
         root = get("inner_root")
         if root:
             return Path(root)
-    return Path("runs") / f"inner-{uuid.uuid4()}"
+    raise InnerRootRequired(
+        "embedded substrate input must carry 'inner_root' (the inner record root, recorded in "
+        "the outer TriggerFired.resolved_input for run-granularity provenance — §20)"
+    )

@@ -282,3 +282,74 @@ async def test_b_export_records_export_map_in_manifest(tmp_path):
     rs = next(e for e in read_record(tmp_path / "outer") if e["kind"] == "substrate.RunStarted")
     exports = rs["payload"]["topology"]["exports"]
     assert exports == {"Tick": "OuterTick"}  # the boundary is observable in the record
+
+
+# ── handshake #4 FIX 3: default_export + inner-run failure -> ONE ProducerFailed, ──────
+# ── no spurious ProducerEmittedInvalidEvent (the failure RunFinalised is not splatted) ─
+class RunDone2(Struct, frozen=True):
+    pass
+
+
+def _inner_view_failure_topo(b):
+    b.producer_kind("ticker", schemas=[Tick], schema_version=1, factory=lambda: ticker)
+    b.view("boom", BoomView())  # raises in update() -> inner RunFinalised{reason:view_failure}
+    b.initial("ticker", input=None)
+    b.termination(quiescence_with_watchdog(seconds=2))
+
+
+async def test_default_export_plus_inner_failure_no_double_signal(tmp_path):
+    inner_root = tmp_path / "inner"
+
+    def outer(b):
+        b.producer_kind(
+            "embedded",
+            schemas=[RunDone2],
+            schema_version=1,
+            factory=lambda: embedded_substrate(
+                _inner_view_failure_topo,
+                default_export=RunDone2,  # maps substrate.RunFinalised
+            ),
+        )
+        b.initial("embedded", input={"inner_root": str(inner_root)})
+        b.termination(quiescence_with_watchdog(seconds=2))
+
+    await Runtime(tmp_path / "outer").run(outer)
+    envs = list(read_record(tmp_path / "outer"))
+    # the inner run FAILED (view_failure) -> exactly ONE outer ProducerFailed, and NO spurious
+    # ProducerEmittedInvalidEvent from mis-splatting the failure RunFinalised into RunDone2.
+    failed = [e for e in envs if e["kind"] == "substrate.ProducerFailed"]
+    invalid = [e for e in envs if e["kind"] == "substrate.ProducerEmittedInvalidEvent"]
+    assert len(failed) == 1
+    assert invalid == []
+    # and no RunDone2 success carrier was emitted for a failed inner run
+    assert not any(e["kind"] == "RunDone2" for e in envs)
+
+
+# ── handshake #4 FIX 6: missing inner_root is a RECORDED failure, not an un-citable run ─
+def _inner_topo_named(b):
+    b.producer_kind("ticker", schemas=[Tick], schema_version=1, factory=lambda: ticker)
+    b.initial("ticker", input=None)
+    b.termination(threshold_count("substrate.ProducerCompleted", 1))
+
+
+async def test_missing_inner_root_is_recorded_not_uncitable(tmp_path):
+    # an embedding whose input omits inner_root must NOT silently run an inner substrate at a
+    # fabricated, un-citable root — it must surface as a recorded outer event.
+    def outer(b):
+        b.producer_kind(
+            "embedded",
+            schemas=[OuterTick],
+            schema_version=1,
+            factory=lambda: embedded_substrate(_inner_topo_named, exports={"Tick": OuterTick}),
+        )
+        b.initial("embedded", input={})  # NO inner_root
+        b.termination(quiescence_with_watchdog(seconds=2))
+
+    await Runtime(tmp_path / "outer").run(outer)
+    envs = list(read_record(tmp_path / "outer"))
+    # the embedded producer raised InnerRootRequired -> recorded as ProducerFailed on the bus
+    failed = [e for e in envs if e["kind"] == "substrate.ProducerFailed"]
+    assert len(failed) == 1
+    assert "inner_root" in failed[0]["payload"]["error"]
+    # no inner run was started at an un-recorded fallback root (no fabricated inner-* dir)
+    assert list(tmp_path.glob("**/inner-*")) == []
