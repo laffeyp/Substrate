@@ -15,7 +15,7 @@ deterministic) or a real local LLM per member (walkthrough — proves the adjudi
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any
 
 from msgspec import Struct
@@ -68,7 +68,7 @@ def _adjudicator_factory(question: str, responder: Responder) -> _Factory:
 def ensemble_topology(
     question: str,
     *,
-    members: dict[str, Responder],
+    members: Mapping[str, Responder],
     adjudicator: Responder,
     quorum: int = 3,
     deterministic: bool = True,

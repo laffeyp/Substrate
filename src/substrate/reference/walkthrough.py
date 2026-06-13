@@ -1,0 +1,125 @@
+"""Walkthrough-mode runner for the reference topologies (product §8).
+
+`python -m substrate.reference.walkthrough <r1|r2|r3> <root> [<inner_root>]` runs a reference
+topology in WALKTHROUGH mode — with REAL local LLMs via the openai-compat adapter (Ollama at
+http://localhost:11434/v1) — and prints what it demonstrated. This is the mode that proves
+the CLAIM each topology exists for (real adjudication in R-1, a real model's structured-error
+behavior in R-2, real code-synthesis with cross-chunk overlap in R-3), as opposed to CI mode
+(deterministic stand-ins, proves only the wiring). The spec requires both; CI mode alone
+"sanitizes away the thing each topology exists to demonstrate."
+
+Models (LOCAL only; cloud models avoided): `llama3.2:1b` for the weak ensemble members and
+the R-2 transform; `huihui_ai/qwen2.5-coder-abliterate:7b` as the R-1 adjudicator and the
+R-3 writer. Inputs are kept SMALL — this is a demonstration on the operator's machine, not a
+benchmark. Requires the `openai-compat` extra (httpx) and a running Ollama with those models.
+
+Documented runs (record roots + what each demonstrated) live in docs/walkthroughs/.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import sys
+from pathlib import Path
+
+from .. import api
+from ._models import OllamaResponder
+from .r1_ensemble import ensemble_topology
+from .r2_pipeline import pipeline_topology
+from .r3_codesynth import _complete_defs, codesynth_composed_topology
+
+_WEAK = "llama3.2:1b"
+_STRONG = "huihui_ai/qwen2.5-coder-abliterate:7b"
+
+
+async def _run_r1(root: Path) -> None:
+    members = {
+        f"m{i}": OllamaResponder(_WEAK, max_tokens=24, system="Answer in one short word only.")
+        for i in range(4)
+    }
+    adj = OllamaResponder(
+        _STRONG,
+        max_tokens=24,
+        system="Pick the best member by id. Reply with just the id (e.g. m0).",
+    )
+    topo = ensemble_topology(
+        "What is 2+2? Answer with the number.",
+        members=members,
+        adjudicator=adj,
+        quorum=3,
+        deterministic=False,  # a real LLM is not author-deterministic
+    )
+    result = await api.Runtime(root).run(topo)
+    envs = list(api.read_record(root))
+    print(f"R-1 status: {result.status}")
+    for e in envs:
+        if e["kind"] == "Candidate":
+            print(f"  Candidate {e['payload']['member']}: {e['payload']['answer']!r}")
+        elif e["kind"] == "Verdict":
+            print(f"  VERDICT: {e['payload']['chosen']} -> {e['payload']['answer']!r}")
+        elif e["kind"] == "substrate.ProducerCancelled":
+            print(f"  CANCELLED: {e['payload']['producer']['kind']}")
+
+
+async def _run_r2(root: Path) -> None:
+    tx = OllamaResponder(
+        _WEAK,
+        max_tokens=16,
+        system="Uppercase the input word. Reply with ONLY the uppercased word.",
+    )
+    topo = pipeline_topology(
+        ["alpha", "beta", "gamma"], transform_model=tx, fault_row=1, deterministic=False
+    )
+    result = await api.Runtime(root).run(topo)
+    print(f"R-2 status: {result.status}")
+    for e in api.read_record(root):
+        if e["kind"] in ("Parsed", "Transformed", "Validated"):
+            print(f"  {e['kind']}: {e['payload']}")
+
+
+async def _run_r3(root: Path, inner_root: Path) -> None:
+    writer = OllamaResponder(
+        _STRONG, max_tokens=160, system="Write ONLY Python code, no prose, no markdown fences."
+    )
+    code = writer.respond(
+        "Write two functions: add(a,b) returning a+b, and mul(a,b) returning a*b."
+    )
+    chunks = [code[i : i + 30] for i in range(0, len(code), 30)]  # ~30-char chunks => overlap
+    topo = codesynth_composed_topology(chunks, str(inner_root), deterministic=False)
+    result = await api.Runtime(root).run(topo)
+    inner = list(api.read_record(inner_root))
+    outer = list(api.read_record(root))
+    print(
+        f"R-3 status: {result.status} | chunks: {len(chunks)} | complete defs: {len(_complete_defs([{'text': code}]))}"
+    )
+    print(f"  inner Declarations: {sum(1 for e in inner if e['kind'] == 'Declaration')}")
+    print(
+        f"  crossed to outer (OuterArtifact): {sum(1 for e in outer if e['kind'] == 'OuterArtifact')}"
+    )
+    print(
+        f"  inner kinds leaked to outer: {any(e['kind'] in ('CodeChunk', 'Declaration', 'TypecheckOk') for e in outer)}"
+    )
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = argv if argv is not None else sys.argv[1:]
+    if not args:
+        print("usage: python -m substrate.reference.walkthrough <r1|r2|r3> <root> [<inner_root>]")
+        raise SystemExit(64)
+    which = args[0]
+    root = Path(args[1]) if len(args) > 1 else Path("walkthrough") / which
+    if which == "r1":
+        asyncio.run(_run_r1(root))
+    elif which == "r2":
+        asyncio.run(_run_r2(root))
+    elif which == "r3":
+        inner = Path(args[2]) if len(args) > 2 else root.parent / "r3-inner"
+        asyncio.run(_run_r3(root, inner))
+    else:
+        print(f"unknown topology {which!r}; expected r1, r2, or r3")
+        raise SystemExit(64)
+    print(f"record root: {root}")
+
+
+if __name__ == "__main__":
+    main()
