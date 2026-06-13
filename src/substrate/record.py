@@ -36,6 +36,7 @@ from msgspec import Struct
 from .blobstore import BlobStore, _fsync_dir
 from .constants import SEGMENT_MAX_BYTES
 from .errors import FsyncError
+from .types import BlobRef
 from . import framing
 
 
@@ -102,6 +103,13 @@ class RecordWriter:
     def _segment_path(self, index: int, *, hot: bool) -> Path:
         infix = ".open" if hot else ""
         return self.root / f"events-{index:06d}{infix}.jsonl"
+
+    def put_blob(self, data: bytes) -> BlobRef:
+        """Write-ahead a payload to the content-addressed blob store and return its BlobRef
+        (technical §3.7). A Law-of-Demeter passthrough so callers (the runtime) do not reach
+        through `.blobs`; the blob is fsynced before this returns, so it is durable before
+        the referencing frame is appended."""
+        return self.blobs.put(data)
 
     def append(self, envelope: dict[str, Any]) -> None:
         """Frame and append one event (envelope without crc). Applies the fsync policy
