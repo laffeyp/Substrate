@@ -1,0 +1,252 @@
+{
+  "_note": "Open proposals for the Substrate vocabulary. The Architect ratifies (sets ratified:true) at Sprint-0 sign-off or during the project; ratification bumps the vocabulary version. The eight evolution kinds per grammar/PRINCIPLES.md.",
+  "taxonomy_version": "0.1",
+  "proposals": [
+    {
+      "id": null,
+      "kind": "INVARIANT_PROPOSED",
+      "element": "Kernel-kind COUNT reconciliation: pin the reserved substrate.* lifecycle set to EXACTLY the twelve enumerated names (RunStarted, TriggerFired, InputBuildFailed, ProducerStarted, ProducerEmittedInvalidEvent, ProducerCompleted, ProducerFailed, ProducerCancelled, InjectionApplied, PredicateQuarantined, TerminationMatched, RunFinalised). The spec's 'thirteen lifecycle kinds' = the eleven v14 kinds + RunStarted (v15's 12th add) + InputBuildFailed (v15's 13th add) per tech \u00a71.4; but \u00a73.4 and the kernel lifecycle table each enumerate exactly TWELVE names. F-LIFE-1 resolves it: it lists the twelve kinds 'plus the reserved namespace rule (F-OBS-5)' as the thirteenth ITEM. Do NOT invent a 13th kind name; the 13th is F-OBS-5 (a concern, not a kind). Reconcile with kernel authors before freezing.",
+      "rationale": "Count-says-thirteen / enumeration-lists-twelve is an internal inconsistency; faithful transcription forbids fabricating a name; F-LIFE-1's own phrasing makes F-OBS-5 the thirteenth item.",
+      "source": "technical_spec/draft5.md \u00a71.4 (lines 130-132), \u00a73.4 (line 282); product_spec/draft7.md F-LIFE-1 (lines 413-419); kernel_spec/v15.md \u00a7lifecycle table (476-489)",
+      "disposition": "recommend-ratify-into-0.1 (load-bearing for conformance)",
+      "ratified": false
+    },
+    {
+      "id": "P-SUBJECT-ID",
+      "kind": "PAYLOAD_FIELD_PROPOSED",
+      "element": "substrate.ProducerStarted / ProducerCompleted / ProducerCancelled: the SUBJECT Producer's identity. The lifecycle table gives these no explicit payload and the envelope's 'producer' field is null for runtime-emitted events, so the started/completed/cancelled Producer is not identified by the envelope alone. Propose a payload field carrying {kind, instance, parent} (or an instance ref). Strict-extras posture makes this a version-bump if adopted.",
+      "rationale": "The frontier predicate count(ProducerCompleted for K)==count(ProducerStarted for K) requires kind/instance matchable, but the spec does not state the field. Propose, do not assume.",
+      "source": "kernel_spec/v15.md lines 481-485, 496, 546-547",
+      "disposition": "RATIFIED into v0.1 (kernel v16 reconciliation flagged)",
+      "ratified": true,
+      "ratified_at": "2026-06-12 (into v0.1)"
+    },
+    {
+      "id": null,
+      "kind": "PAYLOAD_FIELD_PROPOSED",
+      "element": "substrate.ProducerEmittedInvalidEvent: explicit field names for the preserved raw payload and the offending path (raw_payload? offending_payload? at_path?). The spec mandates 'raw payload preserved inside, typed reason attached' and names 'the offending path' at registration, but does not name the carrier fields. The reason enum {unknown_kind, schema_violation, non_canonical_value} IS fixed.",
+      "rationale": "Layer 2 requires named typed fields; spec describes contents prose-only.",
+      "source": "kernel_spec/v15.md line 482; technical_spec/draft5.md \u00a78.1, \u00a74.3",
+      "disposition": "defer-to-v0.2 (Architect ratifies as needed)",
+      "ratified": false
+    },
+    {
+      "id": null,
+      "kind": "PAYLOAD_FIELD_PROPOSED",
+      "element": "substrate.PredicateQuarantined: a discriminated schema keyed on reason. \u00a79 (budget path) enqueues {predicate_id, trigger_id, measured_us, k:K}; \u00a76.3 (exception path) enqueues {predicate_id, reason:'exception', error}. A single (kind,version) strict-extras schema cannot accept both shapes unless reason in {budget, exception} discriminates which companion fields are present.",
+      "rationale": "The two payloads are presented without reconciliation; strict-extras rejection forces a discriminated/branched schema.",
+      "source": "technical_spec/draft5.md \u00a79 (654-657), \u00a76.3 (518-520)",
+      "disposition": "defer-to-v0.2 (Architect ratifies as needed)",
+      "ratified": false
+    },
+    {
+      "id": "P-INJECTION-FIELDS",
+      "kind": "PAYLOAD_FIELD_PROPOSED",
+      "element": "substrate.InjectionApplied: explicit payload field names (route_id, target_input_slot/target Producer instance, and the contributed message or its content hash message_sha256). \u00a710 says these events 'record each Route contribution' but enumerates no fields; Level-2 replay must reconstruct what each Route injected and into which input.",
+      "rationale": "Underspecified; symmetry with TriggerFired.input_sha256 argues for a hash field. Propose, do not fabricate.",
+      "source": "kernel_spec/v15.md line 486; technical_spec/draft5.md \u00a710; product_spec/draft7.md F-ROUTE-2",
+      "disposition": "RATIFIED into v0.1 (kernel v16 reconciliation flagged)",
+      "ratified": true,
+      "ratified_at": "2026-06-12 (into v0.1)"
+    },
+    {
+      "id": null,
+      "kind": "PAYLOAD_FIELD_PROPOSED",
+      "element": "substrate.RunFinalised: a normal-finalisation output/finalisation_payload field name + the full reason enum. The spec literally shows only the failure variant {reason:'view_failure', view, seq, error} (\u00a76.3); design \u00a73 normal example shows an empty payload; the inner-root-path for composition exports is forced by tech \u00a720 but unnamed.",
+      "rationale": "RunFinalised is the terminal/summary frame and default export payload, load-bearing for F-COMP export maps and CLI exit-code mapping; only the failure-path shape is specced.",
+      "source": "technical_spec/draft5.md \u00a76.3, \u00a720; product_spec/draft7.md F-COMP-1; design_spec/draft1.md \u00a73",
+      "disposition": "defer-to-v0.2 (Architect ratifies as needed)",
+      "ratified": false
+    },
+    {
+      "id": null,
+      "kind": "PAYLOAD_FIELD_PROPOSED",
+      "element": "substrate.ProducerFailed.inner_run_id (str): present only when the failed Producer is an EmbeddedSubstrate, so an outer ProducerFailed traces back to the inner record root. Tech \u00a720 forces it; the kernel table only says 'payload includes error'.",
+      "rationale": "Required to trace inner-run failure to its record root; not in the named ProducerFailed schema. Joint ownership with the lifecycle set.",
+      "source": "technical_spec/draft5.md \u00a720; kernel_spec/v15.md line 484",
+      "disposition": "defer-to-v0.2 (Architect ratifies as needed)",
+      "ratified": false
+    },
+    {
+      "id": null,
+      "kind": "INVARIANT_PROPOSED",
+      "element": "Conditional-required Evidence on substrate.TerminationMatched: WHEN decision == 'pause-await-input', resume_condition MUST be present and typed; otherwise it MUST be absent (a value-dependent required-field invariant).",
+      "rationale": "F-TERM-3 makes resume_condition mandatory for the pause decision specifically; a flat 'optional' field loses that contract.",
+      "source": "product_spec/draft7.md F-TERM-3 (409-412); kernel_spec/v15.md lines 532-535",
+      "disposition": "defer-to-v0.2 (Architect ratifies as needed)",
+      "ratified": false
+    },
+    {
+      "id": null,
+      "kind": "PAYLOAD_FIELD_PROPOSED",
+      "element": "substrate.TerminationMatched.resume_condition as a structured ResumeCondition object (e.g. {awaits_kind, predicate_fingerprint, human_note}) rather than the prose string design \u00a74.7 shows, so the resume Trigger and observers can key on it mechanically.",
+      "rationale": "F-TERM-3 calls it 'typed'; a machine-matchable shape serves the resume Trigger better than a prose string, and strict-extras can only enforce conditional-requiredness if the contract is declared.",
+      "source": "kernel_spec/v15.md Halt-with-resume (532-535); product_spec/draft7.md F-TERM-3; design_spec/draft1.md \u00a74.7",
+      "disposition": "defer-to-v0.2 (Architect ratifies as needed)",
+      "ratified": false
+    },
+    {
+      "id": null,
+      "kind": "INVARIANT_PROPOSED",
+      "element": "RunFinalised normal-reason enum: enumerate the normal-finalisation reason values (finalise-run, quiescence, ...) alongside the specced failure value 'view_failure', and pin the closed set, rather than leaving it open under strict-extras.",
+      "rationale": "A summary boundary tag with an open reason enum invites silent drift; only 'view_failure' is named so far.",
+      "source": "technical_spec/draft5.md \u00a76.3; design_spec/draft1.md \u00a73; kernel \u00a7lifecycle table",
+      "disposition": "defer-to-v0.2 (Architect ratifies as needed)",
+      "ratified": false
+    },
+    {
+      "id": null,
+      "kind": "INVARIANT_PROPOSED",
+      "element": "InputBuildFailed scope-exclusivity: exactly one of {trigger_id, route_id} is present. trigger_id present <=> an input_builder raised (no Producer scheduled); route_id present <=> a Route transform raised (staging abandoned). Never both, never neither.",
+      "rationale": "Tech \u00a76.3 reuses one event shape for two failure origins; the discriminator is which id is populated, but the exclusivity is not named as an invariant.",
+      "source": "technical_spec/draft5.md \u00a76.2 step 5, \u00a76.3 (521-527); kernel_spec/v15.md line 480",
+      "disposition": "defer-to-v0.2 (Architect ratifies as needed)",
+      "ratified": false
+    },
+    {
+      "id": null,
+      "kind": "INVARIANT_PROPOSED",
+      "element": "Predicate-ownership cardinality: a Predicate may be (a) a Trigger's gating predicate, (b) a Route's source_predicate, or (c) a standalone gate; therefore PredicateQuarantined.trigger_id is OPTIONAL \u2014 a quarantined Predicate need not belong to a Trigger; when it is a Route source_predicate a route_id should be recorded instead/additionally.",
+      "rationale": "Kernel \u00a75 says the event identifies 'its Trigger' (implying 1:1), but \u00a77 Routes carry a source_predicate and \u00a75 lists standalone predicates; cardinality is underspecified.",
+      "source": "kernel_spec/v15.md \u00a75 (339-365) vs \u00a77 (412-416); technical_spec/draft5.md \u00a79",
+      "disposition": "defer-to-v0.2 (Architect ratifies as needed)",
+      "ratified": false
+    },
+    {
+      "id": null,
+      "kind": "SEQUENCE_RULE_PROPOSED",
+      "element": "PerEvent / Once / PerKey / WhileTrue re-arm and after-match semantics: the spec does not state whether a consumed matching event re-arms a PerEvent Trigger, how WhileTrue's 'while true' is sampled across cooldown maturation, or whether PerKey keys ever expire. Flink CEP's AfterMatchSkipStrategy (noSkip/skipToNext/skipPastLastEvent/skipToFirst/skipToLast) is the prior-art reference; name a rule rather than invent it.",
+      "rationale": "kernel \u00a76 enumerates the four policies but leaves firing/skip semantics on repeated satisfaction underspecified (Layers 4/5 saturate first).",
+      "source": "kernel_spec/v15.md \u00a76 (386-398); technical_spec/draft5.md \u00a710; prior art Flink CEP",
+      "disposition": "defer-to-v0.2 (Architect ratifies as needed)",
+      "ratified": false
+    },
+    {
+      "id": null,
+      "kind": "INVARIANT_PROPOSED",
+      "element": "PerKey canonical-key dedup: a PerKey(fn) Trigger MUST canonically encode (JCS) the fn output BEFORE deduplication and before recording it as TriggerFired.firing_key; dedup is set-membership over those canonical bytes. Pins TriggerFired.firing_key to the canonical-string form (cross-slice type pin).",
+      "rationale": "tech \u00a710 makes PerKey extraction canonical to kill implementation-divergent float/dict/struct key behavior; it constrains the firing_key field type.",
+      "source": "technical_spec/draft5.md \u00a710 (PerKey extraction is canonical); \u00a74.2; kernel \u00a76 PerKey",
+      "disposition": "defer-to-v0.2 (Architect ratifies as needed)",
+      "ratified": false
+    },
+    {
+      "id": null,
+      "kind": "INVARIANT_PROPOSED",
+      "element": "SEQUENCE-RULE for the six append-cycle steps as an internal writer total order (NOT bus events): validate -> seq+append -> update Views(3) -> stage Routes(4) -> evaluate Predicates/fire(5) -> drain control queue(6); only outcomes that are themselves substrate.* kinds land on the log; reentrant appends from inside steps 3-5 raise ReentrantAppendError.",
+      "rationale": "Cycle steps are writer phases, not emitted signals; record as a Layer-4/5 ordering invariant per the slice instruction.",
+      "source": "kernel_spec/v15.md \u00a7The append cycle (119-166); technical_spec/draft5.md \u00a76.2",
+      "disposition": "defer-to-v0.2 (Architect ratifies as needed)",
+      "ratified": false
+    },
+    {
+      "id": null,
+      "kind": "INVARIANT_PROPOSED",
+      "element": "Control-queue priority / backpressure: control-plane events bypass the bounded admission queue (else a full admission queue self-deadlocks); backpressure is await submit() blocking on the admission queue (the credit pool). N+1 payload appends through a bound-N admission queue MUST complete without deadlock while the log retains all events.",
+      "rationale": "Names the queue discipline as an ordering invariant; backpressure is a silent await, not an emitted signal.",
+      "source": "kernel_spec/v15.md \u00a7The bus (97-105); technical_spec/draft5.md \u00a76.1; conformance check 3",
+      "disposition": "defer-to-v0.2 (Architect ratifies as needed)",
+      "ratified": false
+    },
+    {
+      "id": null,
+      "kind": "INVARIANT_PROPOSED",
+      "element": "Manifest typed field list (advisory index, NOT a bus envelope): segments[] (filename, first_seq, last_seq, sha256 over B_hash), runstarted_sha256, replay_ceiling ('3a'|'3b'). Requiredness left to the Architect.",
+      "rationale": "The manifest is load-bearing for O(log segments) random access and replay-ceiling honesty but is described only in prose (\u00a73.5); a concrete field list prevents drift.",
+      "source": "technical_spec/draft5.md \u00a73.5, \u00a73.6",
+      "disposition": "defer-to-v0.2 (Architect ratifies as needed)",
+      "ratified": false
+    },
+    {
+      "id": null,
+      "kind": "PAYLOAD_FIELD_PROPOSED",
+      "element": "Sidecar record shapes (off-bus JSONL, NOT bus envelopes, ambient stratum): diagnostics.jsonl = {observed_seq:int, predicate_id:str, result:bool, elapsed_us:int, view_version:int}; writer_stats.jsonl = {t:float, cycles_per_sec:int, admission_depth:int, control_queue_depth:int, fsync_latency_p50_us, fsync_latency_p99_us, view_update_p99_us, predicate_eval_p99_us, quarantined_count:int}. Both keyed by seq, never sequence-numbered; each needs the Layer-4 cadence invariant. Off-bus, so proposed (not bus tags).",
+      "rationale": "The only genuinely-observable ambient surfaces in the project; off-bus, so proposed (not bus tags).",
+      "source": "technical_spec/draft5.md \u00a73.8, \u00a76.4, \u00a719; design_spec/draft1.md \u00a76.4",
+      "disposition": "defer-to-v0.2 (Architect ratifies as needed)",
+      "ratified": false
+    },
+    {
+      "id": null,
+      "kind": "NEW_TAG_PROPOSED",
+      "element": "Do NOT mint application terminal kinds as substrate.* kinds. RetryExhausted (UPPER_SNAKE: RETRY_EXHAUSTED) is an APPLICATION-namespace terminal a Producer emits to avoid retry amplification \u2014 explicitly 'a dedicated kind (e.g. RetryExhausted)' in kernel \u00a7Topology patterns, NOT a kernel primitive, NOT matched by retry Triggers. It belongs to whichever topology declares it, via that topology's own Vocabulary Session \u2014 not to this control-plane vocabulary. Recorded to prevent a namespace-collision hallucination.",
+      "rationale": "Placing RetryExhausted under substrate. would mint a phantom kernel kind and collide with the reserved namespace.",
+      "source": "kernel_spec/v15.md \u00a7Topology patterns (519-527)",
+      "disposition": "recommend-ratify-into-0.1 (load-bearing for conformance)",
+      "ratified": false
+    },
+    {
+      "id": null,
+      "kind": "TAG_DEPRECATION_PROPOSED",
+      "element": "Structural exclusion: do NOT mint event-stratum bus tags for the writer's persistence acts (SEGMENT_SEALED, BLOB_STORED, FRAME_APPENDED, MANIFEST_UPDATED, FSYNC_COMPLETED) nor for read-side operations (REPLAY_DIVERGED, RECORD_ATTACHED, VIEW_RECONSTRUCTED, PRODUCER_EXPLAINED). They are off-bus by spec; minting them would violate DIAGNOSTIC_INVARIANCE (conformance check 14) and fabricate events the specs say are not on the log. Their effect is reconstructable from the same bus frames read back.",
+      "rationale": "Pre-empts the most likely fabrication for the record/replay slices; the exclusion is structural, not a vocabulary gap. If the Architect ever wants a persistence audit trail, these would be application/sidecar tags, not substrate.* bus kinds.",
+      "source": "technical_spec/draft5.md \u00a73.8, \u00a713, \u00a714; product_spec/draft7.md F-PERS-4, F-OBS-6; conformance check 14",
+      "disposition": "recommend-ratify-into-0.1 (load-bearing for conformance)",
+      "ratified": false
+    },
+    {
+      "id": null,
+      "kind": "NEW_TAG_PROPOSED",
+      "element": "OPEN QUESTION (do NOT mint unilaterally): a substrate-namespaced typed event for prolonged admission-queue backpressure (a Producer throttled at submit long enough to matter), analogous to SEDA's controller observation. v15 makes backpressure a silent await submit() yet insists 'silent enforcement is not an option' for quarantine \u2014 the asymmetry is a spec gap for the authors, not a kind to invent here.",
+      "rationale": "Raising the asymmetry honestly rather than minting a kind the spec does not emit.",
+      "source": "kernel_spec/v15.md \u00a7The bus (97-105), \u00a75 (348-354)",
+      "disposition": "defer-to-v0.2 (Architect ratifies as needed)",
+      "ratified": false
+    },
+    {
+      "id": null,
+      "kind": "ENTITY_MERGE_PROPOSED",
+      "element": "ProducerId (in-memory {kind, instance_id, parent_id, metadata}) vs ProducerRef (envelope 'producer' field {kind, instance, parent}): the SAME identity at two altitudes (runtime form vs wire/disk projection; field names differ, ProducerRef drops metadata). Kept as two entities deliberately; Architect to confirm unify-vs-keep-altitude-split rather than silent collapse.",
+      "rationale": "Both surface forms are load-bearing (runtime identity vs serialized projection); BOOTSTRAP Step 1 surfaces cross-form polysemy for reconciliation.",
+      "source": "kernel_spec/v15.md \u00a71 (306-307); product_spec/draft7.md F-PROD-4; technical_spec/draft5.md \u00a73.4 (line 284)",
+      "disposition": "defer-to-v0.2 (Architect ratifies as needed)",
+      "ratified": false
+    },
+    {
+      "id": null,
+      "kind": "ENTITY_MERGE_PROPOSED",
+      "element": "Run vs RunRecord vs RunResult: the execution/Layer-3 session vs the durable byte artifact on disk ('the bus IS the run record') vs the in-memory return Struct. Confirm they are three distinct entities, not one collapsed concept, so the session is not conflated with its persisted projection.",
+      "rationale": "Same surface concept under three forms across kernel/technical/design; the Run/RunRecord distinction is load-bearing for replay framing.",
+      "source": "kernel_spec/v15.md \u00a7Replay; technical_spec/draft5.md \u00a73, \u00a716; design_spec/draft1.md \u00a74.8-4.9",
+      "disposition": "defer-to-v0.2 (Architect ratifies as needed)",
+      "ratified": false
+    },
+    {
+      "id": null,
+      "kind": "INVARIANT_PROPOSED",
+      "element": "Layer-0 ontology EXCLUSIONS (boundary constraint, not a tag): the vocabulary MUST NOT introduce Channel/Port/Pipe (KPN \u2014 one bus, one total order), Stage or per-stage Inbox/Outbox (SEDA \u2014 one admission queue), or 'Signal' as a mid-life push (Temporal \u2014 input is immutable; Routes stage for future instantiations). Also: a View 'subscribes to event kinds' is NOT a Reactive-Streams Subscription (no credit/demand, no backpressure).",
+      "rationale": "Each excluded noun implies a structure Substrate's single-bus + immutable-input + admission-queue-backpressure model rejects; surfaced as a glossary constraint for the Architect.",
+      "source": "kernel_spec/v15.md \u00a7Why one bus (184-200), \u00a71 (300-304), \u00a7Relation to prior work; Reactive Streams / KPN / SEDA / Temporal prior art",
+      "disposition": "defer-to-v0.2 (Architect ratifies as needed)",
+      "ratified": false
+    },
+    {
+      "id": null,
+      "kind": "NEW_TAG_PROPOSED",
+      "element": "v0.1 mints NO application-namespace ({ENTITY}_{VERB_PAST_PARTICIPLE}, UPPER_SNAKE) tags. Every observable in this control-plane/runtime vocabulary is already a substrate.* kernel kind; application tags (e.g. CANDIDATE_EMITTED, SCORE_ASSIGNED, ROW_TRANSLATED) belong to whichever application topology declares them in its own Vocabulary Session. Recorded so the ambient/application strata are not falsely populated here.",
+      "rationale": "Expected sparseness for a control-plane vocabulary (PRINCIPLES dependency-structure note); inventing application tags would be ungrounded.",
+      "source": "PRINCIPLES.md Dependency structure; kernel_spec/v15.md \u00a7Vocabulary discipline (239-256)",
+      "disposition": "defer-to-v0.2 (Architect ratifies as needed)",
+      "ratified": false
+    },
+    {
+      "id": "P-INVALID-PRODUCER-FIELD",
+      "kind": "INVARIANT_PROPOSED",
+      "element": "Does substrate.ProducerEmittedInvalidEvent retain the emitting Producer\u2019s identity, and where (envelope producer field vs a payload field)?",
+      "rationale": "Spec-contested: \u00a73.4 says envelope producer is null for runtime-emitted events, but \u00a76.2 step-1 constructs the wrapper from a real emission and the retry pattern (kernel line 508) keys on the failed Producer\u2019s kind. Resolve before locking; likely a kernel v16 reconciliation.",
+      "source": "kernel_spec/v15.md line 508; technical_spec/draft5.md \u00a73.4 line 284, \u00a76.2 step 1, \u00a78.1",
+      "disposition": "RATIFIED into v0.1 (kernel v16 reconciliation flagged)",
+      "ratified": true,
+      "ratified_at": "2026-06-12 (into v0.1)"
+    },
+    {
+      "id": "P-TRIGGERFIRED-FACTORY",
+      "kind": "INVARIANT_PROPOSED",
+      "element": "substrate.TriggerFired: does the frame carry `factory`?",
+      "rationale": "Kernel v15 lifecycle table names `factory` among TriggerFired\u2019s identified elements; tech \u00a76.2 step 5 omits it. The spawned kind is recoverable via the trigger\u2019s `starts` in the RunStarted manifest, arguing factory is redundant on the frame. Reconcile or accept the omission explicitly.",
+      "source": "kernel_spec/v15.md lifecycle table line 479; technical_spec/draft5.md \u00a76.2 step 5 line 501",
+      "disposition": "defer-to-v0.2 (Architect/kernel reconciliation)",
+      "ratified": false
+    }
+  ]
+}
