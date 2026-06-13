@@ -44,6 +44,11 @@ from .views import KindCount
 
 
 class Status(enum.Enum):
+    """The outcome of one conformance check: PASS, FAIL, DEFERRED (spec-amended "not shippable
+    in v1.0" — only check 6's Level-3b clause, A1.1), or SKIPPED (not exercised on this
+    invocation, e.g. check 15 under --no-perf). DEFERRED and SKIPPED are deliberately distinct
+    so a skip never reads as a ruled deferral."""
+
     PASS = "PASS"
     FAIL = "FAIL"
     # DEFERRED is reserved for a SPEC-AMENDED deferral (check 6's Level-3b clause, A1.1) — a

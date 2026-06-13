@@ -40,6 +40,8 @@ def assert_event(rec: Any, kind: str, **partial: Any) -> dict[str, Any]:
 
 
 def assert_no_event(rec: Any, kind: str, **partial: Any) -> None:
+    """Assert NO event of `kind` with the given partial payload exists; raises AssertionError
+    citing the offending seq if one does."""
     for env in _load(rec):
         if _matches(env, kind, partial):
             raise AssertionError(f"unexpected event kind={kind!r} at seq={env.get('seq')}")

@@ -68,9 +68,10 @@ A deterministic incremental projection over the bus (kernel §4).
 
 Updated synchronously in append-cycle step 3, before any Route or Predicate.
 `deterministic` declares whether `value()` is composed of RFC-8785-encodable
-types and so participates in N-DET-1 (byte-identical replay); a View holding
-non-canonical types sets it False and is flagged `determinism: excluded` at
-registration (technical §4.2).
+types and so participates in N-DET-1 (its state re-derives identically on replay);
+a View holding non-canonical types sets it False and is flagged
+`determinism: excluded` at registration (technical §4.2). (N-DET-1 is View-state
+determinism — distinct from full byte-identical L3b re-execution, which is post-1.0.)
 
 ### `BufferView(producer: 'str') -> 'None'`
 
@@ -156,42 +157,10 @@ failure noted, never crashing finalisation.
 
 ### `Decision(*values)`
 
-Create a collection of name/value pairs.
-
-Example enumeration:
-
->>> class Color(Enum):
-...     RED = 1
-...     BLUE = 2
-...     GREEN = 3
-
-Access them by:
-
-- attribute access:
-
-  >>> Color.RED
-  <Color.RED: 1>
-
-- value lookup:
-
-  >>> Color(1)
-  <Color.RED: 1>
-
-- name lookup:
-
-  >>> Color['RED']
-  <Color.RED: 1>
-
-Enumerations can be iterated over, and know how many members they have:
-
->>> len(Color)
-3
-
->>> list(Color)
-[<Color.RED: 1>, <Color.BLUE: 2>, <Color.GREEN: 3>]
-
-Methods can be added to enumerations, and members can have their own
-attributes -- see the documentation for details.
+The verdict a TerminationPolicy returns each cycle — the five kernel §8 outcomes:
+CONTINUE (do nothing), FINALISE_RUN (end the run), CANCEL_OTHERS (cancel every other live
+Producer), LET_FINISH (drain in-flight then finalise), PAUSE_AWAIT_INPUT (halt, resumable).
+Recorded on substrate.TerminationMatched.
 
 ## Termination recipes
 
@@ -258,24 +227,28 @@ Finalise only when all composed policies agree to finalise.
 
 ### `TopologyBuilder() -> 'None'`
 
-_(no docstring)_
+Declares a topology — the Producers, Triggers, Routes, Views, and TerminationPolicy a run
+is built from. A `topology(b)` function receives one of these and calls its methods; the
+runtime builds + statically validates it (`build`) before the run opens. This is the primary
+authoring surface.
 
-- `baseline(self, **metadata: 'Any') -> 'None'` — 
+- `baseline(self, **metadata: 'Any') -> 'None'` — Attach run metadata (fixtures, seeds, environment identifiers) recorded in the
 - `build(self) -> 'Registration'` — Freeze and statically validate (design §5.5). Raises RegistrationError.
-- `initial(self, kind: 'str', *, input: 'Any' = None) -> 'None'` — 
-- `producer_kind(self, kind: 'str', *, schemas: 'Sequence[type]', schema_version: 'int', factory: 'Callable[[], Producer]', deterministic: 'bool' = False, author_version: 'str | None' = None) -> 'None'` — 
-- `route(self, id: 'str', *, subscription: 'Subscription', slot: 'str', transform: 'Callable[[Any], Any]') -> 'None'` — 
-- `termination(self, policy: 'TerminationPolicy', *, scope: 'str' = 'run') -> 'None'` — 
-- `trigger(self, id: 'str', *, subscription: 'Subscription', predicate: 'Callable[..., bool]', starts: 'str', input_builder: 'Callable[..., Any]', policy: 'FiringPolicy | None' = None, cooldown: 'Cooldown | None' = None) -> 'None'` — 
-- `view(self, name: 'str', view: 'View') -> 'None'` — 
+- `initial(self, kind: 'str', *, input: 'Any' = None) -> 'None'` — Declare an initial Producer started at run open (seq 0), with `input`. A topology
+- `producer_kind(self, kind: 'str', *, schemas: 'Sequence[type]', schema_version: 'int', factory: 'Callable[[], Producer]', deterministic: 'bool' = False, author_version: 'str | None' = None) -> 'None'` — Register a Producer kind: its name, the frozen msgspec Struct event schemas it may
+- `route(self, id: 'str', *, subscription: 'Subscription', slot: 'str', transform: 'Callable[[Any], Any]') -> 'None'` — Register a Route: on an event matching `subscription`, stage `transform(event)` into
+- `termination(self, policy: 'TerminationPolicy', *, scope: 'str' = 'run') -> 'None'` — Set the TerminationPolicy that decides when the run ends (see the termination recipes:
+- `trigger(self, id: 'str', *, subscription: 'Subscription', predicate: 'Callable[..., bool]', starts: 'str', input_builder: 'Callable[..., Any]', policy: 'FiringPolicy | None' = None, cooldown: 'Cooldown | None' = None) -> 'None'` — Register a Trigger: when an event matching `subscription` is appended and `predicate`
+- `view(self, name: 'str', view: 'View') -> 'None'` — Register a named View — a deterministic incremental projection over the bus (e.g.
 
 ### `register_topology(name: 'str', factory: 'Callable[[TopologyBuilder], None]') -> 'None'`
 
-_(no docstring)_
+Register a topology factory under a name so the CLI can run it by `--topology <name>`.
 
 ### `get_topology(name: 'str') -> 'Callable[[TopologyBuilder], None]'`
 
-_(no docstring)_
+Look up a topology factory registered with `register_topology`; raises KeyError if
+unknown (naming the registered topologies).
 
 ### `Runtime(record_root: 'Path | str', *, persistent: 'bool' = False, fsync: 'FsyncPolicy' = Interval(milliseconds=100), admission: 'int' = 1024, budget_us: 'int' = 100, hysteresis_k: 'int' = 3, writer_stats: 'bool' = False, diagnostics: 'bool' = False) -> 'None'`
 
@@ -286,114 +259,12 @@ Executes one topology and produces one run record (single-use).
 
 ### `RunResult(run_id: str, record_root: str, status: Literal['finalised', 'paused', 'failed'], final_event: substrate.types.Event | None, elapsed_seconds: float, finalisation_payload: typing.Any | None)`
 
-A base class for defining efficient serializable objects.
+What `Runtime.run()` / `.resume()` returns: the run's outcome and where its record lives.
 
-Fields are defined using type annotations. Fields may optionally have
-default values, which result in keyword parameters to the constructor.
-
-Structs automatically define ``__init__``, ``__eq__``, ``__repr__``, and
-``__copy__`` methods. Additional methods can be defined on the class as
-needed. Note that ``__init__``/``__new__`` cannot be overridden, but other
-methods can. A tuple of the field names is available on the class via the
-``__struct_fields__`` attribute if needed.
-
-Additional class options can be enabled by passing keywords to the class
-definition (see example below). These configuration options may also be
-inspected at runtime through the ``__struct_config__`` attribute.
-
-Configuration
--------------
-frozen: bool, default False
-   Whether instances of this type are pseudo-immutable. If true, attribute
-   assignment is disabled and a corresponding ``__hash__`` is defined.
-order: bool, default False
-   If True, ``__lt__``, `__le__``, ``__gt__``, and ``__ge__`` methods
-   will be generated for this type.
-eq: bool, default True
-   If True (the default), an ``__eq__`` method will be generated for this
-   type. Set to False to compare based on instance identity alone.
-kw_only: bool, default False
-   If True, all fields will be treated as keyword-only arguments in the
-   generated ``__init__`` method. Default is False.
-omit_defaults: bool, default False
-   Whether fields should be omitted from encoding if the corresponding value
-   is the default for that field. Enabling this may reduce message size, and
-   often also improve encoding & decoding performance.
-forbid_unknown_fields: bool, default False
-   If True, an error is raised if an unknown field is encountered while
-   decoding structs of this type. If False (the default), no error is raised
-   and the unknown field is skipped.
-tag: str, int, bool, callable, or None, default None
-   Used along with ``tag_field`` for configuring tagged union support. If
-   either are non-None, then the struct is considered "tagged". In this case,
-   an extra field (the ``tag_field``) and value (the ``tag``) are added to the
-   encoded message, which can be used to differentiate message types during
-   decoding.
-
-   Set ``tag=True`` to enable the default tagged configuration (``tag_field``
-   is ``"type"``, ``tag`` is the class name). Alternatively, you can provide
-   a string (or less commonly int) value directly to be used as the tag
-   (e.g. ``tag="my-tag-value"``).``tag`` can also be passed a callable that
-   takes the class qualname and returns a valid tag value (e.g.
-   ``tag=str.lower``). See the docs for more information.
-tag_field: str or None, default None
-   The field name to use for tagged union support. If ``tag`` is non-None,
-   then this defaults to ``"type"``. See the ``tag`` docs above for more
-   information.
-rename: str, mapping, callable, or None, default None
-   Controls renaming the field names used when encoding/decoding the struct.
-   May be one of ``"lower"``, ``"upper"``, ``"camel"``, ``"pascal"``, or
-   ``"kebab"`` to rename in lowercase, UPPERCASE, camelCase, PascalCase,
-   or kebab-case respectively. May also be a mapping from field names to the
-   renamed names (missing fields are not renamed). Alternatively, may be a
-   callable that takes the field name and returns a new name or ``None`` to
-   not rename that field. Default is ``None`` for no field renaming.
-repr_omit_defaults: bool, default False
-   Whether fields should be omitted from the generated repr if the
-   corresponding value is the default for that field.
-array_like: bool, default False
-   If True, this struct type will be treated as an array-like type during
-   encoding/decoding, rather than a dict-like type (the default). This may
-   improve performance, at the cost of a more inscrutable message encoding.
-gc: bool, default True
-   Whether garbage collection is enabled for this type. Disabling this *may*
-   help reduce GC pressure, but will prevent reference cycles composed of only
-   ``gc=False`` from being collected. It is the user's responsibility to ensure
-   that reference cycles don't occur when setting ``gc=False``.
-weakref: bool, default False
-   Whether instances of this type support weak references. Defaults to False.
-dict: bool, default False
-   Whether instances of this type will include a ``__dict__``. Setting this to
-   True will allow adding additional undeclared attributes to a struct instance,
-   which may be useful for holding private runtime state. Defaults to False.
-cache_hash: bool, default False
-   If enabled, the hash of a frozen struct instance will be computed at most
-   once, and then cached on the instance for further reuse. For expensive
-   hash values this can improve performance at the cost of a small amount of
-   memory usage.
-
-Examples
---------
-Here we define a new `Struct` type for describing a dog. It has three fields;
-two required and one optional.
-
->>> class Dog(Struct):
-...     name: str
-...     breed: str
-...     is_good_boy: bool = True
-...
->>> Dog('snickers', breed='corgi')
-Dog(name='snickers', breed='corgi', is_good_boy=True)
-
-Additional struct options can be set as part of the class definition. Here
-we define a new `Struct` type for a frozen `Point` object.
-
->>> class Point(Struct, frozen=True):
-...     x: float
-...     y: float
-...
->>> {Point(1.5, 2.0): 1}  # frozen structs are hashable
-{Point(x=1.5, y=2.0): 1}
+`status` is "finalised" (reached a terminal), "paused" (halted on pause-await-input,
+resumable), or "failed". `record_root` is the on-disk run record — the canonical account;
+`final_event` is the last bus event (or None); `finalisation_payload` is the optional output
+a TerminationPolicy attached at finalise. `run_id` survives across a resume.
 
 ## Records & encoding
 
@@ -520,42 +391,10 @@ CheckResult(number: 'int', name: 'str', status: 'Status', detail: 'str')
 
 ### `Status(*values)`
 
-Create a collection of name/value pairs.
-
-Example enumeration:
-
->>> class Color(Enum):
-...     RED = 1
-...     BLUE = 2
-...     GREEN = 3
-
-Access them by:
-
-- attribute access:
-
-  >>> Color.RED
-  <Color.RED: 1>
-
-- value lookup:
-
-  >>> Color(1)
-  <Color.RED: 1>
-
-- name lookup:
-
-  >>> Color['RED']
-  <Color.RED: 1>
-
-Enumerations can be iterated over, and know how many members they have:
-
->>> len(Color)
-3
-
->>> list(Color)
-[<Color.RED: 1>, <Color.BLUE: 2>, <Color.GREEN: 3>]
-
-Methods can be added to enumerations, and members can have their own
-attributes -- see the documentation for details.
+The outcome of one conformance check: PASS, FAIL, DEFERRED (spec-amended "not shippable
+in v1.0" — only check 6's Level-3b clause, A1.1), or SKIPPED (not exercised on this
+invocation, e.g. check 15 under --no-perf). DEFERRED and SKIPPED are deliberately distinct
+so a skip never reads as a ruled deferral.
 
 ## Replay (technical §12)
 
@@ -655,7 +494,8 @@ return the first match. Raises AssertionError citing what was searched.
 
 ### `assert_no_event(rec: 'Any', kind: 'str', **partial: 'Any') -> 'None'`
 
-_(no docstring)_
+Assert NO event of `kind` with the given partial payload exists; raises AssertionError
+citing the offending seq if one does.
 
 ### `assert_sequence(rec: 'Any', kinds: 'Sequence[str]') -> 'list[dict[str, Any]]'`
 

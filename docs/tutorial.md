@@ -6,6 +6,18 @@ Trigger fires a doubler Producer for each one.
 
 Everything here uses only the public API, `substrate.api`.
 
+## 0. Install
+
+From the `substrate/` directory, create a Python 3.12 environment and install the package
+(editable, with dev extras) so the imports below resolve:
+
+```
+uv venv --python 3.12
+uv pip install -e ".[dev]"
+```
+
+Then save each snippet to a file (e.g. `first.py`) and run it with `python first.py`.
+
 ## 1. A single Producer
 
 A **Producer** is a callable that takes a typed input and yields a stream of typed

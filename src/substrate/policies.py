@@ -16,6 +16,11 @@ from typing import Any
 
 
 class Decision(enum.Enum):
+    """The verdict a TerminationPolicy returns each cycle — the five kernel §8 outcomes:
+    CONTINUE (do nothing), FINALISE_RUN (end the run), CANCEL_OTHERS (cancel every other live
+    Producer), LET_FINISH (drain in-flight then finalise), PAUSE_AWAIT_INPUT (halt, resumable).
+    Recorded on substrate.TerminationMatched."""
+
     CONTINUE = "continue"
     FINALISE_RUN = "finalise-run"
     CANCEL_OTHERS = "cancel-others"

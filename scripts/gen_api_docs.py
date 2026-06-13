@@ -104,6 +104,16 @@ def _signature(obj: object) -> str:
         return ""
 
 
+def _own_doc(obj: object) -> str:
+    """The symbol's OWN docstring only — never an inherited base-class docstring. `inspect.getdoc`
+    walks the MRO, so a class with no docstring of its own (e.g. an msgspec.Struct or an Enum
+    subclass) would otherwise pick up the base class's example docstring as slop. We read
+    `__doc__` directly (which is per-class / per-object, not inherited for classes) and clean its
+    indentation. A symbol with no own docstring renders as "_(no docstring)_"."""
+    doc = getattr(obj, "__doc__", None)
+    return inspect.cleandoc(doc).strip() if doc else "_(no docstring)_"
+
+
 def generate() -> str:
     grouped = {n for names in GROUPS.values() for n in names}
     missing = set(api.__all__) - grouped
@@ -129,13 +139,14 @@ def generate() -> str:
             sig = _signature(obj)
             out.append(f"### `{name}{sig}`" if sig else f"### `{name}`")
             out.append("")
-            out.append((inspect.getdoc(obj) or "_(no docstring)_").strip())
+            out.append(_own_doc(obj))
             out.append("")
             if isinstance(obj, type) and name in _METHODS_FOR:
                 for m, mo in inspect.getmembers(obj, predicate=inspect.isfunction):
                     if m.startswith("_"):
                         continue
-                    mdoc = (inspect.getdoc(mo) or "").strip().split("\n")[0]
+                    own = _own_doc(mo)
+                    mdoc = "" if own == "_(no docstring)_" else own.split("\n")[0]
                     out.append(f"- `{m}{_signature(mo)}` — {mdoc}")
                 out.append("")
     return "\n".join(out) + "\n"

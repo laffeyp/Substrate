@@ -46,6 +46,13 @@ _STUCK_QUIESCENT_POLLS = 2
 
 
 class RunResult(Struct, frozen=True):
+    """What `Runtime.run()` / `.resume()` returns: the run's outcome and where its record lives.
+
+    `status` is "finalised" (reached a terminal), "paused" (halted on pause-await-input,
+    resumable), or "failed". `record_root` is the on-disk run record — the canonical account;
+    `final_event` is the last bus event (or None); `finalisation_payload` is the optional output
+    a TerminationPolicy attached at finalise. `run_id` survives across a resume."""
+
     run_id: str
     record_root: str
     status: Literal["finalised", "paused", "failed"]

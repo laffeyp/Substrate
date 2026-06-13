@@ -77,6 +77,11 @@ class Registration:
 
 
 class TopologyBuilder:
+    """Declares a topology — the Producers, Triggers, Routes, Views, and TerminationPolicy a run
+    is built from. A `topology(b)` function receives one of these and calls its methods; the
+    runtime builds + statically validates it (`build`) before the run opens. This is the primary
+    authoring surface."""
+
     def __init__(self) -> None:
         self._reg = Registration()
 
@@ -90,6 +95,10 @@ class TopologyBuilder:
         deterministic: bool = False,
         author_version: str | None = None,
     ) -> None:
+        """Register a Producer kind: its name, the frozen msgspec Struct event schemas it may
+        emit (+ schema_version), and a `factory()` returning the Producer callable. Set
+        `deterministic=True` if the same input always yields the same events (it gates Level-3a
+        replay). Names using the reserved `substrate.` prefix are rejected."""
         if is_reserved(kind):
             raise RegistrationError(
                 f'producer_kind "{kind}": Producer kinds MUST NOT use the reserved '
@@ -130,6 +139,9 @@ class TopologyBuilder:
         )
 
     def view(self, name: str, view: View) -> None:
+        """Register a named View — a deterministic incremental projection over the bus (e.g.
+        KindBuffer, KindCount) that Predicates read. The View declares what it subscribes to; an
+        empty subscription is rejected (never an implicit subscribe-to-everything)."""
         if view.subscription.is_empty():
             raise RegistrationError(
                 f'view "{name}": subscription is empty; subscribe to a kind/producer '
@@ -148,6 +160,10 @@ class TopologyBuilder:
         policy: FiringPolicy | None = None,
         cooldown: Cooldown | None = None,
     ) -> None:
+        """Register a Trigger: when an event matching `subscription` is appended and `predicate`
+        (over the Views) holds, start a `starts` Producer with the input from `input_builder`.
+        `policy` (default PerEvent) controls how often it fires — Once, PerEvent, PerKey,
+        WhileTrue; `cooldown` throttles it. The firing and its resolved input are recorded."""
         if subscription.is_empty():
             raise RegistrationError(
                 f'trigger "{id}": subscription is empty; subscribe to a kind/producer.'
@@ -170,15 +186,22 @@ class TopologyBuilder:
     def route(
         self, id: str, *, subscription: Subscription, slot: str, transform: Callable[[Any], Any]
     ) -> None:
+        """Register a Route: on an event matching `subscription`, stage `transform(event)` into
+        the named `slot` so a later Trigger's input_builder can read it (carrying context — e.g.
+        a failure reason — forward into the Producer it starts). The staging is recorded."""
         if subscription.is_empty():
             raise RegistrationError(f'route "{id}": subscription is empty.')
         self._reg.routes.append(RouteReg(id, subscription, slot, transform))
 
     def initial(self, kind: str, *, input: Any = None) -> None:
+        """Declare an initial Producer started at run open (seq 0), with `input`. A topology
+        needs at least one initial Producer (or it has nothing to do)."""
         self._reg.initials.append(InitialReg(kind, input))
 
     def termination(self, policy: TerminationPolicy, *, scope: str = "run") -> None:
-        # v0.1 ships run-scoped termination; per-Producer scoping is a documented extension.
+        """Set the TerminationPolicy that decides when the run ends (see the termination recipes:
+        quiescence_with_watchdog, threshold_count, all_completed, pause_await_input, ...). v0.1
+        ships run-scoped termination; per-Producer scoping is a documented extension."""
         self._reg.termination = policy
 
     # NOTE: there is deliberately NO `b.export`. The composition export map is declared ONCE,
@@ -190,6 +213,8 @@ class TopologyBuilder:
     # the two-source-of-truth flagged in review.)
 
     def baseline(self, **metadata: Any) -> None:
+        """Attach run metadata (fixtures, seeds, environment identifiers) recorded in the
+        RunStarted manifest, so every record is interpretable from a known baseline."""
         self._reg.baseline.update(metadata)
 
     def build(self) -> Registration:
@@ -210,10 +235,13 @@ _REGISTRY: dict[str, Callable[[TopologyBuilder], None]] = {}
 
 
 def register_topology(name: str, factory: Callable[[TopologyBuilder], None]) -> None:
+    """Register a topology factory under a name so the CLI can run it by `--topology <name>`."""
     _REGISTRY[name] = factory
 
 
 def get_topology(name: str) -> Callable[[TopologyBuilder], None]:
+    """Look up a topology factory registered with `register_topology`; raises KeyError if
+    unknown (naming the registered topologies)."""
     if name not in _REGISTRY:
         raise KeyError(f"unknown topology {name!r}; registered: {sorted(_REGISTRY)}")
     return _REGISTRY[name]

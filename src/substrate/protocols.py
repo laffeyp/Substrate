@@ -38,9 +38,10 @@ class View(Protocol):
 
     Updated synchronously in append-cycle step 3, before any Route or Predicate.
     `deterministic` declares whether `value()` is composed of RFC-8785-encodable
-    types and so participates in N-DET-1 (byte-identical replay); a View holding
-    non-canonical types sets it False and is flagged `determinism: excluded` at
-    registration (technical §4.2).
+    types and so participates in N-DET-1 (its state re-derives identically on replay);
+    a View holding non-canonical types sets it False and is flagged
+    `determinism: excluded` at registration (technical §4.2). (N-DET-1 is View-state
+    determinism — distinct from full byte-identical L3b re-execution, which is post-1.0.)
     """
 
     subscription: Subscription
