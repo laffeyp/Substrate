@@ -5,6 +5,7 @@ primitive (the builder methods ARE the vocabulary). Registration is frozen when 
 factory returns; the runtime reads the Registration to drive the run. Static checks
 that the runtime would otherwise raise at start are caught at build time (design §5.5).
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
@@ -17,7 +18,7 @@ from .constants import is_reserved
 from .errors import SubstrateError
 from .policies import TerminationPolicy
 from .protocols import Producer, View
-from .triggers import Cooldown, FiringPolicy, Logical, PerEvent, WallClock
+from .triggers import Cooldown, FiringPolicy, Logical, PerEvent, WallClock, WhileTrue
 from .types import Subscription
 
 
@@ -94,7 +95,9 @@ class TopologyBuilder:
         schema_map: dict[str, tuple[type, int]] = {}
         for s in schemas:
             if not (isinstance(s, type) and issubclass(s, Struct)):
-                raise RegistrationError(f'producer_kind "{kind}": schema {s!r} is not a msgspec Struct.')
+                raise RegistrationError(
+                    f'producer_kind "{kind}": schema {s!r} is not a msgspec Struct.'
+                )
             if not getattr(s, "__struct_config__").frozen:
                 raise RegistrationError(
                     f'producer_kind "{kind}".schemas: {s.__name__} is not frozen.\n'
@@ -112,6 +115,11 @@ class TopologyBuilder:
         )
 
     def view(self, name: str, view: View) -> None:
+        if view.subscription.is_empty():
+            raise RegistrationError(
+                f'view "{name}": subscription is empty; subscribe to a kind/producer '
+                f"(both empty is never an implicit subscribe-to-everything)."
+            )
         self._reg.views[name] = view
 
     def trigger(
@@ -126,16 +134,27 @@ class TopologyBuilder:
         cooldown: Cooldown | None = None,
     ) -> None:
         if subscription.is_empty():
-            raise RegistrationError(f'trigger "{id}": subscription is empty; subscribe to a kind/producer.')
-        cd = cooldown or Logical(0)
+            raise RegistrationError(
+                f'trigger "{id}": subscription is empty; subscribe to a kind/producer.'
+            )
+        pol = policy or PerEvent()
+        # Cooldown is a single trigger-level concept enforced once by the runtime. A
+        # WhileTrue policy may carry its cooldown as a constructor arg; lift it to the
+        # trigger level when no explicit cooldown= is given, so there is exactly one
+        # enforcement point (no double-throttle).
+        cd = cooldown
+        if cd is None and isinstance(pol, WhileTrue):
+            cd = pol.cooldown
+        cd = cd or Logical(0)
         if isinstance(cd, WallClock):
             self._reg.has_wall_clock_cooldown = True
         self._reg.triggers.append(
-            TriggerReg(id, subscription, predicate, starts, input_builder, policy or PerEvent(), cd)
+            TriggerReg(id, subscription, predicate, starts, input_builder, pol, cd)
         )
 
-    def route(self, id: str, *, subscription: Subscription, slot: str,
-              transform: Callable[[Any], Any]) -> None:
+    def route(
+        self, id: str, *, subscription: Subscription, slot: str, transform: Callable[[Any], Any]
+    ) -> None:
         if subscription.is_empty():
             raise RegistrationError(f'route "{id}": subscription is empty.')
         self._reg.routes.append(RouteReg(id, subscription, slot, transform))

@@ -6,6 +6,7 @@ the recipes ship on top as named convenience functions (kernel §8). Per-Produce
 per-run scoping compose per the kernel; v0.1 ships the run-scoped recipes the
 reference topologies need.
 """
+
 from __future__ import annotations
 
 import enum
@@ -37,13 +38,23 @@ class TermContext:
 
 
 class TerminationPolicy:
-    """A named decision callback. `name` is recorded in substrate.TerminationMatched."""
+    """A named decision callback. `name` is recorded in substrate.TerminationMatched.
 
-    def __init__(self, name: str, fn: Callable[[TermContext], Decision],
-                 resume_condition: str | None = None) -> None:
+    `watchdog_seconds`, when set, is the writer's idle-poll window (how often the
+    writer wakes to test quiescence when the inbox is idle) — set by
+    quiescence_with_watchdog(seconds=). None means "use the runtime default poll"."""
+
+    def __init__(
+        self,
+        name: str,
+        fn: Callable[[TermContext], Decision],
+        resume_condition: str | None = None,
+        watchdog_seconds: float | None = None,
+    ) -> None:
         self.name = name
         self._fn = fn
         self.resume_condition = resume_condition
+        self.watchdog_seconds = watchdog_seconds
 
     def decide(self, ctx: TermContext) -> Decision:
         return self._fn(ctx)
@@ -61,23 +72,29 @@ def all_completed() -> TerminationPolicy:
     """Finalise on quiescence once every started Producer has ended."""
     return TerminationPolicy(
         "all_completed",
-        lambda c: Decision.FINALISE_RUN
-        if (c.quiescent and c.running == 0 and c.started > 0 and c.completed >= c.started)
-        else Decision.CONTINUE,
+        lambda c: (
+            Decision.FINALISE_RUN
+            if (c.quiescent and c.running == 0 and c.started > 0 and c.completed >= c.started)
+            else Decision.CONTINUE
+        ),
     )
 
 
 def quiescence_with_watchdog(seconds: float = 30.0) -> TerminationPolicy:
     """Finalise when the run goes quiescent (no work in flight). `seconds` is the
-    watchdog poll window the runtime uses to detect quiescence."""
+    watchdog window the runtime uses to wake and test quiescence (it bounds the writer
+    idle-poll interval; see Runtime._poll_s)."""
     return TerminationPolicy(
         f"quiescence_with_watchdog({seconds})",
         lambda c: Decision.FINALISE_RUN if (c.quiescent and c.running == 0) else Decision.CONTINUE,
         resume_condition=None,
+        watchdog_seconds=seconds,
     )
 
 
-def pause_await_input(when: Callable[[TermContext], bool], resume_condition: str) -> TerminationPolicy:
+def pause_await_input(
+    when: Callable[[TermContext], bool], resume_condition: str
+) -> TerminationPolicy:
     """Pause and emit a typed resume_condition when `when` holds (kernel halt-with-resume)."""
     return TerminationPolicy(
         "pause_await_input",

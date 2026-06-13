@@ -4,6 +4,7 @@ These are typing.Protocol so user code satisfies them by shape, not inheritance
 (design spec §9.6: factory returns a callable; no class hierarchy required). Signatures
 mirror technical spec §16.
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterable

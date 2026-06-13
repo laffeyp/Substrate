@@ -1,4 +1,5 @@
 """Persistent-bus locking (technical §11) — conformance check 10 in miniature."""
+
 import pytest
 
 from substrate.errors import BusLockedError
@@ -19,5 +20,5 @@ def test_second_runtime_against_locked_root_fails_fast(tmp_path):
 def test_lock_is_reacquirable_after_release(tmp_path):
     fd = acquire_lock(tmp_path, start_time=1.0)
     release_lock(fd)
-    fd2 = acquire_lock(tmp_path, start_time=2.0)   # must succeed now
+    fd2 = acquire_lock(tmp_path, start_time=2.0)  # must succeed now
     release_lock(fd2)

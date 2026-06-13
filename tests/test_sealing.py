@@ -1,4 +1,5 @@
 """Input sealing — immutability by construction (technical §8.3)."""
+
 from types import MappingProxyType
 
 import pytest

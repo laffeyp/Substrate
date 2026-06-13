@@ -2,6 +2,7 @@
 
 These are the anti-drift proof: a topology runs, and the persisted record's event
 sequence is asserted exactly (single-producer) or by event/count (concurrent)."""
+
 from msgspec import Struct
 
 from substrate.api import (
@@ -116,7 +117,9 @@ async def test_invalid_emission_becomes_logged_event(tmp_path):
     # conformance check 4 core: an undeclared kind becomes a sequenced
     # substrate.ProducerEmittedInvalidEvent with raw payload preserved.
     await Runtime(tmp_path / "run").run(_invalid_topo)
-    inv = assert_event(tmp_path / "run", "substrate.ProducerEmittedInvalidEvent", reason="unknown_kind")
+    inv = assert_event(
+        tmp_path / "run", "substrate.ProducerEmittedInvalidEvent", reason="unknown_kind"
+    )
     assert inv["payload"]["raw_payload"] == {"x": 1}
     assert_no_event(tmp_path / "run", "Undeclared")
 

@@ -1,4 +1,5 @@
 """Routes + same-cycle staging (kernel Decision #8) and the unsealable-input path."""
+
 from msgspec import Struct
 
 from substrate.api import (

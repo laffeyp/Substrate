@@ -21,6 +21,7 @@ seal-on-roll only — because it keeps "completeness == terminal RunFinalised" a
 The manifest is ADVISORY; segments are AUTHORITATIVE. Every reader operates with the
 manifest missing or stale (§3.5): the segment list is recoverable by globbing.
 """
+
 from __future__ import annotations
 
 import json
@@ -165,11 +166,15 @@ class RecordWriter:
         self._last_seq = None
         self._write_manifest()
 
-    def write_manifest(self, *, replay_ceiling: str = "3a", extra: dict[str, Any] | None = None) -> None:
+    def write_manifest(
+        self, *, replay_ceiling: str = "3a", extra: dict[str, Any] | None = None
+    ) -> None:
         """Public manifest write (e.g. when the runtime updates replay_ceiling)."""
         self._write_manifest(replay_ceiling=replay_ceiling, extra=extra)
 
-    def _write_manifest(self, *, replay_ceiling: str = "3a", extra: dict[str, Any] | None = None) -> None:
+    def _write_manifest(
+        self, *, replay_ceiling: str = "3a", extra: dict[str, Any] | None = None
+    ) -> None:
         manifest: dict[str, Any] = {
             "sealed_segments": self._sealed,
             "hot_segment": self._open_path.name,

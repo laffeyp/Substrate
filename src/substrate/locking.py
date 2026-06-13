@@ -7,6 +7,7 @@ needs no lock (the run root is freshly created under a ULID run_id). Windows rai
 UnsupportedPlatformError at configuration time — a PID-file fallback with a TOCTOU
 window is not acceptable for a correctness primitive (N-PORT-1).
 """
+
 from __future__ import annotations
 
 import json

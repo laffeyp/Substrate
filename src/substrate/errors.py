@@ -4,6 +4,7 @@ Things that happen *during* a run land on the log as events; these are the
 small set of conditions the bus itself can't carry (registration, file/lock,
 fsync, reentrancy). All carry the same kind of typed fields the log events would.
 """
+
 from __future__ import annotations
 
 
@@ -56,3 +57,11 @@ class ReentrantAppendError(SubstrateError):
 class InputTypeError(SubstrateError):
     """A resolved Producer input contains a non-immutable / non-whitelisted type;
     immutability is enforced by construction (technical §8.3 / F-PROD-3)."""
+
+
+class ProducerNotFound(SubstrateError):
+    """A provenance/inspection query named a Producer instance not in the record."""
+
+
+class SequenceOutOfRange(SubstrateError):
+    """A view_at / inspection query named a sequence number outside the record."""

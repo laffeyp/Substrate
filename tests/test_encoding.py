@@ -1,4 +1,5 @@
 """Tests for canonical encoding (src/substrate/encoding.py) — technical spec §4."""
+
 import math
 
 import pytest
@@ -21,8 +22,14 @@ def test_key_order_independence_is_deterministic():
 
 
 def test_canonical_bytes_on_a_struct():
-    ev = Event(seq=5, kind="RowTranslated", schema="RowTranslated@1",
-               producer=ProducerRef(kind="worker", instance="01X"), t=1.0, payload={"row": 2})
+    ev = Event(
+        seq=5,
+        kind="RowTranslated",
+        schema="RowTranslated@1",
+        producer=ProducerRef(kind="worker", instance="01X"),
+        t=1.0,
+        payload={"row": 2},
+    )
     out = canonical_bytes(ev)
     assert isinstance(out, bytes)
     # keys are sorted; supplementary fields are present but ordering is canonical
@@ -38,7 +45,9 @@ def test_content_hash_prefix_and_stability():
 
 def test_sha256_hex_of_known_bytes():
     # sha256("") well-known digest.
-    assert sha256_hex(b"") == "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    assert (
+        sha256_hex(b"") == "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    )
 
 
 def test_int_out_of_safe_range_rejected():

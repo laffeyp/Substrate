@@ -57,6 +57,24 @@
 
 ---
 
+### 2026-06-13 (round 5) — Priority-1 robustness hardening + the between-wave Rubber Duck Pass as a bug-finder
+
+**What happened:** Took an external code review of the live runtime (waves 0–5) into 6 prioritized fixes (try/finally run body; one shared sanitize-or-log helper across 5 ingestion points; blob offload wiring; four silent no-ops; ruff-gate reconciliation; empty-View guard). Implemented, then ran the between-wave Rubber Duck Pass as TWO independent adversarial review agents (CT-1 + CT-2: each briefed with file paths to the originals, not my summary), addressed their findings, ran a second verification pass, then committed. 59 tests / four gates green.
+
+**What worked:**
+- **The adversarial Rubber Duck Pass found two genuine blockers my own implementation missed**, both grounded in the locked vocabulary's state-transition rules and payload schema: (a) a mid-cascade view-failure could append queued control events *after* the terminal RunFinalised (violates RUN-BOUNDARY at-most-once); (b) an oversized TriggerFired resolved_input was nested inside `resolved_input` instead of the top-level `$blob` field the schema makes mutually exclusive. Neither was caught by the passing test suite — they needed an external check surface (the vocabulary's own invariants). This is exactly the mechanism AGENTS.md claims for the pass ("grounded in external check surfaces, not intrinsic self-critique") and it earned its keep here.
+- **One reviewer finding was itself wrong, and the originals settled it.** The reviewer flagged "hash the sealed object, not the unsealed" as a correctness fix; checking against the real `seal()` + `msgspec` behavior showed `to_builtins` cannot encode the sealed `MappingProxyType` at all, so hashing pre-seal is *necessary* and the canonical bytes are identical regardless. The discipline ("verify against real API behavior, don't accept a plausible claim") caught a confident-but-wrong review note — the adversarial space cuts both ways.
+- **Carry-ahead-with-proposal is the right move for Architect-directed fields under strict validator-extras.** `instance` on TriggerFired closes provenance (F-OBS-2/check 11) and was Architect-directed, but isn't in v0.1. Rather than silently emit it (invent vocabulary) or drop it (lose the capability), filed P-TRIGGERFIRED-INSTANCE and carried it implemented-ahead-of-ratification — the same path P-SUBJECT-ID took into v0.1. The proposal taxonomy IS the mechanism for "load-bearing but not yet ratified."
+
+**What got in the way:**
+- The runtime emits lifecycle frames that bypass `_resolve`'s schema validation, so strict validator-extras is *not actually enforced* on `substrate.*` payloads at runtime — the only thing that catches an uncatalogued field is a human/agent reading the vocab. Logged as a Drift watchlist item; the real fix is a conformance-harness check that re-validates every lifecycle frame against the RunStarted manifest schemas (Wave 9), which would mechanize the strict posture the project claims.
+
+**What this says about the next kit version:**
+- 5. The between-wave Rubber Duck Pass is documented in AGENTS.md as a *sprint-close* self-review; this round shows its highest value is as a **separate adversarial agent pass briefed on the originals**, run between waves on a behavior-touching change. Candidate: TECHNIQUES.md should name "independent-reviewer-on-the-originals" as a distinct, higher-power variant of the pass for behavior-touching/architecture sprints, distinct from the author's own close-out narration.
+- 6. A review finding being *plausible and well-cited* is not the same as it being *correct* — the "hash the sealed object" note was both, and still wrong. The kit's adversarial-information-space posture (verify against real behavior, not against a confident claim) should extend explicitly to *review findings*, not just to library hype. Candidate note for the Rubber Duck Pass disposition step: a finding is `resolved-here` only after the underlying claim is verified against the real API/spec, not merely because a reviewer asserted it.
+
+---
+
 ## Phase boundary syntheses
 
 *(one per phase close)*

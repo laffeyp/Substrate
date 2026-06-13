@@ -14,6 +14,7 @@ NOT authenticity; content hashes (sha256) do identity work. Recovery proves each
 line independently: the first line that is unterminated, unparseable, or
 crc-mismatched is the cut point, and everything before it is intact by construction.
 """
+
 from __future__ import annotations
 
 import json

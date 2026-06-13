@@ -16,9 +16,11 @@ WITH `crc` (the on-disk frame). The crc assembly lives in the record layer; this
 module provides the primitive `canonical_bytes` (= B_hash for a crc-less object) and
 the content-hash helper.
 """
+
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 from typing import Any
 
 import msgspec
@@ -66,9 +68,7 @@ def _check(node: Any, path: str = "$") -> None:
                 raise NonCanonicalValueError(f"non-str dict key {key!r}", path)
             _check(value, f"{path}.{key}")
         return
-    raise NonCanonicalValueError(
-        f"type {type(node).__name__} is not in the JCS whitelist", path
-    )
+    raise NonCanonicalValueError(f"type {type(node).__name__} is not in the JCS whitelist", path)
 
 
 def to_canonical_builtins(obj: Any) -> Any:
@@ -94,3 +94,103 @@ def content_hash(obj: Any) -> str:
     """The `sha256:<hex>` content hash over a value's canonical bytes — the identity
     used for blob ids, input_sha256, message_sha256, and D-8 comparison (§3.3)."""
     return sha256_hex(canonical_bytes(obj))
+
+
+@dataclass(frozen=True)
+class SafeCanonical:
+    """The result of a guarded canonicalization attempt (`try_canonical`).
+
+    `ok` is True iff the value passed the whole pipeline (`msgspec.to_builtins` +
+    the §4.2 whitelist) AND re-encoding to bytes succeeded. When `ok`:
+    `builtins`/`raw_bytes`/`hash`/`nbytes` are populated. When not `ok`: `reason`
+    is the typed failure class (`unknown_kind` | `non_canonical_value`), `at_path`
+    is the offending JSON path (when known), and `raw` is a never-crashing,
+    canonical-safe rendering of the offending value for diagnostic preservation.
+    """
+
+    ok: bool
+    builtins: Any = None
+    raw_bytes: bytes = b""
+    hash: str = ""
+    nbytes: int = 0
+    reason: str | None = None
+    at_path: str | None = None
+    raw: Any = None
+
+
+def safe_raw(obj: Any) -> Any:
+    """A non-canonical-SAFE rendering of any value for diagnostic preservation.
+
+    Used for the `raw_payload` of substrate.ProducerEmittedInvalidEvent and any other
+    error-logging path: it must never itself re-introduce a value that crashes at
+    frame-time (the §4.2 whitelist runs over it), so out-of-range ints, non-finite
+    floats, non-str keys, and out-of-whitelist types are all stringified rather than
+    passed through `msgspec.to_builtins` raw (which range-checks nothing)."""
+    try:
+        builtins = msgspec.to_builtins(obj)
+    except Exception:
+        return repr(obj)
+    return _stringify_non_canonical(builtins)
+
+
+def _stringify_non_canonical(node: Any) -> Any:
+    """Recursively coerce a builtins tree into the §4.2 whitelist, stringifying any
+    node that would fail (out-of-range int, NaN/Inf float, non-str key, foreign type)
+    so the result is always safe to frame."""
+    if node is None or isinstance(node, bool) or isinstance(node, str):
+        return node
+    if isinstance(node, int):
+        if JSON_SAFE_INT_MIN <= node <= JSON_SAFE_INT_MAX:
+            return node
+        return repr(node)
+    if isinstance(node, float):
+        if node != node or node in (float("inf"), float("-inf")):
+            return repr(node)
+        return node
+    if isinstance(node, (list, tuple)):
+        return [_stringify_non_canonical(item) for item in node]
+    if isinstance(node, dict):
+        return {
+            (key if isinstance(key, str) else repr(key)): _stringify_non_canonical(value)
+            for key, value in node.items()
+        }
+    return repr(node)
+
+
+def try_canonical(obj: Any) -> SafeCanonical:
+    """Guarded canonicalization: run the full pipeline without ever raising.
+
+    The single shared sanitize-or-log helper routed through every ingestion point that
+    accepts user values (resolved trigger input, initial input, the invalid-emission
+    raw payload, the PerKey firing key). On success returns the builtins, the canonical
+    bytes, the `sha256:` hash, and the byte length (so the caller can blob-offload). On
+    failure returns the typed reason/path plus a canonical-safe `raw` rendering — never
+    an uncaught NonCanonicalValueError that would crash the writer."""
+    try:
+        builtins = msgspec.to_builtins(obj)
+    except Exception as exc:
+        return SafeCanonical(ok=False, reason="unknown_kind", raw=repr(exc))
+    try:
+        _check(builtins)
+    except NonCanonicalValueError as exc:
+        return SafeCanonical(
+            ok=False,
+            reason="non_canonical_value",
+            at_path=exc.at_path,
+            raw=_stringify_non_canonical(builtins),
+        )
+    try:
+        raw_bytes = rfc8785.dumps(builtins)
+    except Exception:  # pragma: no cover - whitelist already guarantees encodability
+        return SafeCanonical(
+            ok=False,
+            reason="non_canonical_value",
+            raw=_stringify_non_canonical(builtins),
+        )
+    return SafeCanonical(
+        ok=True,
+        builtins=builtins,
+        raw_bytes=raw_bytes,
+        hash=sha256_hex(raw_bytes),
+        nbytes=len(raw_bytes),
+    )

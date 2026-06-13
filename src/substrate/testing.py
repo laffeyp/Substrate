@@ -5,6 +5,7 @@ recorded run record (a root path) or any iterable of envelope dicts — so a
 confirmed-good run record is directly usable as a regression fixture, and the same
 assertions work on a live attached record.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence

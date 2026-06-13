@@ -4,6 +4,7 @@ Each declares a Subscription; the writer's subscription index consults a View on
 matching events, and calls `update` synchronously in append-cycle step 3 (before any
 Route or Predicate). `deterministic` declares participation in N-DET-1.
 """
+
 from __future__ import annotations
 
 from types import MappingProxyType

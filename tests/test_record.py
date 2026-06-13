@@ -2,13 +2,20 @@
 
 Covers conformance check 16 (torn-tail recovery) in miniature and the
 manifest-is-advisory / segments-are-authoritative invariant (§3.5)."""
+
 import substrate.record as record
 from substrate.record import Always, RecordWriter, read_record, recover_open_segment
 
 
 def _env(seq, kind="K"):
-    return {"seq": seq, "kind": kind, "schema": f"{kind}@1", "producer": None,
-            "t": float(seq), "payload": {"n": seq}}
+    return {
+        "seq": seq,
+        "kind": kind,
+        "schema": f"{kind}@1",
+        "producer": None,
+        "t": float(seq),
+        "payload": {"n": seq},
+    }
 
 
 def test_write_then_read_roundtrip(tmp_path):
@@ -28,7 +35,9 @@ def test_segment_rolls_and_seals(tmp_path, monkeypatch):
     for i in range(6):
         w.append(_env(i))
     w.close()
-    sealed = sorted(p.name for p in tmp_path.glob("events-*.jsonl") if not p.name.endswith(".open.jsonl"))
+    sealed = sorted(
+        p.name for p in tmp_path.glob("events-*.jsonl") if not p.name.endswith(".open.jsonl")
+    )
     assert sealed, "expected at least one sealed segment after rolling"
     assert [e["seq"] for e in read_record(tmp_path)] == [0, 1, 2, 3, 4, 5]
 
@@ -38,7 +47,7 @@ def test_read_is_independent_of_manifest(tmp_path):
     for i in range(3):
         w.append(_env(i))
     w.close()
-    (tmp_path / "manifest.json").unlink()                 # manifest is advisory
+    (tmp_path / "manifest.json").unlink()  # manifest is advisory
     assert [e["seq"] for e in read_record(tmp_path)] == [0, 1, 2]
 
 
@@ -50,7 +59,7 @@ def test_torn_tail_recovery_is_exact(tmp_path):
         w.append(_env(i))
     w.close()
     hot = tmp_path / "events-000001.open.jsonl"
-    with open(hot, "ab") as fh:                           # simulate a torn write
+    with open(hot, "ab") as fh:  # simulate a torn write
         fh.write(b'{"seq":4,"kind":"K","schema":"K@1","produc')
     kept = recover_open_segment(tmp_path)
     assert kept == 4

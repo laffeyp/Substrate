@@ -40,6 +40,9 @@ testpaths = ["tests"]
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+# kernel_spec/ and proof/ hold scratch / spec-history Python (audit-trail, hard rule 12);
+# they are not part of the package and are excluded from both lint and format gates.
+extend-exclude = ["kernel_spec", "proof"]
 
 [tool.mypy]
 python_version = "3.12"

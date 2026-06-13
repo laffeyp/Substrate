@@ -6,6 +6,7 @@ signatures mirror technical spec §16. Frozen is load-bearing: it is how the run
 enforces input immutability "by construction" (F-PROD-3) — mutating a frozen Struct
 raises AttributeError (verified against msgspec 0.21.1).
 """
+
 from __future__ import annotations
 
 from typing import Any

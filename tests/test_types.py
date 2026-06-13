@@ -1,4 +1,5 @@
 """Tests for the core envelope types (src/substrate/types.py)."""
+
 import msgspec
 import pytest
 
@@ -20,8 +21,14 @@ def test_event_constructs_with_producer_ref():
 
 
 def test_runtime_event_has_null_producer():
-    ev = Event(seq=0, kind="substrate.RunStarted", schema="substrate.RunStarted@1",
-               producer=None, t=0.0, payload={})
+    ev = Event(
+        seq=0,
+        kind="substrate.RunStarted",
+        schema="substrate.RunStarted@1",
+        producer=None,
+        t=0.0,
+        payload={},
+    )
     assert ev.producer is None
 
 

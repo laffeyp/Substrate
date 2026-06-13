@@ -15,6 +15,7 @@ bytes, open handles, arbitrary objects — still raise. Flow-back: technical §8
 list immutable-sealed dict/list among the accepted forms. Execution resources
 (connections, handles) belong in topology configuration, not Producer input.
 """
+
 from __future__ import annotations
 
 from types import MappingProxyType

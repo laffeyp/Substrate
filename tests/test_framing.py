@@ -1,4 +1,5 @@
 """Tests for the frame format and torn-tail recovery (technical §3.3)."""
+
 import substrate.framing as framing
 from hypothesis import given, strategies as st
 
@@ -7,15 +8,21 @@ import pytest
 
 
 def _env(seq, payload=None):
-    return {"seq": seq, "kind": "K", "schema": "K@1", "producer": None, "t": 0.0,
-            "payload": payload if payload is not None else {"n": seq}}
+    return {
+        "seq": seq,
+        "kind": "K",
+        "schema": "K@1",
+        "producer": None,
+        "t": 0.0,
+        "payload": payload if payload is not None else {"n": seq},
+    }
 
 
 def test_frame_is_one_terminated_line_and_verifies():
     line = framing.frame(_env(1))
     assert line.endswith(b"\n") and line.count(b"\n") == 1
     env = framing.verify_line(line[:-1])
-    assert env == _env(1)            # crc stripped; remainder is the original envelope
+    assert env == _env(1)  # crc stripped; remainder is the original envelope
     assert "crc" not in env
 
 
@@ -40,7 +47,7 @@ def test_verify_detects_crc_corruption():
 
 def test_verify_unparseable_is_torn():
     with pytest.raises(TornFrameError):
-        framing.verify_line(b'{not json')
+        framing.verify_line(b"{not json")
 
 
 def test_recover_keeps_whole_frames_and_cuts_torn_tail():
@@ -48,13 +55,13 @@ def test_recover_keeps_whole_frames_and_cuts_torn_tail():
     torn = good + b'{"seq":4,"kind":"K","sch'  # partial, unterminated final line
     frames, cut = framing.recover(torn)
     assert [f["seq"] for f in frames] == [1, 2, 3]
-    assert cut == len(good)          # truncate point = end of the last whole frame
+    assert cut == len(good)  # truncate point = end of the last whole frame
 
 
 def test_recover_cuts_at_crc_mismatch_in_the_middle():
     f1 = framing.frame(_env(1))
     f2 = framing.frame(_env(2))
-    bad = f2.replace(b'"n":2', b'"n":9')   # same length, broken crc, still newline-terminated
+    bad = f2.replace(b'"n":2', b'"n":9')  # same length, broken crc, still newline-terminated
     frames, cut = framing.recover(f1 + bad + framing.frame(_env(3)))
     assert [f["seq"] for f in frames] == [1]
     assert cut == len(f1)

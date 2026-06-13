@@ -1,5 +1,6 @@
 """The public API surface (F-API-1). Everything else is private; the CLI is required
 to import only from here (F-API-6, enforced by import-linter in CI)."""
+
 from __future__ import annotations
 
 from .encoding import canonical_bytes, content_hash
@@ -24,20 +25,47 @@ from .views import BufferView, KindCount, PerKindLatest, StartedCompletedCounts
 
 __all__ = [
     # data
-    "Event", "BlobRef", "ProducerRef", "Subscription",
+    "Event",
+    "BlobRef",
+    "ProducerRef",
+    "Subscription",
     # primitives / protocols
-    "Producer", "View",
-    "BufferView", "KindCount", "PerKindLatest", "StartedCompletedCounts",
-    "Once", "PerEvent", "PerKey", "WhileTrue", "Logical", "WallClock",
-    "TerminationPolicy", "Decision",
-    "threshold_count", "all_completed", "quiescence_with_watchdog",
-    "pause_await_input", "any_of", "all_of",
+    "Producer",
+    "View",
+    "BufferView",
+    "KindCount",
+    "PerKindLatest",
+    "StartedCompletedCounts",
+    "Once",
+    "PerEvent",
+    "PerKey",
+    "WhileTrue",
+    "Logical",
+    "WallClock",
+    "TerminationPolicy",
+    "Decision",
+    "threshold_count",
+    "all_completed",
+    "quiescence_with_watchdog",
+    "pause_await_input",
+    "any_of",
+    "all_of",
     # topology + execution
-    "TopologyBuilder", "register_topology", "get_topology",
-    "Runtime", "RunResult",
+    "TopologyBuilder",
+    "register_topology",
+    "get_topology",
+    "Runtime",
+    "RunResult",
     # records
-    "read_record", "recover_open_segment", "Interval", "Always", "NoFsync",
-    "canonical_bytes", "content_hash",
+    "read_record",
+    "recover_open_segment",
+    "Interval",
+    "Always",
+    "NoFsync",
+    "canonical_bytes",
+    "content_hash",
     # test helpers
-    "assert_event", "assert_no_event", "assert_sequence",
+    "assert_event",
+    "assert_no_event",
+    "assert_sequence",
 ]

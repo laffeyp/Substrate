@@ -7,6 +7,7 @@ write-ahead (the blob is fsynced BEFORE the referencing frame is appended); immu
 is derived from the hash ONLY (no user-controlled string ever becomes a path
 component, §17); a two-level fan-out keeps directories small.
 """
+
 from __future__ import annotations
 
 import hashlib
