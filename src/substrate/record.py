@@ -82,6 +82,7 @@ class RecordWriter:
         *,
         fsync: FsyncPolicy = Interval(100),
         durable: bool | None = None,
+        resume: bool = False,
     ) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
@@ -90,14 +91,26 @@ class RecordWriter:
         self._fsync = fsync
         # durable fsync (macOS F_FULLFSYNC) defaults on for `always`, off otherwise (§5.2)
         self._durable = isinstance(fsync, Always) if durable is None else durable
-        self._seg_index = 1
-        self._open_path = self._segment_path(self._seg_index, hot=True)
-        self._fd = os.open(self._open_path, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o644)
-        self._seg_bytes = 0
         self._last_fsync = time.monotonic()
         self._first_seq: int | None = None
         self._last_seq: int | None = None
         self._sealed: list[dict[str, Any]] = []
+        existing_hot = _hot_segment(self.root) if resume else None
+        if existing_hot is not None:
+            # RESUME: continue the EXISTING hot segment (append-only) rather than opening a
+            # fresh events-000001 — so a resumed run continues the same record/segment, and
+            # seq continuity is preserved (the runtime restores next_seq from the log tail).
+            # The torn tail (if any) was already recovered by the resume path before this.
+            self._seg_index = _segment_index(existing_hot)
+            self._open_path = existing_hot
+            self._seg_bytes = existing_hot.stat().st_size
+            for seg in _sealed_segments(self.root):  # rebuild the sealed-segment manifest list
+                self._sealed.append({"file": seg.name})
+        else:
+            self._seg_index = 1
+            self._open_path = self._segment_path(self._seg_index, hot=True)
+            self._seg_bytes = 0
+        self._fd = os.open(self._open_path, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o644)
         _fsync_dir(self.root)
 
     def _segment_path(self, index: int, *, hot: bool) -> Path:
@@ -211,6 +224,11 @@ def _sealed_segments(root: Path) -> list[Path]:
 def _hot_segment(root: Path) -> Path | None:
     hot = sorted(root.glob("events-*.open.jsonl"))
     return hot[-1] if hot else None
+
+
+def _segment_index(path: Path) -> int:
+    """The numeric segment index from `events-NNNNNN[.open].jsonl` (roll-stable across seal)."""
+    return int(path.name.split("-", 1)[1].split(".", 1)[0])
 
 
 def _read_bytes_nofollow(path: Path) -> bytes:

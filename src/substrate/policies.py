@@ -155,7 +155,18 @@ def any_of(*policies: TerminationPolicy) -> TerminationPolicy:
                 return d
         return Decision.CONTINUE
 
-    return TerminationPolicy(name, fn)
+    # Surface a composed member's resume_condition so a PAUSE_AWAIT_INPUT decided through the
+    # wrapper still records its typed resume_condition on TerminationMatched (observability:
+    # the paused run names what input it awaits). The first member that declares one wins.
+    resume_condition = next((p.resume_condition for p in policies if p.resume_condition), None)
+    # Likewise propagate the tightest watchdog window so quiescence is tested promptly.
+    watchdogs = [p.watchdog_seconds for p in policies if p.watchdog_seconds is not None]
+    return TerminationPolicy(
+        name,
+        fn,
+        resume_condition=resume_condition,
+        watchdog_seconds=min(watchdogs) if watchdogs else None,
+    )
 
 
 def all_of(*policies: TerminationPolicy) -> TerminationPolicy:

@@ -109,6 +109,19 @@ Each newly-satisfying event fires the Trigger once.
 
 One firing per distinct key extracted from the event (CEP window-and-key).
 
+N-MEM-1 (memory bound — documented behavior, v1.0): `_seen` grows by one canonical-key
+entry per DISTINCT key the Trigger ever fires on, for the lifetime of the run. It is NOT
+evicted. For a bounded-key topology (e.g. PerKey over a fixed set of categories) this is
+O(distinct keys) and fine. For an UNBOUNDED-key, long-running topology (e.g. PerKey over a
+per-message id that never repeats) `_seen` grows without bound — the dedup set is the cost
+of the "fire exactly once per key, forever" guarantee. v1.0 does NOT bound it: a windowed
+/ LRU eviction would silently let an evicted key RE-FIRE (a dedup-correctness change, not a
+free optimization), so it needs a decision (a key-window/TTL on PerKey) rather than a quiet
+cap. The operational guidance for v1.0: do not key PerKey on an unbounded-cardinality field
+in a long-lived run; use PerEvent (no dedup state) or a bounded key. (Route `staged` is
+bounded by construction — keyed by the static set of declared Route slots, latest-wins per
+slot — so it is NOT part of this growth; only `_seen` is.)
+
 ### `WhileTrue(cooldown: 'Cooldown | None' = None) -> 'None'`
 
 Fires continuously while the predicate holds, throttled by a cooldown.
@@ -251,7 +264,8 @@ _(no docstring)_
 
 Executes one topology and produces one run record (single-use).
 
-- `run(self, topology: 'Callable[[TopologyBuilder], None]') -> 'RunResult'` — 
+- `resume(self, topology: 'Callable[[TopologyBuilder], None]', *, resume_event: 'Any') -> 'RunResult'` — Resume a PAUSED persistent-bus run at its existing record (F-TERM-3 / F-PERS-2).
+- `run(self, topology: 'Callable[[TopologyBuilder], None]') -> 'RunResult'` — Run a topology to a fresh run record. Opens at seq 0 with substrate.RunStarted.
 
 ### `RunResult(run_id: str, record_root: str, status: Literal['finalised', 'paused', 'failed'], final_event: substrate.types.Event | None, elapsed_seconds: float, finalisation_payload: typing.Any | None)`
 

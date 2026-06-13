@@ -25,7 +25,7 @@ from pathlib import Path
 from .. import api
 from ._models import OllamaResponder
 from .r1_ensemble import ensemble_topology
-from .r2_pipeline import pipeline_topology
+from .r2_pipeline import operator_override, pipeline_topology
 from .r3_codesynth import _complete_defs, codesynth_composed_topology
 
 _WEAK = "llama3.2:1b"
@@ -33,48 +33,120 @@ _STRONG = "huihui_ai/qwen2.5-coder-abliterate:7b"
 
 
 async def _run_r1(root: Path) -> None:
-    members = {
-        f"m{i}": OllamaResponder(_WEAK, max_tokens=24, system="Answer in one short word only.")
-        for i in range(4)
+    # The R-1 demonstration needs the two things CI cannot fake: (1) weak models that genuinely
+    # DISAGREE (an open, judgment question — not "2+2", where every model says "4" and the
+    # ensemble is pointless), and (2) cancel-all-others firing on R-1's OWN record. For (2) we
+    # add LINGERING members (`slowA`/`slowB`) that are still running when the quorum of fast
+    # members fires the adjudicator; on the adjudicator's completion they are cancelled. A
+    # non-zero temperature widens the disagreement across the weak members.
+    fast = {
+        f"m{i}": OllamaResponder(
+            _WEAK,
+            max_tokens=12,
+            temperature=0.9,
+            system="Answer with ONE short word. No explanation.",
+        )
+        for i in range(3)
+    }
+    slow = {
+        name: OllamaResponder(
+            _WEAK,
+            max_tokens=12,
+            temperature=0.9,
+            system="Answer with ONE short word. No explanation.",
+        )
+        for name in ("slowA", "slowB")
     }
     adj = OllamaResponder(
         _STRONG,
         max_tokens=24,
-        system="Pick the best member by id. Reply with just the id (e.g. m0).",
+        system="Given candidate answers labelled by member id, pick the single best one. "
+        "Reply with JUST the member id (e.g. m0).",
     )
     topo = ensemble_topology(
-        "What is 2+2? Answer with the number.",
-        members=members,
+        "In one word, what is the most important quality in a leader?",
+        members={**fast, **slow},
         adjudicator=adj,
         quorum=3,
+        slow_members=frozenset(slow),
+        linger_seconds=8.0,  # still running when the 3 fast members fire the adjudicator
         deterministic=False,  # a real LLM is not author-deterministic
     )
     result = await api.Runtime(root).run(topo)
     envs = list(api.read_record(root))
     print(f"R-1 status: {result.status}")
+    answers = [e["payload"]["answer"] for e in envs if e["kind"] == "Candidate"]
     for e in envs:
         if e["kind"] == "Candidate":
             print(f"  Candidate {e['payload']['member']}: {e['payload']['answer']!r}")
         elif e["kind"] == "Verdict":
             print(f"  VERDICT: {e['payload']['chosen']} -> {e['payload']['answer']!r}")
         elif e["kind"] == "substrate.ProducerCancelled":
-            print(f"  CANCELLED: {e['payload']['producer']['kind']}")
+            print(f"  CANCELLED (lingering loser): {e['payload']['producer']['kind']}")
+    print(
+        f"  distinct answers among candidates: {len(set(a.lower() for a in answers))} of {len(answers)}"
+    )
 
 
 async def _run_r2(root: Path) -> None:
+    # R-2 runs on a PERSISTENT bus so the pause survives to a fresh Runtime — the walkthrough
+    # demonstrates the full structured-error cascade AND halt-with-resume end to end: a real
+    # model does the transform; seeded faults drive invalid-emission -> retry-with-enrichment,
+    # an unrecoverable fault -> RetryExhausted -> pause; then a resume injects the operator
+    # override and the run finalises.
     tx = OllamaResponder(
         _WEAK,
         max_tokens=16,
         system="Uppercase the input word. Reply with ONLY the uppercased word.",
     )
     topo = pipeline_topology(
-        ["alpha", "beta", "gamma"], transform_model=tx, fault_row=1, deterministic=False
+        ["alpha", "beta", "gamma", "delta"],
+        transform_model=tx,
+        fault_row=1,  # recoverable: retry-with-enrichment succeeds
+        hard_fault_row=2,  # unrecoverable: escalates to RetryExhausted -> pause
+        malformed_row=3,  # input_builder raises -> InputBuildFailed
+        deterministic=False,  # a real LLM is not author-deterministic
     )
-    result = await api.Runtime(root).run(topo)
-    print(f"R-2 status: {result.status}")
+
+    paused = await api.Runtime(root, persistent=True).run(topo)
+    print(f"R-2 (run-to-pause) status: {paused.status}")
     for e in api.read_record(root):
-        if e["kind"] in ("Parsed", "Transformed", "Validated"):
-            print(f"  {e['kind']}: {e['payload']}")
+        k = e["kind"]
+        if k == "Transformed":
+            print(
+                f"  Transformed row={e['payload']['row']} attempt={e['payload']['attempt']}: {e['payload']['out']!r}"
+            )
+        elif k == "substrate.ProducerEmittedInvalidEvent":
+            print(
+                f"  INVALID-EMISSION row={(e['payload'].get('raw_payload') or {}).get('row')} reason={e['payload']['reason']}"
+            )
+        elif k == "substrate.InputBuildFailed":
+            print(
+                f"  INPUT-BUILD-FAILED trigger={e['payload'].get('trigger_id')}: {e['payload'].get('error')}"
+            )
+        elif k == "RetryExhausted":
+            print(
+                f"  RETRY-EXHAUSTED row={e['payload']['row']} after {e['payload']['attempts']} attempt(s)"
+            )
+        elif k == "substrate.TerminationMatched":
+            print(
+                f"  TERMINATION: {e['payload']['decision']} (resume_condition={e['payload'].get('resume_condition')})"
+            )
+
+    # Resume in a FRESH Runtime — the F-PERS-2 cross-process promise — injecting the operator
+    # override; the recovery Producer runs and the run finalises on the SAME seq sequence.
+    resumed = await api.Runtime(root, persistent=True).resume(
+        topo, resume_event=operator_override(row=2)
+    )
+    print(
+        f"R-2 (resume) status: {resumed.status} | run_id continuous: {paused.run_id == resumed.run_id}"
+    )
+    after = list(api.read_record(root))
+    for e in after:
+        if e["kind"] == "Recovered":
+            print(f"  RECOVERED row={e['payload']['row']} by={e['payload']['by']}")
+    seqs = [e["seq"] for e in after]
+    print(f"  continuous seq across pause: {seqs == list(range(len(seqs)))} (len {len(seqs)})")
 
 
 async def _run_r3(root: Path, inner_root: Path) -> None:

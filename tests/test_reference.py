@@ -52,58 +52,126 @@ async def test_r1_ensemble_adjudicates_after_quorum(tmp_path):
 
 
 @pytest.mark.timeout(15)
-async def test_r1_cancel_others_when_candidates_still_running(tmp_path):
-    # candidates that linger (slow responder) are cancel-all-othered when the adjudicator
-    # completes — the R-1 cancellation facet, demonstrated deterministically.
-    import asyncio
-
-    from substrate.reference import r1_ensemble as r1
-
-    # patch a couple of members to linger so they are still running at adjudication
-    slow = DeterministicResponder(seed=7, menu=["Paris"])
-
-    class _Slow:
-        def respond(self, prompt: str) -> str:
-            return slow.respond(prompt)
-
+async def test_r1_cancels_lingering_losers_on_adjudication(tmp_path):
+    # R-1 demonstrates cancel-all-others on its OWN record: 5 members, 3 instant + 2 lingering.
+    # The 3 fast Candidates meet quorum and fire the adjudicator (Once); the adjudicator is
+    # instant so it COMPLETES while slowA/slowB are still sleeping (linger_seconds=5). On the
+    # adjudicator's substrate.ProducerCompleted, cancel-all-others cancels the two live
+    # lingerers -> two substrate.ProducerCancelled events land on the log. The cancellation is
+    # REAL here (not "maybe nothing to cancel") and the run still finalises via all-completed.
     members = {f"m{i}": DeterministicResponder(seed=i, menu=["Paris"]) for i in range(3)}
-    # add two lingering members via a responder that the candidate factory will call; to make
-    # them linger we wrap the candidate to sleep — use a custom topology builder hook instead:
+    members["slowA"] = DeterministicResponder(seed=101, menu=["Paris"])
+    members["slowB"] = DeterministicResponder(seed=102, menu=["Paris"])
     topo = ensemble_topology(
-        "Q?",
-        members={**members, "slowA": _Slow(), "slowB": _Slow()},
-        adjudicator=DeterministicResponder(seed=1, menu=["m0"]),
+        "Capital of France?",
+        members=members,
+        adjudicator=DeterministicResponder(seed=1, menu=["m0", "m1", "m2"]),
         quorum=3,
         deterministic=True,
+        slow_members=frozenset({"slowA", "slowB"}),
+        linger_seconds=5.0,
     )
     result = await Runtime(tmp_path / "run").run(topo)
-    # all members here are instant, so there may be nothing to cancel — the cancel-others
-    # WIRING is unit-tested in test_cancel_others.py; here we assert R-1 finalises cleanly
-    # with an adjudication regardless of whether cancellation had live victims.
-    assert result.status == "finalised"
+    assert result.status == "finalised"  # did not hang on the 5s-lingering candidates
     envs = list(read_record(tmp_path / "run"))
-    assert any(e["kind"] == "Verdict" for e in envs)
-    _ = (asyncio, r1)  # imports kept for the documented walkthrough hook
+
+    # the two lingering members were genuinely cancelled — ProducerCancelled is on the record
+    cancelled = [e for e in envs if e["kind"] == "substrate.ProducerCancelled"]
+    cancelled_kinds = sorted(e["payload"]["producer"]["kind"] for e in cancelled)
+    assert cancelled_kinds == ["member-slowA", "member-slowB"]  # exactly the two lingerers
+    assert len(cancelled) == 2
+    # the adjudicator (the subject of cancel-others) was spared, and completed normally
+    assert not any(e["payload"]["producer"]["kind"] == "adjudicator" for e in cancelled)
+    adj_completed = [
+        e
+        for e in envs
+        if e["kind"] == "substrate.ProducerCompleted"
+        and e["payload"]["producer"]["kind"] == "adjudicator"
+    ]
+    assert len(adj_completed) == 1
+    # the adjudicator produced a Verdict, and the run finalised (cancel-others is non-terminal)
+    verdict = [e for e in envs if e["kind"] == "Verdict"]
+    assert len(verdict) == 1 and verdict[0]["payload"]["chosen"].startswith("m")
+    tm = [e for e in envs if e["kind"] == "substrate.TerminationMatched"]
+    assert any(e["payload"]["decision"] == "cancel-others" for e in tm)
+    assert envs[-1]["kind"] == "substrate.RunFinalised"
 
 
-# ── R-2 Pipeline with structured error cascade ─────────────────────────────────
-@pytest.mark.timeout(15)
-async def test_r2_pipeline_chains_and_flags_the_faulted_row(tmp_path):
-    rows = ["alpha", "beta", "gamma"]
+# ── R-2 Pipeline: structured error cascade + halt-with-resume ──────────────────
+@pytest.mark.timeout(20)
+async def test_r2_error_cascade_pauses_then_resumes(tmp_path):
+    # The integrated R-2 demonstration on a PERSISTENT bus: a recoverable fault (retry-with-
+    # enrichment success), an unrecoverable fault (RetryExhausted escalation), a malformed row
+    # (InputBuildFailed), a pause_await_input on RetryExhausted, and resume in a FRESH Runtime.
+    root = tmp_path / "run"
+    rows = ["alpha", "beta", "gamma", "delta"]
     topo = pipeline_topology(
-        rows, transform_model=DeterministicResponder(seed=0), fault_row=1, deterministic=True
+        rows,
+        transform_model=DeterministicResponder(seed=0),
+        fault_row=1,  # recoverable: fails attempt 1, retry succeeds
+        hard_fault_row=2,  # unrecoverable: exhausts the retry budget -> escalation
+        malformed_row=3,  # the to-transform input_builder raises -> InputBuildFailed
+        deterministic=True,
     )
-    result = await Runtime(tmp_path / "run").run(topo)
-    assert result.status == "finalised"
-    envs = list(read_record(tmp_path / "run"))
-    # parser -> transform -> validator chained per row (PerEvent triggers)
-    assert sum(1 for e in envs if e["kind"] == "Parsed") == 3
-    assert sum(1 for e in envs if e["kind"] == "Transformed") == 3
-    validated = [e for e in envs if e["kind"] == "Validated"]
-    assert len(validated) == 3
-    # the seeded fault row (1) failed validation (empty transform output); the others passed
-    by_row = {e["payload"]["row"]: e["payload"]["ok"] for e in validated}
-    assert by_row[1] is False and by_row[0] is True and by_row[2] is True
+
+    # 1) run to the pause. Persistent so the record survives for a fresh-process resume.
+    paused = await Runtime(root, persistent=True).run(topo)
+    assert paused.status == "paused"
+    envs = list(read_record(root))
+    kinds = [e["kind"] for e in envs]
+
+    # mechanism 1: a REAL invalid emission (undeclared kind) -> ProducerEmittedInvalidEvent;
+    # the fabricated BadEmission NEVER reached the log.
+    invalid = [e for e in envs if e["kind"] == "substrate.ProducerEmittedInvalidEvent"]
+    assert len(invalid) >= 2  # fault_row first attempt + hard_fault_row (>=1 attempt)
+    assert all(e["payload"]["reason"] == "unknown_kind" for e in invalid)
+    assert "BadEmission" not in kinds
+
+    # mechanism 2: retry enriched via a Route (check-1 pattern) — the failure-context Route
+    # staged the reason (InjectionApplied), and the retry firing's RECORDED resolved input
+    # carried it. The recoverable fault_row then produced a Transformed on attempt 2.
+    assert any(e["kind"] == "substrate.InjectionApplied" for e in envs)
+    retry_fires = [
+        e
+        for e in envs
+        if e["kind"] == "substrate.TriggerFired" and e["payload"].get("trigger_id") == "retry"
+    ]
+    assert retry_fires, "the retry Trigger must fire on the invalid emission"
+    assert any(e["payload"]["resolved_input"].get("prior_reason") for e in retry_fires)
+    transformed = [e for e in envs if e["kind"] == "Transformed"]
+    assert any(t["payload"]["row"] == 1 and t["payload"]["attempt"] == 2 for t in transformed)
+
+    # mechanism 3: RetryExhausted escalation for the unrecoverable row.
+    exhausted = [e for e in envs if e["kind"] == "RetryExhausted"]
+    assert len(exhausted) == 1 and exhausted[0]["payload"]["row"] == 2
+
+    # mechanism 4: the malformed row's input_builder raised -> InputBuildFailed (no transform).
+    ibf = [e for e in envs if e["kind"] == "substrate.InputBuildFailed"]
+    assert ibf and any(e["payload"].get("trigger_id") == "to-transform" for e in ibf)
+
+    # mechanism 5: the run PAUSED on RetryExhausted (not finalised — no RunFinalised yet).
+    assert "substrate.RunFinalised" not in kinds
+    tm = [e for e in envs if e["kind"] == "substrate.TerminationMatched"]
+    assert tm and tm[-1]["payload"]["decision"] == "pause-await-input"
+
+    # 2) resume in a FRESH Runtime (the F-PERS-2 cross-process promise). Inject the operator
+    #    override; the recovery Producer runs and the run finalises.
+    from substrate.reference.r2_pipeline import operator_override
+
+    resumed = await Runtime(root, persistent=True).resume(
+        topo, resume_event=operator_override(row=2)
+    )
+    assert resumed.status == "finalised"
+    assert resumed.run_id == paused.run_id  # identity preserved across resume
+
+    after = list(read_record(root))
+    after_kinds = [e["kind"] for e in after]
+    assert "OperatorOverride" in after_kinds  # the external resume event landed
+    assert any(e["kind"] == "Recovered" and e["payload"]["row"] == 2 for e in after)
+    assert "substrate.RunFinalised" in after_kinds
+    # seq continuity across the pause boundary: one dense sequence, no reset, no gap.
+    seqs = [e["seq"] for e in after]
+    assert seqs == list(range(len(seqs)))
 
 
 # ── R-3 Code synthesis with overlap, composed ──────────────────────────────────

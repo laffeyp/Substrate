@@ -17,8 +17,113 @@ from substrate.cli import (
     EXIT_CONFIG,
     EXIT_FAILED,
     EXIT_OK,
+    EXIT_PAUSED,
     main,
 )
+
+# A pause/resume topology written to a temp module so the CLI resolves it (and the resume
+# event factory) via `path/to/module.py:func` — the documented resume invocation (F-CLI).
+_PAUSE_RESUME_MODULE = """
+from msgspec import Struct
+from substrate.api import (
+    PerEvent, Subscription, any_of, pause_await_input, quiescence_with_watchdog,
+)
+
+
+class S1(Struct, frozen=True):
+    pass
+
+
+class S2(Struct, frozen=True):
+    pass
+
+
+class Approve(Struct, frozen=True):
+    ok: bool
+
+
+async def s1(_i):
+    yield S1()
+
+
+async def s2(_i):
+    yield S2()
+
+
+def _pause_when(ctx):
+    return ctx.counts("S1") >= 1 and ctx.counts("Approve") == 0
+
+
+def topo(b):
+    b.producer_kind("s1", schemas=[S1], schema_version=1, factory=lambda: s1)
+    b.producer_kind("s2", schemas=[S2], schema_version=1, factory=lambda: s2)
+    b.initial("s1", input=None)
+    b.trigger(
+        "on-approve",
+        subscription=Subscription(kinds=frozenset({"Approve"})),
+        predicate=lambda event, views: bool(event.payload.get("ok")),
+        starts="s2",
+        input_builder=lambda views, staged, event: None,
+        policy=PerEvent(),
+    )
+    b.termination(
+        any_of(
+            pause_await_input(_pause_when, resume_condition="Approve"),
+            quiescence_with_watchdog(seconds=1),
+        )
+    )
+
+
+def approve():
+    return Approve(ok=True)
+"""
+
+
+def test_cli_resume_continues_paused_run(tmp_path):
+    # Pause via the CLI, then resume via the CLI in a fresh process-like invocation.
+    mod = tmp_path / "pr.py"
+    mod.write_text(_PAUSE_RESUME_MODULE)
+    root = tmp_path / "run"
+    runner = CliRunner()
+
+    paused = runner.invoke(
+        main, ["run", "--topology-module", f"{mod}:topo", "--root", str(root), "--persistent"]
+    )
+    assert paused.exit_code == EXIT_PAUSED, paused.output
+
+    resumed = runner.invoke(
+        main,
+        [
+            "resume",
+            str(root),
+            "--topology-module",
+            f"{mod}:topo",
+            "--input",
+            f"{mod}:approve",
+        ],
+    )
+    assert resumed.exit_code == EXIT_OK, resumed.output
+    assert str(root) in resumed.stdout
+
+    from substrate.api import read_record
+
+    kinds = [e["kind"] for e in read_record(root)]
+    assert "Approve" in kinds and "S2" in kinds and "substrate.RunFinalised" in kinds
+    seqs = [e["seq"] for e in read_record(root)]
+    assert seqs == list(range(len(seqs)))  # continuous seq across the pause boundary
+
+
+def test_cli_resume_requires_input(tmp_path):
+    mod = tmp_path / "pr.py"
+    mod.write_text(_PAUSE_RESUME_MODULE)
+    root = tmp_path / "run"
+    runner = CliRunner()
+    runner.invoke(
+        main, ["run", "--topology-module", f"{mod}:topo", "--root", str(root), "--persistent"]
+    )
+    # --input is required (the external resume event); omitting it is a usage error.
+    res = runner.invoke(main, ["resume", str(root), "--topology-module", f"{mod}:topo"])
+    assert res.exit_code != EXIT_OK
 
 
 def test_api_exposes_exception_hierarchy_by_type():

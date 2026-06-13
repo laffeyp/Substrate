@@ -36,51 +36,70 @@ Each prints what it demonstrated and the record root; inspect the record with
 These are ACTUAL outputs from real model runs on the development machine — not stubs, not
 edited. Small inputs (a demonstration, not a benchmark).
 
-### R-1 Ensemble + adjudicator — *demonstrates real adjudication*
+### R-1 Ensemble + adjudicator — *demonstrates real adjudication, disagreement, AND cancellation*
 
-4 weak `llama3.2:1b` members answer "What is 2+2?"; a Bus-view predicate ("≥3 answers") fires
-the `qwen2.5-coder` adjudicator (Once), which judges the candidate answers and picks one.
+3 fast + 2 lingering weak `llama3.2:1b` members (temperature 0.9) answer an OPEN judgment
+question — "In one word, what is the most important quality in a leader?" — chosen because weak
+models genuinely DISAGREE on it (unlike "2+2", where every model says "4" and the ensemble is
+pointless). A Bus-view predicate ("≥3 answers") fires the `qwen2.5-coder` adjudicator (Once)
+once the 3 fast members answer; the 2 lingering members are still running, so cancel-all-others
+cancels them on the adjudicator's completion — `substrate.ProducerCancelled` lands on R-1's OWN
+record.
 
 ```
 R-1 status: finalised
-  Candidate m0: '4'
-  Candidate m1: '4'
-  Candidate m2: '4'
-  Candidate m3: '4'
-  VERDICT: m0 -> '4'
+  Candidate m0: 'Charisma'
+  Candidate m1: 'Vision'
+  Candidate m2: 'Integrity'
+  VERDICT: m2 -> 'Integrity'
+  CANCELLED (lingering loser): member-slowA
+  CANCELLED (lingering loser): member-slowB
+  distinct answers among candidates: 3 of 3
 ```
 
-What it proves: the Bus-view "≥quorum" predicate fired the adjudicator exactly once after the
-quorum of real candidate answers accumulated; the real adjudicator model judged them and
-emitted a Verdict; the run finalised. (On this fast question all four members completed before
-adjudication, so cancel-all-others had no live candidates to cancel — the cancellation wiring
-is exercised separately in `tests/test_cancel_others.py`; a slower/larger ensemble would show
-live cancellations on the log as `substrate.ProducerCancelled`.)
+What it proves: the weak members genuinely disagreed (3 distinct answers of 3 — Charisma /
+Vision / Integrity); the Bus-view "≥quorum" predicate fired the adjudicator exactly once after
+the quorum accumulated; the real adjudicator model judged the candidates and chose one
+(Integrity); and because the 2 slow members were still running at adjudication, cancel-all-
+others cancelled them — two real `substrate.ProducerCancelled` events on this run's own log.
+This is the marquee R-1 behavior (adjudication + disagreement + live cancellation) on R-1's own
+record, not a stand-in.
 
-### R-2 Pipeline with structured error cascade — *demonstrates a real model's error behavior*
+### R-2 Pipeline: structured error cascade + halt-with-resume — *demonstrates a real model's error behavior end to end*
 
-parser → (real `llama3.2:1b` transform) → validator, PerEvent per row; row 1 is the seeded
-fault (empty transform output → validation failure).
+R-2 runs on a PERSISTENT bus. parser → (real `llama3.2:1b` transform), PerEvent per row, with
+three seeded conditions: row 1 a RECOVERABLE fault (first transform attempt emits an undeclared
+kind → `ProducerEmittedInvalidEvent`, then a retry-with-enrichment re-fire succeeds); row 2 an
+UNRECOVERABLE fault (every attempt invalid → retry budget exhausted → `RetryExhausted`); row 3 a
+malformed row whose input_builder raises → `InputBuildFailed`. `RetryExhausted` trips a
+`pause_await_input` policy, so the run PAUSES; a `substrate resume` (here `Runtime.resume`)
+injects an `OperatorOverride` that fires a recovery Producer and the run finalises — on the SAME
+seq sequence, across a process boundary.
 
 ```
-R-2 status: finalised
-  Parsed: {'row': 0, 'value': 'alpha'}
-  Parsed: {'row': 1, 'value': 'beta'}
-  Parsed: {'row': 2, 'value': 'gamma'}
-  Transformed: {'out': 'TRANSFORM', 'row': 0}
-  Transformed: {'out': '', 'row': 1}
-  Transformed: {'out': 'GAMMA', 'row': 2}
-  Validated: {'ok': True, 'row': 0}
-  Validated: {'ok': False, 'row': 1}
-  Validated: {'ok': True, 'row': 2}
+R-2 (run-to-pause) status: paused
+  INPUT-BUILD-FAILED trigger=to-transform: ValueError('malformed row 3: cannot build transform input')
+  Transformed row=0 attempt=1: 'TRANSFORM'
+  INVALID-EMISSION row=1 reason=unknown_kind
+  INVALID-EMISSION row=2 reason=unknown_kind
+  Transformed row=1 attempt=2: 'TRANSFORM'
+  INVALID-EMISSION row=2 reason=unknown_kind
+  RETRY-EXHAUSTED row=2 after 2 attempt(s)
+  TERMINATION: pause-await-input (resume_condition=OperatorOverride)
+R-2 (resume) status: finalised | run_id continuous: True
+  RECOVERED row=2 by=operator
+  continuous seq across pause: True (len 43)
 ```
 
-What it proves: the parser→transform→validator chain ran per row through PerEvent Triggers; the
-seeded fault row (1) produced an empty transform output and failed validation while the others
-passed — the structured outcome is entirely on the log, row by row. (Note row 0's `TRANSFORM`:
-the small model misread the instruction and uppercased a word from the prompt — authentic
-real-model behavior, exactly the kind of thing CI's clean stub hides and the walkthrough
-surfaces. The record captures what the model actually did, faithfully.)
+What it proves, every mechanism on R-2's own log: (1) a REAL invalid emission (an undeclared
+kind) became `substrate.ProducerEmittedInvalidEvent` — no fabricated event reached the bus;
+(2) the retry Trigger, enriched via a Route carrying the failure reason, re-fired the transform
+and row 1 recovered on attempt 2; (3) row 2's repeated invalidity exhausted the retry budget and
+escalated to `RetryExhausted`; (4) row 3's input_builder raised and the kernel recorded
+`InputBuildFailed` instead of crashing; (5) `RetryExhausted` paused the run, and a fresh
+`Runtime.resume` injected the operator override, ran the recovery, and finalised with a single
+unbroken seq sequence across the pause boundary — the persistent-bus halt-with-resume. (Note the
+model uppercasing — `'TRANSFORM'` — is authentic small-model behavior, faithfully recorded.)
 
 ### R-3 Code synthesis with overlap, composed — *demonstrates real synthesis + overlap + composition*
 

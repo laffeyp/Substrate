@@ -55,7 +55,20 @@ class PerEvent:
 
 
 class PerKey:
-    """One firing per distinct key extracted from the event (CEP window-and-key)."""
+    """One firing per distinct key extracted from the event (CEP window-and-key).
+
+    N-MEM-1 (memory bound — documented behavior, v1.0): `_seen` grows by one canonical-key
+    entry per DISTINCT key the Trigger ever fires on, for the lifetime of the run. It is NOT
+    evicted. For a bounded-key topology (e.g. PerKey over a fixed set of categories) this is
+    O(distinct keys) and fine. For an UNBOUNDED-key, long-running topology (e.g. PerKey over a
+    per-message id that never repeats) `_seen` grows without bound — the dedup set is the cost
+    of the "fire exactly once per key, forever" guarantee. v1.0 does NOT bound it: a windowed
+    / LRU eviction would silently let an evicted key RE-FIRE (a dedup-correctness change, not a
+    free optimization), so it needs a decision (a key-window/TTL on PerKey) rather than a quiet
+    cap. The operational guidance for v1.0: do not key PerKey on an unbounded-cardinality field
+    in a long-lived run; use PerEvent (no dedup state) or a bounded key. (Route `staged` is
+    bounded by construction — keyed by the static set of declared Route slots, latest-wins per
+    slot — so it is NOT part of this growth; only `_seen` is.)"""
 
     def __init__(self, fn: Callable[[Event], Any]) -> None:
         self._fn = fn

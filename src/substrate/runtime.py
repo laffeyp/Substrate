@@ -25,17 +25,17 @@ from msgspec import Struct
 from ulid import ULID
 
 from . import locking
-from .constants import BUDGET_US, HYSTERESIS_K, VOCAB_VERSION
-from .encoding import content_hash, try_canonical
+from .constants import BUDGET_US, HYSTERESIS_K, VOCAB_VERSION, is_reserved
+from .encoding import content_hash, to_canonical_builtins, try_canonical
 from .errors import FsyncError, ReentrantAppendError
 from .policies import Decision, TermContext, quiescence_with_watchdog
-from .record import FsyncPolicy, Interval, RecordWriter
+from .record import FsyncPolicy, Interval, RecordWriter, read_record, recover_open_segment
 from .runstate import RunPhase, RunState
 from .sealing import seal
 from .sequencer import AppendCycle, _Emission, _Lifecycle
 from .sidecar import DiagnosticSidecar, WriterStatsSidecar
-from .topology import Registration, TopologyBuilder
-from .types import Event
+from .topology import Registration, RegistrationError, TopologyBuilder
+from .types import Event, ProducerRef
 
 _QUIESCENCE_POLL_S = 0.01  # writer idle-poll for the quiescence/watchdog check
 
@@ -80,9 +80,47 @@ class Runtime:
         self._used = False
 
     async def run(self, topology: Callable[[TopologyBuilder], None]) -> RunResult:
+        """Run a topology to a fresh run record. Opens at seq 0 with substrate.RunStarted."""
+        return await self._drive(topology, resume_event=None)
+
+    async def resume(
+        self, topology: Callable[[TopologyBuilder], None], *, resume_event: Any
+    ) -> RunResult:
+        """Resume a PAUSED persistent-bus run at its existing record (F-TERM-3 / F-PERS-2).
+
+        Reattaches to the persisted bus (re-acquires the flock, opens the EXISTING record for
+        append, restores next_seq + the registered Views from the log tail), then appends the
+        external `resume_event` — an application event the resume Trigger subscribes to — so
+        the resume Trigger fires the continuation Producer; the run continues to its next
+        terminal. Seq continues the same sequence; the manifest updates. The topology is taken
+        fresh (the same registration the original run used), pointed at the existing root.
+
+        Persistent mode is required: a paused run must survive on a named persistent root under
+        the exclusive lock. `resume_event` is a Producer-declared event Struct (validated at the
+        bus boundary like any emission)."""
+        if not self._persistent:
+            raise RegistrationError(
+                "resume requires persistent=True: only a persistent-bus run can pause and "
+                "resume across processes (F-TERM-3 / F-PERS-2)."
+            )
+        # Config-time refusal (BEFORE the lock/record are taken, like an arg error): the resume
+        # event must be an APPLICATION event, never a reserved substrate.* kind — a reserved
+        # kind would forge a lifecycle frame. Propagated as RegistrationError, not a failed run.
+        if is_reserved(type(resume_event).__name__):
+            raise RegistrationError(
+                f"resume_event kind {type(resume_event).__name__!r} uses the reserved "
+                f"'substrate.' namespace; the resume event must be an application event a "
+                f"resume Trigger subscribes to."
+            )
+        return await self._drive(topology, resume_event=resume_event)
+
+    async def _drive(
+        self, topology: Callable[[TopologyBuilder], None], *, resume_event: Any
+    ) -> RunResult:
         if self._used:
             raise RuntimeError("RuntimeAlreadyUsedError: a Runtime is single-use")
         self._used = True
+        resuming = resume_event is not None
         started = time.monotonic()
 
         builder = TopologyBuilder()
@@ -106,8 +144,12 @@ class Runtime:
         # leak / self-deadlock.
         if self._persistent:
             lock_fd = locking.acquire_lock(self._record_root, start_time=time.time())
+        if resuming:
+            # Resume: recover the existing record's torn tail (writer-side, §3.3) before
+            # reopening it for append, so we continue from the last complete frame.
+            recover_open_segment(self._record_root)
         try:
-            record = RecordWriter(self._record_root, fsync=self._fsync)
+            record = RecordWriter(self._record_root, fsync=self._fsync, resume=resuming)
         except BaseException:
             if lock_fd is not None:
                 locking.release_lock(lock_fd)
@@ -128,7 +170,10 @@ class Runtime:
                 hysteresis_k=self._hysteresis_k,
                 diagnostics=self._diag,
             )
-            self._bootstrap(reg)
+            if resuming:
+                self._resume_bootstrap(reg, resume_event)
+            else:
+                self._bootstrap(reg)
             self._flush_scheduled()
             await self._writer_loop()
         except FsyncError:
@@ -282,6 +327,49 @@ class Runtime:
                 )
             )
             self._st.scheduled.append((init.kind, sealed, instance, None))
+
+    def _resume_bootstrap(self, reg: Registration, resume_event: Any) -> None:
+        """Resume entry (F-TERM-3): restore state from the existing record, then inject the
+        external resume event so the resume Trigger fires the continuation. No fresh
+        RunStarted — the run is CONTINUING, not opening; seq continues the existing sequence."""
+        st = self._st
+        # 1) Restore from the log tail: next_seq (seq continuity), the registered Views (folded
+        #    Level-1 over the existing record so the resume Trigger's predicate/input_builder
+        #    see correct as-of state), and the kind counts + started/ended totals the
+        #    TerminationPolicy reads. Views are deterministic Level-1 projections (kernel §4).
+        max_seq = -1
+        for env in read_record(self._record_root):
+            seq = int(env.get("seq", -1))
+            max_seq = max(max_seq, seq)
+            kind = str(env.get("kind", ""))
+            if kind == "substrate.RunStarted":
+                # restore the ORIGINAL run_id so the resumed manifest/RunResult keep the run's
+                # identity (the freshly-minted st.run_id from _new_run_state is discarded).
+                rid = env.get("payload", {})
+                if isinstance(rid, dict) and isinstance(rid.get("run_id"), str):
+                    st.run_id = rid["run_id"]
+            st.counts[kind] = st.counts.get(kind, 0) + 1
+            if kind == "substrate.ProducerStarted":
+                st.started_total += 1
+            elif kind in (
+                "substrate.ProducerCompleted",
+                "substrate.ProducerFailed",
+                "substrate.ProducerCancelled",
+            ):
+                st.ended_total += 1
+            for vname, view in reg.views.items():
+                if _resume_view_matches(view.subscription, env):
+                    view.update(_as_event(env))
+        st.next_seq = max_seq + 1  # resumed appends continue the SAME seq sequence
+        # 2) Inject the external resume event onto the bus (producer=null — it is externally
+        #    supplied, not Producer-emitted). It is canonicalized + validated here; the resume
+        #    Trigger (subscribed to its kind) fires the continuation Producer in the cycle.
+        kind = type(resume_event).__name__  # reserved-kind already refused in resume()
+        try:
+            payload = to_canonical_builtins(resume_event)
+        except Exception as exc:
+            raise RegistrationError(f"resume_event is not canonical: {exc!r}") from exc
+        self._cyc.cycle(_Lifecycle(kind, payload))  # appends with producer=null; fires triggers
 
     def _manifest(self, reg: Registration) -> dict[str, Any]:
         producer_kinds = []
@@ -549,3 +637,38 @@ class Runtime:
         )
         for _inst, task in victims:
             task.cancel()  # the task's CancelledError handler enqueues ProducerCancelled
+
+
+# ── resume helpers (fold the existing record into the registered Views, §4 Level-1) ──────
+def _resume_view_matches(sub: Any, env: dict[str, Any]) -> bool:
+    """Subscription match on a raw record envelope dict (the resume fold needs to feed only
+    the events a View subscribes to, mirroring runtime/inspect subscription semantics)."""
+    if str(env.get("kind")) in sub.kinds:
+        return True
+    ref = env.get("producer")
+    if isinstance(ref, dict) and sub.producers:
+        if ref.get("kind") in sub.producers or ref.get("instance") in sub.producers:
+            return True
+    return False
+
+
+def _as_event(env: dict[str, Any]) -> Event:
+    """Reconstruct an Event from a record envelope for the resume View fold."""
+    ref = env.get("producer")
+    producer = (
+        ProducerRef(
+            kind=str(ref.get("kind", "")),
+            instance=str(ref.get("instance", "")),
+            parent=ref.get("parent"),
+        )
+        if isinstance(ref, dict)
+        else None
+    )
+    return Event(
+        seq=int(env["seq"]),
+        kind=str(env["kind"]),
+        schema=str(env.get("schema", "")),
+        producer=producer,
+        t=float(env.get("t", 0.0)),
+        payload=env.get("payload"),
+    )
