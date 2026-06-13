@@ -245,12 +245,18 @@ def replay(record: Any, level: ReplayLevel = "1") -> ReplayResult:
         )
 
     if level == "3b":
-        # DEFERRED — not faked. Level 3(b) substitution re-execution replays the kernel with
-        # log-backed deterministic emitters in recorded admission order; it needs a t-replay
-        # (clock substitution) decision the specs leave open. See BLACKBOARD ## Deferred.
+        # DEFERRED (spec-amended) — not faked. Level 3(b) substitution re-execution replays
+        # the kernel with log-backed deterministic emitters in recorded admission order to a
+        # BYTE-IDENTICAL log; byte-identity includes the envelope `t`, so it needs a t-replay
+        # (replay-mode writer that replays recorded `t` instead of re-sampling the clock) —
+        # a mechanism the specs leave open. Deferred to a later wave by product amendment
+        # A1.1 (product_spec/draft7_amendment_A1_replay_3b.md): F-RPLY-1 3(b) relaxed to
+        # SHOULD for the v1.0 milestone, conformance check 6 marked "deferred (spec-amended)"
+        # (NOT silently failing). Levels 1/2/3a are complete. See BLACKBOARD ## Deferred.
         raise NotImplementedError(
-            "replay Level 3(b) (substitution re-execution) is deferred pending a t-replay "
-            "decision; see BLACKBOARD ## Deferred. Levels 1/2/3a are available."
+            "replay Level 3(b) (byte-identical substitution re-execution) is deferred "
+            "(spec-amended: product DRAFT 7 amendment A1.1) pending a t-replay/replay-mode-"
+            "writer decision. Levels 1/2/3a are available."
         )
 
     raise ReplayError(f"unknown replay level {level!r}; expected one of 1, 2, 3a, 3b")

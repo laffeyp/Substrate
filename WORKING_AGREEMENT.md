@@ -38,6 +38,8 @@
 
 Superseded drafts under `product_spec/`, `technical_spec/`, `kernel_spec/` are audit-trail history (no deletions, hard rule 12); cite only the canonical drafts above.
 
+**Additive amendments** (govern over the base draft where they conflict; the base draft is preserved): `product_spec/draft7_amendment_A1_replay_3b.md` + `technical_spec/draft5_amendment_A1.md` — 2026-06-13 Ruling 2: Level 3(b) replay deferred (F-RPLY-1 relaxed to SHOULD for v1.0; conformance check 6 = "deferred (spec-amended)"), and the D-8 supplementary-metadata exclusion set enumerated. Cite the base draft + its amendment together.
+
 ---
 
 ## Canonical home registry
