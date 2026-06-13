@@ -224,10 +224,13 @@ def test_conformance_runs_the_suite_and_surfaces_deferred_distinctly(tmp_path):
     assert res.exit_code == EXIT_OK  # no check FAILED
     out = res.stdout + res.stderr
     # check 6 (Level-3b) is shown as a GENUINE third state, never a green PASS
-    assert "DEFERRED (spec-amended)" in out
+    assert "DEFERRED (spec-amended A1.1)" in out
     assert "[06/17] Replay round-trip" in out
-    # the summary names the deferred count explicitly (not folded into "passed")
-    assert "deferred" in out.lower()
+    # check 15 under --no-perf is SKIPPED — a DISTINCT label from DEFERRED (review #5 FIX B)
+    assert "SKIPPED" in out
+    assert "[15/17] Performance floor" in out
+    # the summary names deferred AND skipped counts explicitly (not folded into "passed")
+    assert "deferred" in out.lower() and "skipped" in out.lower()
 
 
 def test_conformance_with_perf_fails_honestly_if_floor_unmet(tmp_path):

@@ -46,7 +46,12 @@ from .views import KindCount
 class Status(enum.Enum):
     PASS = "PASS"
     FAIL = "FAIL"
+    # DEFERRED is reserved for a SPEC-AMENDED deferral (check 6's Level-3b clause, A1.1) — a
+    # real, ruled "not shippable in v1.0" state. SKIPPED is for a run-time skip (e.g. check 15
+    # under --no-perf) — NOT spec-amended, just not exercised on this invocation. Keeping them
+    # distinct so a --no-perf skip never reads as the spec-amended deferral (review #5 FIX B).
     DEFERRED = "DEFERRED"
+    SKIPPED = "SKIPPED"
 
 
 @dataclass(frozen=True)
@@ -74,9 +79,13 @@ class ConformanceReport:
         return sum(1 for r in self.results if r.status is Status.DEFERRED)
 
     @property
+    def skipped(self) -> int:
+        return sum(1 for r in self.results if r.status is Status.SKIPPED)
+
+    @property
     def all_non_failing(self) -> bool:
-        """True iff no check FAILED (deferred checks do not fail the gate, per A1.1 — but
-        they are reported distinctly; the release-gate caller owns the deferred policy)."""
+        """True iff no check FAILED (deferred/skipped checks do not fail the gate — but they
+        are reported DISTINCTLY; the release-gate caller owns the deferred/skipped policy)."""
         return self.failed == 0
 
 
@@ -242,22 +251,37 @@ async def _check_5_quiescence(root: Path) -> CheckResult:
 
 
 async def _check_6_replay_roundtrip(root: Path) -> CheckResult:
-    # Level 2 reproduces every decision + resolved input (PASS); Level 3(b) byte-identical
-    # substitution is DEFERRED (spec amendment A1.1 — needs a t-replay writer). The check as a
-    # whole is reported DEFERRED because its 3(b) clause is not shippable in v1.0; Level 2 is
-    # separately verified (and PASSES) so the deferral is scoped, not a blanket skip.
+    # The deferral is SCOPED to the Level-3(b) byte-identity clause ONLY (spec amendment
+    # A1.1 — needs a t-replay writer). Level 2 SHIPS and MUST pass: it reproduces every
+    # decision + resolved input. So a genuine Level-2 mismatch here is a FAIL (review #5
+    # FIX A) — NOT masked as DEFERRED; only the 3(b) clause is deferred.
     await Runtime(root).run(_basic_topo)
     r2 = replay(root, level="2")
-    l2_ok = not r2.mismatches
+    if r2.mismatches:
+        return CheckResult(
+            6,
+            "Replay round-trip",
+            Status.FAIL,
+            f"Level 2 (which SHIPS, not deferred) had {len(r2.mismatches)} mismatch(es): "
+            f"first at seq {r2.mismatches[0].seq}",
+        )
     try:
         replay(root, level="3b")
-        l3b = "3b unexpectedly succeeded"
+        # 3b returning instead of raising would mean it shipped — that is NOT the deferred
+        # state and would be a real surprise; flag it rather than silently calling it deferred.
+        return CheckResult(
+            6, "Replay round-trip", Status.FAIL, "Level 3(b) unexpectedly did not defer"
+        )
     except NotImplementedError:
-        l3b = "3b deferred (A1.1)"
-    detail = f"Level 2 verified ({r2.decisions_verified} decisions, ok={l2_ok}); Level 3(b) {l3b}"
-    # DEFERRED — distinct from PASS and FAIL. The release gate (and the CLI) surface it as a
-    # third state; v1.0 ships with check 6 deferred per product amendment A1.1.
-    return CheckResult(6, "Replay round-trip", Status.DEFERRED, detail)
+        pass
+    # Level 2 PASSED; only the 3(b) byte-identity clause is deferred (A1.1).
+    return CheckResult(
+        6,
+        "Replay round-trip",
+        Status.DEFERRED,
+        f"Level 2 PASSED ({r2.decisions_verified} decisions verified); "
+        f"Level 3(b) byte-identity deferred (spec amendment A1.1)",
+    )
 
 
 async def _check_7_export_boundary(root: Path) -> CheckResult:
@@ -616,12 +640,16 @@ async def run_conformance(*, include_perf: bool = True) -> ConformanceReport:
         base = Path(tmp)
         for i, check in enumerate(_CHECKS, start=1):
             if i == 15 and not include_perf:
+                # SKIPPED (run-time skip), NOT DEFERRED (spec-amended) — a --no-perf skip is
+                # not a ruled deferral (review #5 FIX B). The default `substrate conformance`
+                # (no --no-perf) DOES run it and FAILs honestly if the floor is unmet.
                 results.append(
                     CheckResult(
                         15,
                         "Performance floor (N-PERF-1)",
-                        Status.DEFERRED,
-                        "skipped (covered by the dedicated benchmark)",
+                        Status.SKIPPED,
+                        "skipped on this invocation (--no-perf); the dedicated benchmark + the "
+                        "default `substrate conformance` measure it for real",
                     )
                 )
                 continue

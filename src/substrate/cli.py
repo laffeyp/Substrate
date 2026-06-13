@@ -391,29 +391,39 @@ def stats(root: str, sidecar: str) -> None:
 def conformance(no_perf: bool) -> None:
     """Run the 17-check conformance suite — the v1.0 release gate (F-CLI-4, product §7).
 
-    Each check prints PASS / FAIL / DEFERRED. A DEFERRED check (check 6, Level-3b
-    byte-identity — spec amendment A1.1) is a GENUINE THIRD state: it is neither a pass nor a
-    fail, is shown distinctly, and does NOT print green. Exit: 0 if no check FAILED (deferred
-    checks are reported but do not fail the gate per A1.1), 1 if any FAILED."""
+    Each check prints PASS / FAIL / DEFERRED / SKIPPED, four DISTINCT states. DEFERRED
+    (check 6, Level-3b byte-identity — spec amendment A1.1) is a ruled "not shippable in
+    v1.0"; SKIPPED is a run-time skip (e.g. check 15 under --no-perf) and is NOT spec-amended.
+    Neither prints green; neither is a pass. Exit: 0 iff no check FAILED, 1 if any FAILED.
+    Run WITHOUT --no-perf in CI so the N-PERF-1 floor miss cannot be masked."""
     report = asyncio.run(api.run_conformance(include_perf=not no_perf))
     n = len(report.results)
     _err.print(f"Running {n} conformance checks (product §7)...")
+    tags = {
+        "PASS": "PASS",
+        "FAIL": "FAIL",
+        "DEFERRED": "DEFERRED (spec-amended A1.1)",
+        "SKIPPED": "SKIPPED (--no-perf; not spec-amended)",
+    }
     for r in report.results:
-        # PASS/FAIL on stdout-adjacent stderr narration with a distinct DEFERRED token; the
-        # machine-readable verdict is the exit code + the final summary line.
-        tag = {"PASS": "PASS", "FAIL": "FAIL", "DEFERRED": "DEFERRED (spec-amended)"}[
-            r.status.value
-        ]
-        click.echo(f"  [{r.number:02d}/17] {r.name:<32} ... {tag}")
+        click.echo(f"  [{r.number:02d}/17] {r.name:<32} ... {tags[r.status.value]}")
         if r.status.value != "PASS":
             _err.print(f"         {r.detail}")
-    summary = f"{report.passed} passed, {report.failed} failed, {report.deferred} deferred"
+    summary = (
+        f"{report.passed} passed, {report.failed} failed, "
+        f"{report.deferred} deferred, {report.skipped} skipped"
+    )
     if report.all_non_failing:
         click.echo(f"\n{summary}. No check FAILED.")
         if report.deferred:
             _err.print(
                 f"NOTE: {report.deferred} check(s) DEFERRED (spec-amended, A1.1) — distinct "
                 f"from pass; v1.0 ships with these deferred. NOT a green pass."
+            )
+        if report.skipped:
+            _err.print(
+                f"NOTE: {report.skipped} check(s) SKIPPED on this invocation (e.g. --no-perf) "
+                f"— run the default `substrate conformance` (no flags) to exercise them."
             )
         sys.exit(EXIT_OK)
     click.echo(f"\n{summary}. {report.failed} FAILED — release gate not met.")

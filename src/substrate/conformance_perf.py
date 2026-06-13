@@ -12,6 +12,14 @@ This is the LIGHTWEIGHT probe the conformance harness (check 15) calls for a qui
 floor read. The dedicated pytest-benchmark gate (test_perf.py) is the regression-vs-previous-
 release-tag mechanism; both measure the same shape. Numbers are REAL — never fudged; if the
 floor is not met on the host, the caller reports the measured rate and FAILS honestly.
+
+SPEC-CONFIRM (review #5): the probe measures at the SUBSCRIPTION-FILTERED shape — <=5
+substantive Predicate evaluations per append, not all 50. That is EXACTLY N-PERF-1's defined
+shape: the requirement explicitly states that subscription filtering (F-PRED-1) reduces
+substantive evaluations to <=5 per append, and that filtering "is what makes N-PERF-1's
+stated shape achievable" (product §6). So the 100K floor is defined AGAINST the filtered
+shape — not "100K with all 50 predicates evaluating every append." The probe is at the right
+shape; do not read the floor as the unfiltered worst case.
 """
 
 from __future__ import annotations

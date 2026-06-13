@@ -110,7 +110,16 @@ def embedded_substrate(
 
     The returned callable is the Producer `start`: the outer runtime calls it with the sealed
     resolved input (which carries the inner record root under input["inner_root"]) and
-    consumes the translated outer events under outer admission."""
+    consumes the translated outer events under outer admission.
+
+    CONTRACT — every embedded-substrate topology MUST thread `inner_root` in the embedded
+    Producer's resolved input (e.g. `b.initial("embedded", input={"inner_root": str(path)})`,
+    or a trigger input_builder that supplies it). This is a deliberately STRICTER contract
+    than an optional fallback: it is the correct trade for run-granularity provenance — the
+    inner root is then unconditionally recorded in the outer TriggerFired.resolved_input, so
+    the inner run is always citable from the outer record (§20). Omitting it raises
+    InnerRootRequired, which surfaces as a recorded outer substrate.ProducerFailed (not a
+    fabricated, un-citable fallback root)."""
 
     def _to_rule(rule: type | ExportRule) -> ExportRule:
         if isinstance(rule, tuple):
