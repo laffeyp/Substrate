@@ -200,6 +200,14 @@ def embedded_substrate(
                 inner_root=str(inner_root),
             )
 
+    # SINGLE SOURCE OF TRUTH for the export map (no parallel hand-maintained b.export copy):
+    # attach the {inner_kind -> outer_schema_name} map the producer ACTUALLY consumes to the
+    # start callable, so the runtime can derive the RunStarted manifest's exports section from
+    # the same map the boundary translates by. The manifest can never drift from the real map.
+    start.__substrate_export_map__ = {  # type: ignore[attr-defined]
+        inner: getattr(outer_type, "__name__", str(outer_type))
+        for inner, (outer_type, _t) in rules.items()
+    }
     return start
 
 

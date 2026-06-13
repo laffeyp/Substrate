@@ -265,8 +265,11 @@ async def test_default_export_surfaces_inner_run_finalised(tmp_path):
     assert "Tick" not in [e["kind"] for e in outer_envs]
 
 
-# ── b.export records the export map in the RunStarted manifest (#3, F-COMP-1 / check 7) ──
-async def test_b_export_records_export_map_in_manifest(tmp_path):
+# ── export map is SINGLE-SOURCE: derived from embedded_substrate(exports=), no b.export ─
+async def test_export_map_in_manifest_derives_from_single_source(tmp_path):
+    # the export map is declared ONCE on embedded_substrate(exports=...); the manifest derives
+    # both the per-kind producer_kinds[].export_map AND the topology-level aggregate from it —
+    # there is no separate b.export to keep in sync (the two-source-of-truth is gone).
     def outer(b):
         b.producer_kind(
             "embedded",
@@ -275,13 +278,15 @@ async def test_b_export_records_export_map_in_manifest(tmp_path):
             factory=lambda: embedded_substrate(_inner_topo, exports={"Tick": OuterTick}),
         )
         b.initial("embedded", input={"inner_root": str(tmp_path / "inner")})
-        b.export("Tick", outer_schema=OuterTick)  # declarative form -> manifest
         b.termination(quiescence_with_watchdog(seconds=2))
 
     await Runtime(tmp_path / "outer").run(outer)
     rs = next(e for e in read_record(tmp_path / "outer") if e["kind"] == "substrate.RunStarted")
-    exports = rs["payload"]["topology"]["exports"]
-    assert exports == {"Tick": "OuterTick"}  # the boundary is observable in the record
+    topo = rs["payload"]["topology"]
+    # the per-kind map (authoritative) and the topology aggregate both reflect the single source
+    embedded_pk = next(pk for pk in topo["producer_kinds"] if pk["kind"] == "embedded")
+    assert embedded_pk["export_map"] == {"Tick": "OuterTick"}
+    assert topo["exports"] == {"Tick": "OuterTick"}  # observable in the record (check 7)
 
 
 # ── handshake #4 FIX 3: default_export + inner-run failure -> ONE ProducerFailed, ──────

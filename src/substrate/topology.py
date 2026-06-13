@@ -33,6 +33,10 @@ class ProducerKindReg:
     factory: Callable[[], Producer]
     deterministic: bool
     author_version: str | None
+    # composition export map {inner_kind -> outer_schema_name}, derived from the embedded
+    # substrate's own map (the SINGLE source of truth) — None for a non-embedded kind. The
+    # manifest reads this; there is no parallel hand-maintained copy.
+    export_map: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -68,7 +72,6 @@ class Registration:
     routes: list[RouteReg] = field(default_factory=list)
     initials: list[InitialReg] = field(default_factory=list)
     termination: TerminationPolicy | None = None
-    exports: dict[str, type] = field(default_factory=dict)
     baseline: dict[str, Any] = field(default_factory=dict)
     has_wall_clock_cooldown: bool = False
 
@@ -110,8 +113,20 @@ class TopologyBuilder:
                     f"reserved namespace."
                 )
             schema_map[s.__name__] = (s, schema_version)
+        # Derive the composition export map from the embedded substrate's OWN map (single
+        # source of truth): an embedded_substrate `start` callable carries
+        # __substrate_export_map__; build the factory once (cheap — just constructs the
+        # closure, runs nothing) to read it. Non-embedded factories carry no such attribute.
+        export_map: dict[str, str] | None = None
+        try:
+            start = factory()
+            raw = getattr(start, "__substrate_export_map__", None)
+            if isinstance(raw, dict):
+                export_map = dict(raw)
+        except Exception:
+            export_map = None  # a factory that can't be pre-built has no static export map
         self._reg.producer_kinds[kind] = ProducerKindReg(
-            kind, schema_map, factory, deterministic, author_version
+            kind, schema_map, factory, deterministic, author_version, export_map
         )
 
     def view(self, name: str, view: View) -> None:
@@ -166,16 +181,13 @@ class TopologyBuilder:
         # v0.1 ships run-scoped termination; per-Producer scoping is a documented extension.
         self._reg.termination = policy
 
-    def export(self, inner_kind: str, *, outer_schema: type) -> None:
-        """Declare a composition export-map entry {inner_kind -> outer_schema} for the
-        record/manifest (F-COMP-1 / §20). This makes the embedded substrate's boundary
-        OBSERVABLE in RunStarted (conformance check 7: the kind declaration includes an
-        export map). The embedded Producer itself consumes its export map via
-        `embedded_substrate(exports=...)` (the runtime-consuming form, which can differ per
-        embedding); `b.export` is the declarative form recorded in the manifest. Keep them
-        consistent — a v0.x convenience that derives one from the other is a documented
-        flow-back (see BLACKBOARD)."""
-        self._reg.exports[inner_kind] = outer_schema
+    # NOTE: there is deliberately NO `b.export`. The composition export map is declared ONCE,
+    # at the embedded Producer kind via `embedded_substrate(exports=...)` (F-COMP-1 / §20: the
+    # ExportMap is part of the EmbeddedSubstrate kind's declaration). The RunStarted manifest
+    # DERIVES its exports section from that single source (producer_kind reads the embedded
+    # substrate's own export map), so the recorded boundary can never drift from the map the
+    # translator actually uses. (Earlier there was a parallel `b.export` copy — removed; it was
+    # the two-source-of-truth flagged in review.)
 
     def baseline(self, **metadata: Any) -> None:
         self._reg.baseline.update(metadata)

@@ -288,20 +288,26 @@ class Runtime:
         for pk in reg.producer_kinds.values():
             schemas = {name: msgspec.json.schema(t) for name, (t, _v) in pk.schemas.items()}
             version = next(iter(pk.schemas.values()))[1] if pk.schemas else 1
-            producer_kinds.append(
-                {
-                    "kind": pk.kind,
-                    "schema_version": version,
-                    "schemas": schemas,
-                    # the author's determinism flag — load-bearing for the Level-3(a) replay
-                    # precondition (F-RPLY-1; replay._producer_kinds_deterministic).
-                    "deterministic": pk.deterministic,
-                    "fingerprint": {
-                        "qualname": getattr(pk.factory, "__qualname__", repr(pk.factory)),
-                        "author_version": pk.author_version,
-                    },
-                }
-            )
+            pk_entry: dict[str, Any] = {
+                "kind": pk.kind,
+                "schema_version": version,
+                "schemas": schemas,
+                # the author's determinism flag — load-bearing for the Level-3(a) replay
+                # precondition (F-RPLY-1; replay._producer_kinds_deterministic).
+                "deterministic": pk.deterministic,
+                "fingerprint": {
+                    "qualname": getattr(pk.factory, "__qualname__", repr(pk.factory)),
+                    "author_version": pk.author_version,
+                },
+            }
+            # composition export map (F-COMP-1 / §20): for an EMBEDDED-substrate kind, record
+            # the {inner_kind -> outer_schema} map — DERIVED from the embedded substrate's OWN
+            # map (the single source of truth), so the recorded boundary can never drift from
+            # the map the translator uses. Absent for a non-embedded kind. Makes the boundary
+            # observable in RunStarted (conformance check 7).
+            if pk.export_map is not None:
+                pk_entry["export_map"] = dict(pk.export_map)
+            producer_kinds.append(pk_entry)
         return {
             "run_id": self._st.run_id,
             "topology": {
@@ -318,14 +324,15 @@ class Runtime:
                 "routes": [{"id": r.id, "slot": r.slot} for r in reg.routes],
                 "views": sorted(reg.views),
                 "policies": [self._termination.name],
-                # composition export map (F-COMP-1 / §20): the {inner_kind -> outer_schema}
-                # the topology declared via b.export, recorded so an embedded substrate's
-                # boundary is OBSERVABLE in the record (conformance check 7 "the kind
-                # declaration MUST include an export map"). Each value is the outer schema's
-                # name; empty when the topology embeds no substrate.
+                # topology-level union of every embedded kind's export map — a convenience
+                # aggregate DERIVED from the per-kind producer_kinds[].export_map (the single
+                # source); empty when the topology embeds no substrate. (Observability per
+                # check 7; the authoritative per-kind maps are on the producer_kinds entries.)
                 "exports": {
-                    inner: getattr(outer, "__name__", str(outer))
-                    for inner, outer in reg.exports.items()
+                    inner: outer
+                    for pk in reg.producer_kinds.values()
+                    if pk.export_map
+                    for inner, outer in pk.export_map.items()
                 },
             },
             "baseline": reg.baseline,

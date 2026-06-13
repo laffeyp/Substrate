@@ -226,7 +226,8 @@ def codesynth_composed_topology(
             factory=embedded,
             deterministic=deterministic,
         )
-        b.export("ArtifactReady", outer_schema=OuterArtifact)  # observable in the manifest
+        # the export map is the single source on the embedded_substrate(exports=...) above;
+        # the manifest derives it automatically (no separate b.export declaration).
         b.initial("codesynth", input={"inner_root": inner_root})
         b.termination(api.quiescence_with_watchdog(seconds=5))
 
