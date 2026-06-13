@@ -4,6 +4,15 @@ to import only from here (F-API-6, enforced by import-linter in CI)."""
 from __future__ import annotations
 
 from .encoding import canonical_bytes, content_hash
+from .inspect import (
+    Divergence,
+    Explanation,
+    decisions_between,
+    explain_producer,
+    first_divergence,
+    trace_ancestry,
+    view_at,
+)
 from .policies import (
     Decision,
     TerminationPolicy,
@@ -16,6 +25,7 @@ from .policies import (
 )
 from .protocols import Producer, View
 from .record import Always, Interval, NoFsync, read_record, recover_open_segment
+from .replay import HashMismatch, ReplayResult, assert_replayable, replay
 from .runtime import Runtime, RunResult
 from .testing import assert_event, assert_no_event, assert_sequence
 from .topology import TopologyBuilder, get_topology, register_topology
@@ -64,6 +74,19 @@ __all__ = [
     "NoFsync",
     "canonical_bytes",
     "content_hash",
+    # replay (technical §12)
+    "replay",
+    "assert_replayable",
+    "ReplayResult",
+    "HashMismatch",
+    # inspection / provenance / divergence (technical §14)
+    "explain_producer",
+    "trace_ancestry",
+    "view_at",
+    "decisions_between",
+    "first_divergence",
+    "Explanation",
+    "Divergence",
     # test helpers
     "assert_event",
     "assert_no_event",

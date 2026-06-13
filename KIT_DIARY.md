@@ -93,6 +93,23 @@
 
 ---
 
+### 2026-06-13 (round 7) — Wave 6, and when "implemented ahead of the vocabulary" is the honest state
+
+**What happened:** Built the read-side (replay Levels 1/2/3a + inspection/provenance/divergence), held it uncommitted through the Priority-A/B/refactor detour, then ran the between-wave independent review and committed. The review found two real code bugs (a D-8 normalization that stripped fields too broadly; a Level-2 path that skipped a malformed firing) and three NON-code items: two payload fields and a public signature the implementation depends on that the locked v0.1 vocabulary doesn't yet sanction.
+
+**What worked:**
+- **The review separated "code is wrong" from "vocabulary hasn't caught up."** The provenance subsystem is correct relative to the runtime that writes the records — but `TriggerFired.instance` (which it keys on) isn't in locked v0.1. That's not a bug to fix in code; it's a ratification to request. Naming that distinction explicitly (and routing it to `## Surfaced for review` for an Architect ruling, not silently "fixing" it) is exactly the supervised-grammar-evolution discipline working as designed. The danger would have been treating the green test suite as license to call Wave 6 "done" — the tests pass *because* the runtime emits the unratified fields; they can't see that the contract doesn't bless them.
+- **The D-8 over-broad-strip bug is a good example of a correctness gap a test suite structurally cannot catch without an adversarial reader.** Stripping every key named `instance`/`run_id` makes the common case (lifecycle frames) work and only fails when an *application* payload happens to use those names — which no existing test does. The reviewer reasoned from the spec's definition of D-8 ("supplementary metadata," not "arbitrary keys") to the false-negative, not from a failing test. Scope-the-normalization-to-lifecycle-frames is the fix.
+
+**What got in the way:**
+- **A deferral can collide with a MUST.** Level 3(b) is genuinely blocked on an unspecified t-replay decision, and faking it would be worse — but F-RPLY-1 says 3(b) "MUST work for every recorded run" and check 6 is a ship gate. An honest `NotImplementedError` + a BLACKBOARD note does not waive a normative MUST; that needs an Architect-sanctioned spec amendment. The lesson: when you defer something the spec marks MUST, the deferral isn't complete until the spec is amended to permit it — otherwise you've just moved the contradiction into the code.
+
+**What this says about the next kit version:**
+- 9. The Rubber Duck Pass should have an explicit disposition bucket for "correct-against-the-implementation, unsanctioned-by-the-contract" — distinct from `resolved-here`/`surfaced`. A field the code emits and depends on but the locked vocabulary doesn't list is a specific, recurring SDD state (it happened here three times); it routes to a ratification request, and the wave can't be called conformant until the version bumps. Worth naming in AGENTS.md alongside the four disposition states.
+- 10. "Deferred" needs a sub-distinction: deferring a SHOULD is a scheduling choice; deferring a MUST is a spec change in disguise and must be surfaced for an explicit amendment, not just logged.
+
+---
+
 ## Phase boundary syntheses
 
 *(one per phase close)*
