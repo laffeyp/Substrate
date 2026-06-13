@@ -4,7 +4,17 @@ to import only from here (F-API-6, enforced by import-linter in CI)."""
 from __future__ import annotations
 
 from .attach import LiveRecord, attach
+from .composition import EmbeddedRunFailed, embedded_substrate
 from .encoding import canonical_bytes, content_hash
+from .errors import (
+    BusLockedError,
+    FsyncError,
+    InputTypeError,
+    ProducerNotFound,
+    SequenceOutOfRange,
+    SubstrateError,
+    UnsupportedPlatformError,
+)
 from .inspect import (
     Divergence,
     Explanation,
@@ -30,7 +40,7 @@ from .replay import HashMismatch, ReplayResult, assert_replayable, replay
 from .runtime import Runtime, RunResult
 from .sidecar import read_sidecar
 from .testing import assert_event, assert_no_event, assert_sequence
-from .topology import TopologyBuilder, get_topology, register_topology
+from .topology import RegistrationError, TopologyBuilder, get_topology, register_topology
 from .triggers import Logical, Once, PerEvent, PerKey, WallClock, WhileTrue
 from .types import BlobRef, Event, ProducerRef, Subscription
 from .views import BufferView, KindCount, PerKindLatest, StartedCompletedCounts
@@ -81,6 +91,19 @@ __all__ = [
     "LiveRecord",
     # off-bus sidecars (technical §3.8, §6.4)
     "read_sidecar",
+    # composition — substrate as a Producer (technical §20, F-COMP)
+    "embedded_substrate",
+    "EmbeddedRunFailed",
+    # the public exception hierarchy (design §6.3) — so an api-only consumer (the CLI is
+    # the standing proof) handles errors BY TYPE, not by string-matching class names.
+    "SubstrateError",
+    "BusLockedError",
+    "RegistrationError",
+    "UnsupportedPlatformError",
+    "FsyncError",
+    "ProducerNotFound",
+    "SequenceOutOfRange",
+    "InputTypeError",
     # replay (technical §12)
     "replay",
     "assert_replayable",

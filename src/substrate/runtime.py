@@ -318,6 +318,15 @@ class Runtime:
                 "routes": [{"id": r.id, "slot": r.slot} for r in reg.routes],
                 "views": sorted(reg.views),
                 "policies": [self._termination.name],
+                # composition export map (F-COMP-1 / §20): the {inner_kind -> outer_schema}
+                # the topology declared via b.export, recorded so an embedded substrate's
+                # boundary is OBSERVABLE in the record (conformance check 7 "the kind
+                # declaration MUST include an export map"). Each value is the outer schema's
+                # name; empty when the topology embeds no substrate.
+                "exports": {
+                    inner: getattr(outer, "__name__", str(outer))
+                    for inner, outer in reg.exports.items()
+                },
             },
             "baseline": reg.baseline,
             "config": {
@@ -356,9 +365,13 @@ class Runtime:
             inbox.put_nowait(_Lifecycle("substrate.ProducerCancelled", {"producer": ref}))
             raise
         except Exception as exc:
-            inbox.put_nowait(
-                _Lifecycle("substrate.ProducerFailed", {"producer": ref, "error": repr(exc)})
-            )
+            payload: dict[str, Any] = {"producer": ref, "error": repr(exc)}
+            # Composition (§20): an embedded substrate's inner-run failure surfaces as ONE
+            # outer ProducerFailed carrying the inner run_id (the exception carries it).
+            inner = getattr(exc, "inner_run_id", None)
+            if isinstance(inner, str) and inner:
+                payload["inner_run_id"] = inner
+            inbox.put_nowait(_Lifecycle("substrate.ProducerFailed", payload))
 
     async def _submit_emission(self, ref: dict[str, Any], obj: Any) -> None:
         st = self._st

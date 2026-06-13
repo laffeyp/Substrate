@@ -144,6 +144,24 @@
 
 ---
 
+### 2026-06-13 (round 10) — Wave 8, and a spec that wants a field the envelope can't hold
+
+**What happened:** Built composition (substrate-as-Producer). The between-wave review found four divergences from §20; the headline one (a BLOCKER) was that §20 says the boundary translator "stamps {inner_run_id, inner_seq} into producer metadata" on each exported event — but the LOCKED wire ProducerRef is exactly `{kind, instance, parent}`, with no metadata slot, and an outer kind can't be `substrate.*`. The spec asks for something the current envelope physically cannot carry.
+
+**What worked:**
+- **The right move for "spec wants X, the locked contract can't express X" is to SURFACE, not invent.** I did not bolt a `metadata` field onto ProducerRef to satisfy §20 — that's a wire-envelope change to a locked vocabulary, exactly the unilateral invention the discipline forbids. Filed `P-COMPOSITION-INNER-PROVENANCE` with the three resolution options (add ProducerRef.metadata / a composition envelope field / rule the run-granularity link sufficient) and verified that run-GRANULARITY provenance already holds (inner root in the outer TriggerFired.resolved_input; inner_run_id on ProducerFailed). So the wave ships a real, useful provenance link, with the per-frame gap tracked for an Architect ruling. This is the third time the pattern recurred (instance/factory; view_at; now inner provenance) — the methodology's evolution path absorbing implementation reality without silent drift.
+- **"Default export = RunFinalised" exposed a latent spec assumption.** The spec phrase assumes an outer carrier exists, but outer kinds can't be `substrate.*`, so the carrier must be author-named. Implementing `default_export=` (the author names the outer Struct) made the requirement real AND surfaced the assumption as a §20 flow-back. The spec said *what* should cross by default; it didn't say *into what* — building it forced the question.
+- **The review caught that `b.export` was dead code I'd written.** I added `embedded_substrate(exports=)` as the per-embedding map and left `b.export`/`Registration.exports` unconsumed — two ways to declare, one working, no error on the dead one. Wiring `b.export` into the RunStarted manifest (so the boundary is observable per check 7) gave it a real job, and the two-source-of-truth risk is now a tracked Drift item.
+
+**What got in the way:**
+- **A timing-lucky test hid a robustness bug.** The inner_run_id was scraped from the polled RunStarted frame; the failure test passed only because the inner producer emitted 3 events before failing, giving the 5ms poller time to see RunStarted. The robust source was right there — `RunResult.run_id` from the inner `run()`. Lesson: when a value is available authoritatively (a return value) AND incidentally (a polled side-channel), use the authoritative one; a test that passes via the incidental path is timing-lucky, not correct.
+
+**What this says about the next kit version:**
+- 15. The "surface, don't invent" disposition has now fired three times on this project for the same shape: an implementation needs a field/signature the locked contract doesn't have. The Rubber Duck Pass should have a named bucket for it — "contract-cannot-express" — distinct from "unsanctioned-but-expressible" (finding-9, round 7). The former blocks on a vocab/envelope change; the latter just needs ratification.
+- 16. A normative spec sentence of the form "X is exported/stamped/carried by default" should be audited for "into what carrier?" — defaults that assume an unnamed target are where implementation discovers the spec is underspecified.
+
+---
+
 ## Phase boundary syntheses
 
 *(one per phase close)*

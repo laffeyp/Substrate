@@ -66,41 +66,36 @@ class LiveRecord:
         # so frames are never re-yielded across a roll.
         self._cursors: dict[int, int] = {}
 
-    def _read_segment_new(self, path: Path, *, hot: bool) -> Iterator[dict[str, Any]]:
-        """Yield complete CRC-valid frames in `path` past our cursor. For a sealed segment
-        every line is complete; for the hot segment the trailing partial line is ignored
-        (it is a frame the writer has not finished — never an error)."""
+    def _read_segment_new(self, path: Path) -> Iterator[dict[str, Any]]:
+        """Yield complete CRC-valid frames in `path` past our cursor. INCREMENTAL: seek to
+        the cursor and read only the NEW tail bytes (O(new), not O(filesize) per poll — the
+        hot segment can reach SEGMENT_MAX_BYTES). A single \\n-scan via framing.recover is the
+        one source of truth for both hot and sealed segments: it yields complete CRC-valid
+        frames and returns how many bytes they consumed, leaving any partial trailing line
+        (only possible on the hot segment) for a later poll. The cursor is keyed by the
+        roll-stable segment INDEX, so a segment tailed while hot keeps its cursor when it
+        seals."""
         # Read-only. O_NOFOLLOW where available; never O_WRONLY/O_RDWR/O_APPEND.
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
         try:
             fd = os.open(path, flags)
         except FileNotFoundError:
             return
-        try:
-            data = _read_all(fd)
-        finally:
-            os.close(fd)
         idx = _segment_index(path)
         start = self._cursors.get(idx, 0)
-        if start >= len(data):
-            return
-        window = data[start:]
-        if hot:
-            # Only consume up to the last complete frame; leave the partial tail for next poll.
-            frames, consumed = framing.recover(window)
-            self._cursors[idx] = start + consumed
-            yield from frames
-        else:
-            # A sealed segment is immutable and complete: every line is a whole frame. We
-            # resume at the cursor carried over from when this segment was hot (roll-stable
-            # index key), so already-yielded frames are not re-emitted.
-            consumed = 0
-            for line in window.splitlines(keepends=True):
-                if not line.endswith(b"\n"):
-                    break  # should not happen on a sealed segment; be defensive
-                yield framing.verify_line(line[:-1])
-                consumed += len(line)
-            self._cursors[idx] = start + consumed
+        try:
+            size = os.fstat(fd).st_size
+            if start >= size:
+                return  # no growth since last poll (the st_size-growth signal, §13)
+            os.lseek(fd, start, os.SEEK_SET)  # read only the new tail, not the whole file
+            window = _read_all(fd)
+        finally:
+            os.close(fd)
+        # framing.recover stops at the first unterminated/torn line and returns the bytes of
+        # the complete frames; on a sealed segment there is no partial tail so it consumes all.
+        frames, consumed = framing.recover(window)
+        self._cursors[idx] = start + consumed
+        yield from frames
 
     def read_new(self) -> list[dict[str, Any]]:
         """Every complete frame appended since the last call, in seq order: all sealed
@@ -108,10 +103,10 @@ class LiveRecord:
         hot segment. A sealed segment is read once and not re-read (its cursor saturates)."""
         out: list[dict[str, Any]] = []
         for seg in _sealed_segments(self.root):
-            out.extend(self._read_segment_new(seg, hot=False))
+            out.extend(self._read_segment_new(seg))
         hot = _hot_segment(self.root)
         if hot is not None:
-            out.extend(self._read_segment_new(hot, hot=True))
+            out.extend(self._read_segment_new(hot))
         return out
 
     def follow(self, *, until_finalised: bool = True) -> Iterator[dict[str, Any]]:

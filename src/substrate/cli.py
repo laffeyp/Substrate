@@ -186,17 +186,14 @@ def run(
     except KeyboardInterrupt:
         click.echo(str(record_root))
         sys.exit(EXIT_SIGINT)
-    except Exception as exc:  # registration / lock / config errors surface here
-        name = type(exc).__name__
-        if name == "BusLockedError":
-            _err.print(f"[lock] {exc}")
-            click.echo(str(record_root))
-            sys.exit(EXIT_LOCKED)
-        if name in ("RegistrationError", "UnsupportedPlatformError"):
-            _err.print(f"[config] {name}: {exc}")
-            click.echo(str(record_root))
-            sys.exit(EXIT_CONFIG)
-        raise
+    except api.BusLockedError as exc:  # by TYPE via the public api surface, not string-match
+        _err.print(f"[lock] {exc}")
+        click.echo(str(record_root))
+        sys.exit(EXIT_LOCKED)
+    except (api.RegistrationError, api.UnsupportedPlatformError) as exc:
+        _err.print(f"[config] {type(exc).__name__}: {exc}")
+        click.echo(str(record_root))
+        sys.exit(EXIT_CONFIG)
     # the record root is the load-bearing stdout line (shell-pipeable)
     click.echo(result.record_root)
     code = {"finalised": EXIT_OK, "failed": EXIT_FAILED, "paused": EXIT_PAUSED}[result.status]

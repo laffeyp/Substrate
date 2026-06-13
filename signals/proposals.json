@@ -268,6 +268,15 @@
       "disposition": "RATIFIED into v0.2 (Architect ruling 2026-06-13); signals/0.2.json + 0.2-rationale.md",
       "ratified": true,
       "ratified_into": "0.2"
+    },
+    {
+      "id": "P-COMPOSITION-INNER-PROVENANCE",
+      "kind": "PAYLOAD_FIELD_PROPOSED",
+      "element": "Carry {inner_run_id, inner_seq} on events a boundary translator exports from an embedded substrate (technical \u00a720).",
+      "rationale": "\u00a720 says the boundary translator 'stamps {inner_run_id, inner_seq} into producer metadata' on each translated outer event, so a reader can trace an outer event back to the exact inner frame. But the LOCKED wire ProducerRef is exactly {kind, instance, parent} (0.2.json) \u2014 it has no metadata slot, and an outer Producer kind may not emit a substrate.* kind, so there is nowhere on the current envelope to put inner provenance per-frame. The inner-RUN link IS preserved (the inner record root is recorded in the outer TriggerFired.resolved_input, and inner failures carry inner_run_id on ProducerFailed), so provenance closure holds at the run granularity; only the per-FRAME inner_seq stamp is unmet. Options to resolve: (a) add an optional `metadata: dict` to ProducerRef (ENTITY/PAYLOAD change, the ProducerId\u2194ProducerRef ENTITY_MERGE already notes ProducerId has metadata); (b) a dedicated composition envelope field; (c) rule the run-granularity link sufficient for v1.0 and make \u00a720's per-frame stamp a SHOULD. Needs an Architect ruling + likely a vocab bump; do NOT invent a wire field unilaterally.",
+      "source": "technical_spec/draft5.md \u00a720 (lines 957-961); product F-COMP; locked ProducerRef (signals/0.2.json)",
+      "disposition": "SURFACED \u2014 run-granularity provenance implemented (inner root in TriggerFired.resolved_input; inner_run_id on ProducerFailed); per-frame {inner_run_id,inner_seq} stamp blocked by the locked ProducerRef envelope. Awaiting Architect ruling.",
+      "ratified": false
     }
   ]
 }

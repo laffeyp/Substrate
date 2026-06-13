@@ -20,6 +20,29 @@ from substrate.cli import (
 )
 
 
+def test_api_exposes_exception_hierarchy_by_type():
+    # F-API-6 completeness: an api-only consumer (the CLI is the standing proof) must handle
+    # errors BY TYPE, not by string-matching class names. The public exception hierarchy is
+    # re-exported and rooted at SubstrateError.
+    import substrate.api as api
+
+    for name in (
+        "SubstrateError",
+        "BusLockedError",
+        "RegistrationError",
+        "UnsupportedPlatformError",
+        "FsyncError",
+        "ProducerNotFound",
+        "SequenceOutOfRange",
+        "InputTypeError",
+    ):
+        assert name in api.__all__, f"{name} missing from api.__all__"
+        cls = getattr(api, name)
+        assert isinstance(cls, type)
+        if name != "SubstrateError":
+            assert issubclass(cls, api.SubstrateError), f"{name} not under SubstrateError"
+
+
 # ── F-API-6: the CLI imports only substrate.api among substrate modules ────────
 def test_cli_imports_only_substrate_api():
     cli_path = Path(__file__).parent.parent / "src" / "substrate" / "cli.py"

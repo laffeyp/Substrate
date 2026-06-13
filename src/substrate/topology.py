@@ -167,6 +167,14 @@ class TopologyBuilder:
         self._reg.termination = policy
 
     def export(self, inner_kind: str, *, outer_schema: type) -> None:
+        """Declare a composition export-map entry {inner_kind -> outer_schema} for the
+        record/manifest (F-COMP-1 / §20). This makes the embedded substrate's boundary
+        OBSERVABLE in RunStarted (conformance check 7: the kind declaration includes an
+        export map). The embedded Producer itself consumes its export map via
+        `embedded_substrate(exports=...)` (the runtime-consuming form, which can differ per
+        embedding); `b.export` is the declarative form recorded in the manifest. Keep them
+        consistent — a v0.x convenience that derives one from the other is a documented
+        flow-back (see BLACKBOARD)."""
         self._reg.exports[inner_kind] = outer_schema
 
     def baseline(self, **metadata: Any) -> None:
