@@ -125,6 +125,25 @@
 
 ---
 
+### 2026-06-13 (round 9) — Wave 7, and the bug the small test always hides
+
+**What happened:** Built the reader surfaces — read-only follower, off-bus sidecars, the 8-command CLI — folding external-review #2's two fixes (v0.2 surgical diff, D-8 `finalisation_payload_dropped`) in first. The between-wave review found a BLOCKER the whole green suite missed: the attach follower re-yields a segment's frames when it seals, because the cursor was keyed by basename and the basename changes on roll.
+
+**What worked:**
+- **The review reasoned from the spec mechanism to a path the tests structurally cannot reach.** Every test topology emits a handful of events, far under SEGMENT_MAX_BYTES, so no test ever triggered a segment roll — and the double-yield only happens across a roll. The reviewer didn't find it by running anything; it traced "cursor keyed by `path.name`" against "the writer renames `.open.jsonl`→`.jsonl` on seal" and saw the key change. The fix (key on the roll-stable numeric index) plus a regression test that *forces* rolls by shrinking the segment cap is the durable close. Lesson restated: a passing suite over small fixtures is silent about exactly the size-threshold-crossing paths; review against the mechanism, and write the test that crosses the threshold.
+- **"Bit-identical" claims need a serializer pin, not just a diff.** Fix A (the v0.2 ensure_ascii churn) is the second time a claim of byte-equality was made without controlling the serializer. Pinning `ensure_ascii=True` + no-trailing-newline and re-diffing made the lock surgical. A version-bump's dual contract should include the additive-diff assertion.
+- **Honest "not yet wired" beats a stub that reads green.** `conformance`/`resume` exit 64 with a clear message rather than printing success — directly serving carry-forward (b) (the deferred-must-be-a-real-third-state rule). The CLI holds that line until Wave 9 builds the harness.
+
+**What got in the way:**
+- **Two read paths, one §17 rule, only one honored it.** The follower opened O_NOFOLLOW from day one; `read_record` (the closed-record reader the CLI also routes into) used plain `open()` and followed symlinks. Same security rule, uneven application — exactly the kind of gap that hides when a guarantee is implemented per-call-site instead of once. Fixed both to share an O_NOFOLLOW read helper.
+- **`mix_stderr` churn:** Click 8.2 removed `CliRunner(mix_stderr=...)`; stderr is separate by default now. A small reminder that "verify the installed API, don't code from memory" applies to test harnesses too.
+
+**What this says about the next kit version:**
+- 13. For any append-log / segmented-store project, the test kit should ship a "force a roll" fixture (shrink the segment cap) so reader/follower tests cross the seal boundary by default. The roll is where cursor/dedup/ordering bugs live, and the natural test fixtures never reach it.
+- 14. A security/IO invariant (read-only, no-follow-symlink, no-lock) should be implemented in ONE helper and reused, not re-stated at each call site — uneven application is the failure mode (here: two read paths, one honored §17).
+
+---
+
 ## Phase boundary syntheses
 
 *(one per phase close)*

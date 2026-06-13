@@ -33,6 +33,7 @@ from .record import FsyncPolicy, Interval, RecordWriter
 from .runstate import RunPhase, RunState
 from .sealing import seal
 from .sequencer import AppendCycle, _Emission, _Lifecycle
+from .sidecar import DiagnosticSidecar, WriterStatsSidecar
 from .topology import Registration, TopologyBuilder
 from .types import Event
 
@@ -61,6 +62,7 @@ class Runtime:
         budget_us: int = BUDGET_US,
         hysteresis_k: int = HYSTERESIS_K,
         writer_stats: bool = False,
+        diagnostics: bool = False,
     ) -> None:
         if admission <= 0:
             raise ValueError("admission bound must be > 0")
@@ -70,6 +72,11 @@ class Runtime:
         self._admission_bound = admission
         self._budget_us = budget_us
         self._hysteresis_k = hysteresis_k
+        # Off-bus sidecars (§3.8 / §6.4). Both default OFF; enabling either MUST leave the
+        # bus log bit-identical (conformance check 14) — guaranteed because the sidecar
+        # sinks are fed off-cycle and are simply absent (never called) when disabled.
+        self._writer_stats = writer_stats
+        self._diagnostics = diagnostics
         self._used = False
 
     async def run(self, topology: Callable[[TopologyBuilder], None]) -> RunResult:
@@ -87,6 +94,8 @@ class Runtime:
         lock_fd: int | None = None
         record: RecordWriter | None = None
         st: RunState | None = None
+        self._diag = None  # set after the record exists; None-safe in the finally
+        self._stats = None
 
         # Pre-run SETUP — the lock and the record writer — happens BEFORE the run try and
         # PROPAGATES on failure (a config-time / setup refusal, NOT a failed run): a caller
@@ -104,11 +113,20 @@ class Runtime:
                 locking.release_lock(lock_fd)
             raise
         self._record = record
+        # Off-bus sidecars (created only when enabled; absent => never fed => bus
+        # bit-identical, check 14). Live for the run; flushed off-cycle and at close.
+        self._diag = DiagnosticSidecar(self._record_root) if self._diagnostics else None
+        self._stats = WriterStatsSidecar(self._record_root) if self._writer_stats else None
         try:
             st = self._new_run_state(reg)
             self._st = st
             self._cyc = AppendCycle(
-                reg, record, st, budget_us=self._budget_us, hysteresis_k=self._hysteresis_k
+                reg,
+                record,
+                st,
+                budget_us=self._budget_us,
+                hysteresis_k=self._hysteresis_k,
+                diagnostics=self._diag,
             )
             self._bootstrap(reg)
             self._flush_scheduled()
@@ -148,6 +166,16 @@ class Runtime:
                     # finalisation. Surface as a failed run rather than re-raising.
                     if st is not None:
                         st.phase = RunPhase.FAILED
+            # Flush off-bus sidecars (never coupled to the bus writer; bus already closed).
+            # A sidecar flush failure (e.g. disk full) must NOT turn an already-finalised bus
+            # into an exception at the API boundary, nor block the lock release — the bus is
+            # the record, the sidecars are advisory. Swallow with the run outcome intact.
+            for sink in (self._diag, self._stats):
+                if sink is not None:
+                    try:
+                        sink.flush()
+                    except OSError:
+                        pass
             if lock_fd is not None:
                 locking.release_lock(lock_fd)
 
@@ -362,6 +390,19 @@ class Runtime:
             self._flush_scheduled()
             if st.last_event is not None:
                 self._consult_termination(st.last_event, quiescent=False)
+            # Writer-stats sample: BETWEEN cycles (off the hot path), only when enabled.
+            # Sampling/I/O here never touches the appended frame's bytes (check 14).
+            if self._stats is not None:
+                self._stats.sample(
+                    {
+                        "at_seq": st.next_seq - 1,
+                        "admission_depth": st.inbox.qsize(),
+                        "control_queue_depth": len(st.control),
+                        "started_total": st.started_total,
+                        "ended_total": st.ended_total,
+                        "quarantined_count": len(st.quarantined),
+                    }
+                )
 
     def _consult_termination(self, event: Event | None, *, quiescent: bool) -> None:
         st = self._st

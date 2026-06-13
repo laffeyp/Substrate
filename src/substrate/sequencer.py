@@ -26,6 +26,7 @@ from .constants import BLOB_THRESHOLD_BYTES, is_reserved
 from .encoding import SafeCanonical, content_hash, safe_raw, try_canonical
 from .runstate import RunPhase, RunState
 from .sealing import seal
+from .sidecar import DiagnosticSidecar
 from .triggers import Logical
 from .types import Event, ProducerRef
 
@@ -71,12 +72,18 @@ class AppendCycle:
         *,
         budget_us: int,
         hysteresis_k: int,
+        diagnostics: DiagnosticSidecar | None = None,
     ) -> None:
         self._reg = reg
         self._record = record
         self._st = state
         self._budget_us = budget_us
         self._hysteresis_k = hysteresis_k
+        # Off-bus diagnostic sink (§3.8). None when disabled — and when None its feed is
+        # NEVER called, so the bus log is bit-identical with diagnostics on or off
+        # (conformance check 14). It is fed AFTER the predicate decision, buffered, and
+        # never touches the appended frame's bytes.
+        self._diag = diagnostics
 
     # ── the append cycle (technical §6.2) ───────────────────────────────────────
     def cycle(self, pending: _Emission | _Lifecycle) -> None:
@@ -300,12 +307,23 @@ class AppendCycle:
             elapsed_us = (time.perf_counter() - t0) * 1e6
             if elapsed_us > self._budget_us:
                 st.pred_violations[idx] = st.pred_violations.get(idx, 0) + 1
+                if self._diag is not None:  # off-bus, post-decision; never on a disabled run
+                    self._diag.budget_violation(
+                        seq=event.seq,
+                        predicate_id=t.id,
+                        measured_us=elapsed_us,
+                        count=st.pred_violations[idx],
+                    )
                 if st.pred_violations[idx] >= self._hysteresis_k:
                     self._quarantine(idx, t.id, reason="budget", measured_us=elapsed_us)
                     continue
             else:
                 st.pred_violations[idx] = 0
             if not fired:
+                if self._diag is not None:  # record the non-firing evaluation (§3.8)
+                    self._diag.predicate_evaluated(
+                        seq=event.seq, predicate_id=t.id, result=False, elapsed_us=elapsed_us
+                    )
                 continue
             # Trigger-level logical cooldown (kernel §6 / technical §10): suppress a firing
             # within `appends` subscription-matching cycles of this trigger's last firing.

@@ -213,19 +213,35 @@ def _hot_segment(root: Path) -> Path | None:
     return hot[-1] if hot else None
 
 
+def _read_bytes_nofollow(path: Path) -> bytes:
+    """Read a file's bytes read-only and WITHOUT following a symlink (§17: readers do not
+    follow symlinks inside a run root). O_NOFOLLOW where the OS has it."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    try:
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(fd, 1 << 20)
+            if not chunk:
+                return b"".join(chunks)
+            chunks.append(chunk)
+    finally:
+        os.close(fd)
+
+
 def read_record(root: Path | str) -> Iterator[dict[str, Any]]:
     """Yield every recoverable envelope in seq order: sealed segments (by filename),
     then the recoverable prefix of the hot segment. Does not depend on the manifest
-    (segments are authoritative, §3.5). Does not modify anything."""
+    (segments are authoritative, §3.5). Read-only, symlink-not-followed (§17); does not
+    modify anything."""
     root = Path(root)
     for seg in _sealed_segments(root):
-        with open(seg, "rb") as fh:
-            for line in fh:
-                if line.endswith(b"\n"):
-                    yield framing.verify_line(line[:-1])
+        for line in _read_bytes_nofollow(seg).splitlines(keepends=True):
+            if line.endswith(b"\n"):
+                yield framing.verify_line(line[:-1])
     hot = _hot_segment(root)
     if hot is not None:
-        frames, _cut = framing.recover(hot.read_bytes())
+        frames, _cut = framing.recover(_read_bytes_nofollow(hot))
         yield from frames
 
 

@@ -3,6 +3,7 @@ to import only from here (F-API-6, enforced by import-linter in CI)."""
 
 from __future__ import annotations
 
+from .attach import LiveRecord, attach
 from .encoding import canonical_bytes, content_hash
 from .inspect import (
     Divergence,
@@ -27,6 +28,7 @@ from .protocols import Producer, View
 from .record import Always, Interval, NoFsync, read_record, recover_open_segment
 from .replay import HashMismatch, ReplayResult, assert_replayable, replay
 from .runtime import Runtime, RunResult
+from .sidecar import read_sidecar
 from .testing import assert_event, assert_no_event, assert_sequence
 from .topology import TopologyBuilder, get_topology, register_topology
 from .triggers import Logical, Once, PerEvent, PerKey, WallClock, WhileTrue
@@ -74,6 +76,11 @@ __all__ = [
     "NoFsync",
     "canonical_bytes",
     "content_hash",
+    # live attach (technical §13, F-PERS-4)
+    "attach",
+    "LiveRecord",
+    # off-bus sidecars (technical §3.8, §6.4)
+    "read_sidecar",
     # replay (technical §12)
     "replay",
     "assert_replayable",
