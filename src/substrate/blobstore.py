@@ -1,0 +1,82 @@
+"""Content-addressed blob store for oversized payloads (technical spec §3.7).
+
+Payloads whose canonical encoding exceeds BLOB_THRESHOLD_BYTES are stored here and
+referenced from the envelope as {"$blob": "sha256:<hex>", "bytes": n}. Rules:
+write-ahead (the blob is fsynced BEFORE the referencing frame is appended); immutable
+(a second write to an existing hash is skipped after a size check — dedup); the path
+is derived from the hash ONLY (no user-controlled string ever becomes a path
+component, §17); a two-level fan-out keeps directories small.
+"""
+from __future__ import annotations
+
+import hashlib
+import os
+from pathlib import Path
+
+from .types import BlobRef
+
+
+class BlobStore:
+    """The `blobs/sha256/<first-2-hex>/<full-hex>` tree under a run root."""
+
+    def __init__(self, root: Path) -> None:
+        self._dir = Path(root) / "blobs" / "sha256"
+        self._dir.mkdir(parents=True, exist_ok=True)
+
+    def _path_for(self, hex_digest: str) -> Path:
+        # hex_digest is derived from content only; never from user input (§17).
+        return self._dir / hex_digest[:2] / hex_digest
+
+    def put(self, data: bytes) -> BlobRef:
+        """Write-ahead store: the blob file is written and fsynced before the caller
+        appends the referencing frame. Idempotent — an existing hash path is reused
+        after a size check (dedup)."""
+        hex_digest = hashlib.sha256(data).hexdigest()
+        path = self._path_for(hex_digest)
+        if path.exists():
+            if path.stat().st_size != len(data):
+                # Hash collision with differing size is effectively impossible for
+                # sha256; treat a size mismatch as corruption rather than silently trust.
+                raise OSError(f"blob {hex_digest} exists with mismatched size")
+            return BlobRef(sha256=f"sha256:{hex_digest}", bytes=len(data))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        fd = os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o644)
+        try:
+            os.write(fd, data)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(tmp, path)
+        _fsync_dir(path.parent)
+        return BlobRef(sha256=f"sha256:{hex_digest}", bytes=len(data))
+
+    def get(self, ref: BlobRef) -> bytes:
+        """Read a blob by reference. Symlinks are not followed (§17)."""
+        hex_digest = ref.sha256.removeprefix("sha256:")
+        path = self._path_for(hex_digest)
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(path, flags)
+        try:
+            return _read_all(fd)
+        finally:
+            os.close(fd)
+
+
+def _read_all(fd: int) -> bytes:
+    chunks: list[bytes] = []
+    while True:
+        chunk = os.read(fd, 1 << 20)
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
+
+
+def _fsync_dir(directory: Path) -> None:
+    """fsync a directory so a create/rename is itself durable (technical §5.2)."""
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    dfd = os.open(directory, flags)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
