@@ -350,7 +350,13 @@ class Runtime:
             st.inflight += 1
             task = asyncio.create_task(self._producer_task(kind, inp, instance, parent))
             st.tasks.add(task)
-            task.add_done_callback(st.tasks.discard)
+            st.task_by_instance[instance] = task
+
+            def _done(t: asyncio.Task[None], inst: str = instance) -> None:
+                st.tasks.discard(t)
+                st.task_by_instance.pop(inst, None)
+
+            task.add_done_callback(_done)
 
     async def _producer_task(self, kind: str, inp: Any, instance: str, parent: str | None) -> None:
         ref = {"kind": kind, "instance": instance, "parent": parent}
@@ -474,3 +480,41 @@ class Runtime:
                 )
             )
             st.phase = RunPhase.PAUSED
+        elif decision is Decision.CANCEL_OTHERS:
+            self._cancel_others(event)
+
+    def _cancel_others(self, event: Event | None) -> None:
+        """Cancel every live Producer EXCEPT the subject (the producer of `event`) — kernel §8
+        cancel-others. The run does NOT terminate: the cancelled tasks emit
+        substrate.ProducerCancelled (drained by the still-running writer loop) and the run
+        continues to quiescence. Idempotent — fires once per still-cancellable cohort; a
+        repeat call with everyone already cancelled is a no-op (so a CANCEL_OTHERS policy that
+        keeps matching does not thrash)."""
+        st = self._st
+        # The subject is the Producer this decision is "about" — for a lifecycle event
+        # (ProducerCompleted/…) the subject rides the PAYLOAD's producer ref (P-SUBJECT-ID),
+        # not the envelope `producer` (null for substrate.* events); for an application event
+        # it is the envelope producer. Check both.
+        subject: str | None = None
+        if event is not None:
+            if event.producer is not None:
+                subject = event.producer.instance
+            elif isinstance(event.payload, dict):
+                ref = event.payload.get("producer")
+                if isinstance(ref, dict):
+                    subject = ref.get("instance")
+        victims = [
+            (inst, task)
+            for inst, task in list(st.task_by_instance.items())
+            if inst != subject and not task.done()
+        ]
+        if not victims:
+            return  # nothing left to cancel — do not emit a vacuous TerminationMatched
+        self._cyc.cycle(
+            _Lifecycle(
+                "substrate.TerminationMatched",
+                {"policy": self._termination.name, "decision": Decision.CANCEL_OTHERS.value},
+            )
+        )
+        for _inst, task in victims:
+            task.cancel()  # the task's CancelledError handler enqueues ProducerCancelled

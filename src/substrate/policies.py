@@ -93,6 +93,34 @@ def all_completed() -> TerminationPolicy:
     )
 
 
+def cancel_all_others(when: Callable[[TermContext], bool]) -> TerminationPolicy:
+    """Cancel every OTHER running Producer (all but the subject — the producer of the
+    just-appended event) when `when(ctx)` holds (kernel §8; F-LIFE-2). CANCEL_OTHERS does NOT
+    finalise: the cancelled Producers emit substrate.ProducerCancelled on the log and the run
+    continues (typically to quiescence). The canonical R-1 use: fire on the adjudicator's
+    completion, cancel the still-running candidates, then a quiescence/all-completed policy
+    finalises. Compose: any_of(cancel_all_others(adjudicated), all_completed())."""
+    return TerminationPolicy(
+        "cancel_all_others",
+        lambda c: Decision.CANCEL_OTHERS if when(c) else Decision.CONTINUE,
+    )
+
+
+def let_finish(when: Callable[[TermContext], bool]) -> TerminationPolicy:
+    """Let all running Producers finish (no cancellation), then finalise — when `when(ctx)`
+    holds (kernel §8; F-LIFE-2). LET_FINISH stops admitting new work and finalises once the
+    in-flight Producers drain; here modelled as: when `when` holds AND the run is quiescent
+    with all started Producers ended, finalise (the 'graceful drain' terminal)."""
+    return TerminationPolicy(
+        "let_finish",
+        lambda c: (
+            Decision.FINALISE_RUN
+            if (when(c) and c.quiescent and c.running == 0)
+            else Decision.CONTINUE
+        ),
+    )
+
+
 def quiescence_with_watchdog(seconds: float = 30.0) -> TerminationPolicy:
     """Finalise when the run goes quiescent (no work in flight). `seconds` is the
     watchdog window the runtime uses to wake and test quiescence (it bounds the writer

@@ -47,6 +47,8 @@ from .policies import (
     all_completed,
     all_of,
     any_of,
+    cancel_all_others,
+    let_finish,
     pause_await_input,
     quiescence_with_watchdog,
     threshold_count,
@@ -87,6 +89,8 @@ __all__ = [
     "all_completed",
     "quiescence_with_watchdog",
     "pause_await_input",
+    "cancel_all_others",
+    "let_finish",
     "any_of",
     "all_of",
     # topology + execution

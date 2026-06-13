@@ -65,6 +65,9 @@ class RunState:
     control: deque[Any] = field(default_factory=deque)
     scheduled: list[tuple[str, Any, str, str | None]] = field(default_factory=list)
     tasks: set[asyncio.Task[None]] = field(default_factory=set)
+    # live Producer instance_id -> its task, so a cancel-others policy can spare the subject
+    # and cancel the rest (kernel §8 cancel-others).
+    task_by_instance: dict[str, asyncio.Task[None]] = field(default_factory=dict)
 
     next_seq: int = 0
     in_cycle: bool = False
