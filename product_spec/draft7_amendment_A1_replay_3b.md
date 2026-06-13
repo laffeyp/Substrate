@@ -45,7 +45,8 @@ The D-8 comparison (`first_divergence`, conformance check 13) builds, per frame,
 - `run_id`, `instance` — fresh ULIDs / the run id (per-run identity).
 - `producer.instance`, `producer.parent` — the subject ref's run-specific ULIDs. `producer.kind` is **kept** (it is decision identity).
 - `measured_us` (on `substrate.PredicateQuarantined`, budget path) — wall-clock microseconds of a predicate call; a timing **measurement**, not identity.
-- `error` (on `InputBuildFailed` / `ProducerFailed` / `RunFinalised{reason:kernel_error}` / `PredicateQuarantined{reason:exception}`) — a `repr(exc)` that can embed temp paths or object addresses; **normalized to a stable sentinel** (the frame kind already carries "a failure of this class occurred here").
+- `error` (on `InputBuildFailed` / `ProducerFailed` / `RunFinalised{reason:kernel_error}` / `PredicateQuarantined{reason:exception}`) — a `repr(exc)` that can embed temp paths or object addresses; **normalized to a class-preserving sentinel** `<ClassName>` (the error CLASS is decision-identity-ish — a different failure class IS a real divergence — while the repr tail is supplementary).
+- `finalisation_payload_dropped` (on `substrate.RunFinalised`, raising-callback branch) — same shape as `error` (`"finalisation callback raised: <repr(exc)>"`); **same class-preserving normalization**. (The other dropped branch, `"not canonical: <reason> at <path>"`, is stable and is NOT normalized.)
 - `t` (envelope) — already excluded by DRAFT 7.
 
 **Kept** (decision identity): `input_sha256`, `firing_key`, `reason`, `trigger_id`/`route_id`, `policy`/`decision`, `k` (a config constant), `view`/`seq` (real positions). The full payload of any **application** (non-`substrate.*`) frame is compared **verbatim** — application content IS the decision being compared and is never normalized.

@@ -22,6 +22,7 @@ enters the comparison — only kind and the canonical payload hash.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -280,14 +281,36 @@ def first_divergence(rec_a: Any, rec_b: Any) -> Divergence | None:
 # policy/decision, k (a config constant), view/seq (real positions). Application payloads
 # are NEVER touched (their content IS the decision being compared).
 _D8_DROP_KEYS = frozenset({"run_id", "instance", "measured_us"})
-_D8_NORMALIZE_KEYS = frozenset({"error"})  # value replaced by a stable sentinel
+# Free-form diagnostic strings that embed a repr(exc) — a cross-run-varying tail (tmp
+# paths, object addresses). Both `error` (InputBuildFailed/ProducerFailed/RunFinalised{
+# kernel_error}/PredicateQuarantined{exception}) AND `finalisation_payload_dropped`'s
+# raising-callback branch ("finalisation callback raised: <repr>") carry one. Normalized
+# to a CLASS-PRESERVING sentinel (`<ValueError>`) so the error CLASS still localizes a
+# divergence while the variable repr tail does not spuriously diverge two runs.
+_D8_NORMALIZE_KEYS = frozenset({"error", "finalisation_payload_dropped"})
+
+# An exception class name as it leads a repr(exc): `ValueError(...)`, or after a prefix
+# like `finalisation callback raised: ValueError(...)`.
+_EXC_CLASS_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception|Warning|Interrupt))\b")
+
+
+def _error_sentinel(value: Any) -> str:
+    """A stable, class-preserving sentinel for a free-form error/diagnostic string: extract
+    the first exception-class token and return `<ClassName>`; fall back to `<error>` when no
+    class is recognisable. Class is decision-identity-ish (a different failure class IS a
+    real divergence); the repr tail (paths/addresses) is supplementary."""
+    if not isinstance(value, str):
+        return "<error>"
+    m = _EXC_CLASS_RE.search(value)
+    return f"<{m.group(1)}>" if m else "<error>"
 
 
 def _d8_normalize_lifecycle(payload: Any) -> Any:
     """Normalize a substrate.* lifecycle payload for D-8: drop the run-varying supplementary
     keys (run_id/instance/measured_us), reduce any `producer` ref to {kind}, and replace
-    free-form `error` reprs with a stable sentinel. Lifecycle payloads are flat (no recursion
-    needed); the decision-identity fields (input_sha256/firing_key/reason/k/...) are kept."""
+    free-form error/diagnostic reprs (`error`, `finalisation_payload_dropped`) with a
+    class-preserving sentinel. Lifecycle payloads are flat (no recursion needed); the
+    decision-identity fields (input_sha256/firing_key/reason/k/...) are kept."""
     if not isinstance(payload, dict):
         return payload
     out: dict[str, Any] = {}
@@ -297,7 +320,7 @@ def _d8_normalize_lifecycle(payload: Any) -> Any:
         if key == "producer" and isinstance(value, dict):
             out[key] = {"kind": value.get("kind")}
         elif key in _D8_NORMALIZE_KEYS:
-            out[key] = "<error>"  # presence is identity; the repr text is supplementary
+            out[key] = _error_sentinel(value)  # class-preserving; repr tail is supplementary
         else:
             out[key] = value
     return out

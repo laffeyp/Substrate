@@ -262,6 +262,7 @@ async def test_first_divergence_prefix_is_localized(tmp_path):
 
 # ── D-8 must exclude run-varying SUPPLEMENTARY measurement: measured_us ────────--
 import time as _time  # noqa: E402
+import uuid  # noqa: E402
 
 
 def _slow_predicate(event, views):
@@ -301,3 +302,56 @@ async def test_first_divergence_excludes_measured_us_on_quarantine(tmp_path):
     assert qa and qb and qa[0]["payload"]["reason"] == "budget"
     # the two records are D-8-equivalent despite differing measured_us / error reprs
     assert first_divergence(tmp_path / "a", tmp_path / "b") is None
+
+
+# ── D-8 must normalize finalisation_payload_dropped (external review #2, Fix B) ──
+from substrate.policies import Decision, TerminationPolicy  # noqa: E402
+
+
+def _raising_finalisation_topo(b):
+    # the finalisation callback RAISES with a run-varying message (embeds a fresh object id),
+    # so RunFinalised carries finalisation_payload_dropped="finalisation callback raised:
+    # RuntimeError(<varying>)". That repr tail differs run to run; the D-8 sentinel must
+    # normalize it (class-preserving) so two runs do not spuriously diverge.
+    b.producer_kind("counter", schemas=[CountReached], schema_version=1, factory=lambda: counter)
+    b.initial("counter", input=None)
+
+    def _boom(ctx):
+        raise RuntimeError(f"boom at {uuid.uuid4()}")  # repr embeds a per-run-unique tail
+
+    b.termination(
+        TerminationPolicy(
+            "finalise_raise",
+            lambda c: (
+                Decision.FINALISE_RUN
+                if c.counts("substrate.ProducerCompleted") >= 1
+                else Decision.CONTINUE
+            ),
+            finalisation=_boom,
+        )
+    )
+
+
+async def test_first_divergence_normalizes_finalisation_payload_dropped(tmp_path):
+    await Runtime(tmp_path / "a").run(_raising_finalisation_topo)
+    await Runtime(tmp_path / "b").run(_raising_finalisation_topo)
+    # sanity: both recorded a dropped-payload reason whose repr tails DIFFER
+    fa = [e for e in read_record(tmp_path / "a") if e["kind"] == "substrate.RunFinalised"][-1]
+    fb = [e for e in read_record(tmp_path / "b") if e["kind"] == "substrate.RunFinalised"][-1]
+    assert "finalisation_payload_dropped" in fa["payload"]
+    assert (
+        fa["payload"]["finalisation_payload_dropped"]
+        != fb["payload"]["finalisation_payload_dropped"]
+    )
+    # ...yet the records are D-8-equivalent (the RuntimeError class is preserved, tail dropped)
+    assert first_divergence(tmp_path / "a", tmp_path / "b") is None
+
+
+def test_error_sentinel_is_class_preserving():
+    from substrate.inspect import _error_sentinel
+
+    assert _error_sentinel("ValueError('boom at /tmp/x')") == "<ValueError>"
+    assert _error_sentinel("finalisation callback raised: RuntimeError(...)") == "<RuntimeError>"
+    assert _error_sentinel("no class here") == "<error>"
+    # a DIFFERENT error class is still a real divergence (not collapsed)
+    assert _error_sentinel("KeyError('x')") != _error_sentinel("ValueError('x')")
