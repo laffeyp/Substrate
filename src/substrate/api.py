@@ -62,7 +62,7 @@ from .testing import assert_event, assert_no_event, assert_sequence
 from .topology import RegistrationError, TopologyBuilder, get_topology, register_topology
 from .triggers import Logical, Once, PerEvent, PerKey, WallClock, WhileTrue
 from .types import BlobRef, Event, ProducerRef, Subscription
-from .views import BufferView, KindCount, PerKindLatest, StartedCompletedCounts
+from .views import BufferView, KindBuffer, KindCount, PerKindLatest, StartedCompletedCounts
 
 __all__ = [
     # data
@@ -74,6 +74,7 @@ __all__ = [
     "Producer",
     "View",
     "BufferView",
+    "KindBuffer",
     "KindCount",
     "PerKindLatest",
     "StartedCompletedCounts",

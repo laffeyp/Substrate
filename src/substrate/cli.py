@@ -407,7 +407,9 @@ def conformance(no_perf: bool) -> None:
     }
     for r in report.results:
         click.echo(f"  [{r.number:02d}/17] {r.name:<32} ... {tags[r.status.value]}")
-        if r.status.value != "PASS":
+        # show the detail for any non-PASS, AND always for the perf check (operators want the
+        # measured appends/sec number even when it PASSES the floor).
+        if r.status.value != "PASS" or r.number == 15:
             _err.print(f"         {r.detail}")
     summary = (
         f"{report.passed} passed, {report.failed} failed, "

@@ -102,6 +102,22 @@ def test_crc_splice_is_byte_identical_to_full_reencode():
             "payload": {"n": 3},
         },
         {"seq": 99, "kind": "X", "schema": "X@1", "producer": None, "t": 0.0, "payload": {}},
+        # unicode / JCS-escape cases (review #6): non-ASCII, embedded quote/backslash/control,
+        # and a U+2028 line separator — JCS escaping must be byte-identical through the splice.
+        {
+            "seq": 5,
+            "kind": "Note",
+            "schema": "Note@1",
+            "producer": None,
+            "t": 2.0,
+            "payload": {
+                "unicode": "café — naïve 日本語 😀",
+                "quote": 'he said "hi"',
+                "backslash": "a\\b\\c",
+                "control": "tab\tnewline\nend",
+                "u2028": "line sep para",
+            },
+        },
     ]
     for env in cases:
         line = framing.frame(env)
@@ -112,3 +128,20 @@ def test_crc_splice_is_byte_identical_to_full_reencode():
         assert b_disk == full, f"splice diverged from full re-encode for {env['kind']}"
         # and it still verifies (crc recomputes correctly over B_hash)
         assert framing.verify_line(b_disk)["seq"] == env["seq"]
+
+
+def test_frame_fails_loud_if_a_key_sorts_before_crc():
+    # the crc-splice precondition guard (review #6): a top-level envelope key sorting before
+    # "crc" under JCS would make the splice emit non-canonical bytes — frame() MUST refuse it
+    # loudly (a mis-spliced frame still verifies, so this guard is the only fail-loud catch).
+    bad_env = {
+        "seq": 0,
+        "kind": "X",
+        "schema": "X@1",
+        "producer": None,
+        "t": 0.0,
+        "payload": {},
+        "alpha": "a key that sorts before crc",  # 'a' < 'c'
+    }
+    with pytest.raises(ValueError, match="sort before 'crc'"):
+        framing.frame(bad_env)

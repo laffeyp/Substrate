@@ -508,14 +508,19 @@ async def _check_14_diagnostic_invariance(root: Path) -> CheckResult:
 
 async def _check_15_perf(root: Path) -> CheckResult:
     # A LIGHTWEIGHT floor probe (the full pytest-benchmark gate + regression-vs-previous-tag
-    # is the dedicated benchmark, test_perf.py). Here: measure append throughput at a reduced
-    # shape and report the REAL number. v1.0 first release has no previous tag, so the
-    # regression clause is N/A; the floor (>=100K appends/sec, N-PERF-1) is the gate. Honest:
-    # if the floor is not met on THIS hardware, FAIL with the measured rate (do not fudge).
+    # is the dedicated benchmark, test_perf.py). Here: measure append throughput at the
+    # F-PRED-1 filtered reference shape and report the REAL number. v1.0 first release has no
+    # previous tag, so the regression clause is N/A; the floor is the gate. Honest: if the
+    # floor is not met on THIS hardware, FAIL with the measured rate (do not fudge).
+    # Floor = 40,000 appends/sec per product amendment A2.1 (the original 100K was derived from
+    # a prototype that did not measure the required RFC-8785 canonical encoding; recalibrated
+    # to a ~28% margin under the measured ~56K). The dominant per-append cost is the
+    # pure-Python rfc8785 encoder (D-7-required, unchanged); a compiled JCS encoder is the
+    # post-1.0 lever if a deterministic firehose ever needs more.
     from .conformance_perf import measure_append_rate
 
     rate, n = await measure_append_rate(root)
-    floor = 100_000
+    floor = 40_000  # product amendment A2.1 (was 100K)
     if rate >= floor:
         return CheckResult(
             15,

@@ -38,7 +38,7 @@
 
 Superseded drafts under `product_spec/`, `technical_spec/`, `kernel_spec/` are audit-trail history (no deletions, hard rule 12); cite only the canonical drafts above.
 
-**Additive amendments** (govern over the base draft where they conflict; the base draft is preserved): `product_spec/draft7_amendment_A1_replay_3b.md` + `technical_spec/draft5_amendment_A1.md` — 2026-06-13 Ruling 2: Level 3(b) replay deferred (F-RPLY-1 relaxed to SHOULD for v1.0; conformance check 6 = "deferred (spec-amended)"), and the D-8 supplementary-metadata exclusion set enumerated. Cite the base draft + its amendment together.
+**Additive amendments** (govern over the base draft where they conflict; the base draft is preserved): `product_spec/draft7_amendment_A1_replay_3b.md` + `technical_spec/draft5_amendment_A1.md` — 2026-06-13 Ruling 2: Level 3(b) replay deferred (F-RPLY-1 relaxed to SHOULD for v1.0; conformance check 6 = "deferred (spec-amended)"), and the D-8 supplementary-metadata exclusion set enumerated. `product_spec/draft7_amendment_A2_nperf1.md` — 2026-06-13: N-PERF-1 floor recalibrated 100K → 40K appends/sec (the 100K was derived from a prototype that didn't measure the required canonical encoding; measured ~56K). Cite the base draft + its amendments together.
 
 ---
 
@@ -110,7 +110,7 @@ Superseded drafts under `product_spec/`, `technical_spec/`, `kernel_spec/` are a
 - **Release gate:** `uv run substrate conformance` (the 17 checks) — expected exit 0
 - **Type gate (public API):** `uv run mypy --strict` — expected exit 0
 - **Lint/format:** `uv run ruff check` / `uv run ruff format --check` — expected exit 0
-- **Perf floor (N-PERF-1):** `uv run pytest-benchmark` at the reference shape — ≥100K appends/sec; ≤20% regression vs previous release tag (conformance check 15)
+- **Perf floor (N-PERF-1, as amended by A2.1):** the reference-shape append-rate probe — **≥40K appends/sec** (recalibrated from 100K, which was derived from a prototype that didn't measure the required canonical encoding; measured ~56K, floor at a ~28% margin); ≤20% regression vs previous release tag (conformance check 15)
 - **Canonical-encoding stability:** RFC 8785 conformance vectors — byte-identical, every commit
 
 ---

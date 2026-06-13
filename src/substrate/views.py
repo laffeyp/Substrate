@@ -29,6 +29,24 @@ class BufferView:
         return list(self._items)
 
 
+class KindBuffer:
+    """Accumulated payloads of one event KIND (a kind-subscribed sibling of BufferView, which
+    subscribes by Producer kind). Useful when several Producer kinds emit the same event kind
+    and a Predicate gates on the aggregate (e.g. R-1's "≥K Candidate answers" Bus-view)."""
+
+    deterministic = True
+
+    def __init__(self, kind: str) -> None:
+        self.subscription = Subscription(kinds=frozenset({kind}))
+        self._items: list[Any] = []
+
+    def update(self, event: Event) -> None:
+        self._items.append(event.payload)
+
+    def value(self) -> list[Any]:
+        return list(self._items)
+
+
 class KindCount:
     """Count of events of one kind."""
 

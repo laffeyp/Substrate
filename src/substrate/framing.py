@@ -43,15 +43,28 @@ def frame(envelope: dict[str, Any]) -> bytes:
     if "crc" in envelope:
         raise ValueError("frame() expects an envelope WITHOUT a crc field (§3.3)")
     builtins = to_canonical_builtins(envelope)
+    # FAIL-LOUD GUARD for the crc-splice below (byte-identity contract). The splice is correct
+    # ONLY because "crc" sorts FIRST among the top-level envelope keys under JCS. If a FUTURE
+    # top-level envelope key ever sorts before "crc" (a key starting < 'c', e.g. 'a'/'b'), the
+    # splice would silently emit NON-canonical bytes — and a mis-spliced frame still passes
+    # verify_line (order-independent), so it would slip every test except a byte-identity test
+    # that happens to include the new key. Assert the precondition here so any such schema
+    # change fails immediately and obviously rather than corrupting the canonical encoding.
+    bad = [k for k in builtins if str(k) < "crc"]
+    if bad:
+        raise ValueError(
+            f"frame() crc-splice precondition violated: top-level envelope key(s) {bad} sort "
+            f"before 'crc' under JCS — the splice would emit non-canonical bytes. A new "
+            f"envelope key sorting before 'crc' must use a full re-encode, not the splice."
+        )
     b_hash = rfc8785.dumps(builtins)
     crc = _crc8(b_hash)
     # B_disk = B_hash with "crc" added (§3.3). Under JCS keys are sorted; "crc" sorts BEFORE
-    # every envelope key (seq/kind/schema/producer/t/payload — none begin with a char < 'c',
-    # and crc is the only 'c' key), so B_disk is byte-identically B_hash with `"crc":"<8hex>",`
-    # spliced right after the opening brace. We splice instead of re-encoding the whole
-    # envelope a SECOND time through the pure-Python rfc8785 encoder (the dominant per-frame
-    # cost) — halving rfc8785.dumps calls per frame. Byte-identity is guaranteed by the
-    # fixed envelope key set + JCS sort order (asserted in tests + the RFC-8785 vectors).
+    # every current envelope key (seq/kind/schema/producer/t/payload), so B_disk is
+    # byte-identically B_hash with `"crc":"<8hex>",` spliced right after the opening brace. We
+    # splice instead of re-encoding the whole envelope a SECOND time through the pure-Python
+    # rfc8785 encoder (the dominant per-frame cost) — halving rfc8785.dumps calls per frame.
+    # Guarded above + asserted byte-identical in tests + the RFC-8785 conformance vectors.
     b_disk = b'{"crc":"' + crc.encode("ascii") + b'",' + b_hash[1:]
     line = b_disk + b"\n"
     if len(line) > FRAME_MAX_BYTES:
