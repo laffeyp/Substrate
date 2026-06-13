@@ -5,15 +5,17 @@ kinds / 10 Views, subscription-filtered to <=5 substantive per append) and at a 
 baseline, and records the REAL numbers.
 
 HONEST STATUS (surfaced to the Architect 2026-06-13): on this hardware the implementation
-sustains ~37K appends/sec at the faithful reference shape (50 Triggers across 10 kinds,
-subscription-filtered to <=5 substantive per append per F-PRED-1) and ~44K bare — BELOW the
-100K floor. The bottleneck is the per-event asyncio round-trip in the credit-gated
-single-writer path (two event-loop hops per append: `await credits.acquire()` +
-`await inbox.get()`), NOT the cycle work (the <=5-substantive predicate load only drops
-44K->37K). The floor is therefore a real, open performance gap,
-not measurement noise (stable across runs at load avg ~4). See BLACKBOARD ## Surfaced for
-review (N-PERF-1) — the recommended fix (batch inbox drain to amortize the event-loop hop) is
-an architecture change pending an Architect decision; not slipped in unreviewed.
+sustains ~56K appends/sec at the faithful reference shape (50 Triggers across 10 kinds,
+subscription-filtered to <=5 substantive per append per F-PRED-1) after two
+behavior-preserving optimizations — STILL BELOW the 100K floor. The Architect-ruled
+batch-drain (amortize the asyncio wake) gave NO gain: asyncio was NOT the bottleneck. The
+real cost is the pure-Python rfc8785 (JCS) canonical encoder. The crc-splice optimization
+(build B_disk by splicing the crc into B_hash instead of re-encoding the envelope a second
+time) halved the per-frame dumps and lifted ~37K -> ~56K. The residual ~56K ceiling is still
+the per-frame rfc8785 encode + the §4.2 whitelist walk, both correctness-critical (D-7). The
+floor remains a real, open gap (stable across runs); further gains need a faster JCS encoder
+or a fused encode+check pass — beyond a safe in-wave change. HALTED + surfaced for a
+re-baseline decision (the Architect's call, a spec amendment). See BLACKBOARD ## Surfaced.
 
 This test is `xfail(strict=False)` against the 100K floor so it does NOT hide the gap (the
 conformance harness check 15 reports the FAIL with the live number) while letting the rest of
@@ -29,8 +31,9 @@ _FLOOR = 100_000  # N-PERF-1 appends/sec
 
 @pytest.mark.timeout(60)
 @pytest.mark.xfail(
-    reason="N-PERF-1 floor not met on this hardware (~37K/sec faithful ref shape); surfaced to "
-    "Architect — per-event asyncio round-trip bottleneck, batch-drain fix pending review",
+    reason="N-PERF-1 floor not met on this hardware (~56K/sec faithful ref shape after "
+    "batch-drain + crc-splice); HALTED + surfaced to Architect — residual bottleneck is the "
+    "pure-Python rfc8785 encoder; re-baseline is the Architect's call (a spec amendment)",
     strict=False,
 )
 async def test_n_perf_1_floor_reference_shape(tmp_path):

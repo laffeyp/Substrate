@@ -45,7 +45,14 @@ def frame(envelope: dict[str, Any]) -> bytes:
     builtins = to_canonical_builtins(envelope)
     b_hash = rfc8785.dumps(builtins)
     crc = _crc8(b_hash)
-    b_disk = rfc8785.dumps({**builtins, "crc": crc})
+    # B_disk = B_hash with "crc" added (§3.3). Under JCS keys are sorted; "crc" sorts BEFORE
+    # every envelope key (seq/kind/schema/producer/t/payload — none begin with a char < 'c',
+    # and crc is the only 'c' key), so B_disk is byte-identically B_hash with `"crc":"<8hex>",`
+    # spliced right after the opening brace. We splice instead of re-encoding the whole
+    # envelope a SECOND time through the pure-Python rfc8785 encoder (the dominant per-frame
+    # cost) — halving rfc8785.dumps calls per frame. Byte-identity is guaranteed by the
+    # fixed envelope key set + JCS sort order (asserted in tests + the RFC-8785 vectors).
+    b_disk = b'{"crc":"' + crc.encode("ascii") + b'",' + b_hash[1:]
     line = b_disk + b"\n"
     if len(line) > FRAME_MAX_BYTES:
         raise FrameTooLargeError(

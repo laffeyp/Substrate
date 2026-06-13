@@ -73,3 +73,42 @@ def test_property_frame_then_recover_roundtrips(seqs):
     frames, cut = framing.recover(data)
     assert [f["seq"] for f in frames] == seqs
     assert cut == len(data)
+
+
+def test_crc_splice_is_byte_identical_to_full_reencode():
+    # perf: frame() splices "crc":"<8hex>" into B_hash instead of re-encoding the whole
+    # envelope a second time. Guard the byte-identity that optimization depends on — the
+    # spliced frame MUST equal a full rfc8785 re-encode of {**envelope, crc} for every
+    # envelope shape, across payloads exercising key-sort order and nested structures.
+    import rfc8785
+
+    from substrate.encoding import to_canonical_builtins
+
+    cases = [
+        {
+            "seq": 0,
+            "kind": "substrate.RunStarted",
+            "schema": "substrate.RunStarted@1",
+            "producer": None,
+            "t": 1.0,
+            "payload": {"a": 1, "z": [1, 2], "m": {"k": "v"}},
+        },
+        {
+            "seq": 7,
+            "kind": "CountReached",
+            "schema": "CountReached@1",
+            "producer": {"kind": "c", "instance": "01ABC", "parent": None},
+            "t": 1.5,
+            "payload": {"n": 3},
+        },
+        {"seq": 99, "kind": "X", "schema": "X@1", "producer": None, "t": 0.0, "payload": {}},
+    ]
+    for env in cases:
+        line = framing.frame(env)
+        b_disk = line[:-1]  # strip the trailing newline
+        builtins = to_canonical_builtins(env)
+        crc = b_disk[len(b'{"crc":"') :].split(b'"', 1)[0]  # extract the spliced crc
+        full = rfc8785.dumps({**builtins, "crc": crc.decode()})
+        assert b_disk == full, f"splice diverged from full re-encode for {env['kind']}"
+        # and it still verifies (crc recomputes correctly over B_hash)
+        assert framing.verify_line(b_disk)["seq"] == env["seq"]

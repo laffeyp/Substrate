@@ -403,13 +403,37 @@ class Runtime:
                 if st.inflight == 0 and st.inbox.empty() and not st.control:
                     self._consult_termination(None, quiescent=True)
                 continue
-            if isinstance(msg, _Emission):
-                st.credits.release()
-            self._cyc.cycle(msg)
-            self._flush_scheduled()
-            if st.last_event is not None:
-                self._consult_termination(st.last_event, quiescent=False)
-            # Writer-stats sample: BETWEEN cycles (off the hot path), only when enabled.
+            # BATCH DRAIN (perf): one `await inbox.get()` wakes the writer; then drain every
+            # item ALREADY ready (get_nowait) into a batch and process the whole batch before
+            # awaiting again — amortizing the per-event event-loop round-trip. This changes
+            # only the WAKE granularity: the single writer still processes items strictly in
+            # FIFO/seq order, one append cycle each (control-queue step-6 still drains inside
+            # each cycle), credits are still released per emission as it is taken, and
+            # quiescence is still detected on the idle-timeout path (only reached when the
+            # inbox blocks, i.e. is empty). Total order, backpressure, step-6, and quiescence
+            # are all preserved; only the asyncio hop is batched.
+            batch = [msg]
+            while True:
+                try:
+                    batch.append(st.inbox.get_nowait())
+                except asyncio.QueueEmpty:
+                    break
+            for i, item in enumerate(batch):
+                if st.phase is not RunPhase.RUNNING:
+                    # a mid-batch finalise/fail (e.g. view-failure) stops processing; release
+                    # credits for the UNPROCESSED emissions so no Producer task is left blocked
+                    # on a credit during the run()-finally cancellation gather.
+                    for rest in batch[i:]:
+                        if isinstance(rest, _Emission):
+                            st.credits.release()
+                    break
+                if isinstance(item, _Emission):
+                    st.credits.release()  # release as the emission is taken (backpressure)
+                self._cyc.cycle(item)
+                self._flush_scheduled()
+                if st.last_event is not None:
+                    self._consult_termination(st.last_event, quiescent=False)
+            # Writer-stats sample: BETWEEN batches (off the hot path), only when enabled.
             # Sampling/I/O here never touches the appended frame's bytes (check 14).
             if self._stats is not None:
                 self._stats.sample(
