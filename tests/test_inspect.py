@@ -258,3 +258,46 @@ async def test_first_divergence_prefix_is_localized(tmp_path):
     assert div is not None
     assert div.index == len(prefix)  # first extra frame in the longer record
     assert div.kind_a is None and div.kind_b is not None
+
+
+# ── D-8 must exclude run-varying SUPPLEMENTARY measurement: measured_us ────────--
+import time as _time  # noqa: E402
+
+
+def _slow_predicate(event, views):
+    # deliberately over the default 100us budget so it accrues budget violations and the
+    # runtime quarantines it after k=3 hysteresis -> a PredicateQuarantined{reason:"budget",
+    # measured_us:<wall-clock us>} on the log. measured_us VARIES run to run (it's a timing
+    # measurement), so it must NOT enter the D-8 comparison.
+    _time.sleep(0.0005)  # ~500us, comfortably over the 100us budget
+    return False
+
+
+def _quarantine_topo(b):
+    b.producer_kind("counter", schemas=[CountReached], schema_version=1, factory=lambda: counter)
+    b.producer_kind("noop", schemas=[CountReached], schema_version=1, factory=lambda: counter)
+    b.initial("counter", input=None)
+    b.trigger(
+        "slow",
+        subscription=Subscription(kinds=frozenset({"CountReached"})),
+        predicate=_slow_predicate,
+        starts="noop",
+        input_builder=lambda views, staged, event: None,
+        policy=PerEvent(),
+    )
+    b.termination(quiescence_with_watchdog(seconds=1))
+
+
+async def test_first_divergence_excludes_measured_us_on_quarantine(tmp_path):
+    # MUST-FIX (external review): two runs of the same topology that both budget-quarantine
+    # the same predicate produce PredicateQuarantined frames with DIFFERENT measured_us;
+    # measured_us is a wall-clock measurement (supplementary), not decision identity, so it
+    # must be excluded from D-8 — first_divergence must be None, not a spurious positive.
+    await Runtime(tmp_path / "a").run(_quarantine_topo)
+    await Runtime(tmp_path / "b").run(_quarantine_topo)
+    # sanity: both runs actually quarantined (so measured_us is present and differs)
+    qa = [e for e in read_record(tmp_path / "a") if e["kind"] == "substrate.PredicateQuarantined"]
+    qb = [e for e in read_record(tmp_path / "b") if e["kind"] == "substrate.PredicateQuarantined"]
+    assert qa and qb and qa[0]["payload"]["reason"] == "budget"
+    # the two records are D-8-equivalent despite differing measured_us / error reprs
+    assert first_divergence(tmp_path / "a", tmp_path / "b") is None

@@ -263,37 +263,41 @@ def first_divergence(rec_a: Any, rec_b: Any) -> Divergence | None:
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────--
-# Run-varying identity excluded from the D-8 comparison as "supplementary metadata":
-# per-run noise (fresh ULIDs / run id), NOT the decision content. D-8 is "(event-kind
+# The D-8 supplementary-metadata exclusion set (the equivalence relation's exact shape;
+# documented in signals/0.2-rationale.md and technical_spec D-8). D-8 is "(event-kind
 # sequence, DECISION-IDENTITY sequence, canonical payload hashes), supplementary metadata
-# excluded" (product §D-8); the decision identity of a firing is its input_sha256 (stable
-# across runs of a deterministic topology), not the spawned instance's random ULID.
-# Without this, two runs of the SAME topology always diverge at frame 0 on run_id,
-# defeating check 13. The exact exclusion set is a D-8 refinement — flagged as a tech-spec
-# flow-back in BLACKBOARD.
-#
-# CRITICAL scope: this normalization is applied ONLY to the kernel-minted run-identity
-# fields on `substrate.*` lifecycle frames — `run_id`/`instance` at the TOP LEVEL of a
-# lifecycle payload and the `producer` ref's instance/parent. It NEVER recurses into, or
-# strips keys from, APPLICATION payloads — an application event whose payload happens to
-# contain a field named `instance`/`run_id` is compared verbatim (else two genuinely
-# different application emissions could be falsely equated — a silent check-13 miss).
-_D8_RUN_IDENTITY_KEYS = frozenset({"run_id", "instance"})
+# excluded" (product §D-8). On `substrate.*` lifecycle frames, the following are
+# run-varying SUPPLEMENTARY noise, NOT decision identity, and are excluded from the
+# comparison hash; without this, two runs of the SAME topology spuriously diverge:
+#   - run_id, instance          fresh ULIDs / the run id (per-run identity)
+#   - producer.{instance,parent} the subject ref's ULIDs (kind is kept — it IS identity)
+#   - measured_us               wall-clock microseconds of a predicate call
+#                               (PredicateQuarantined budget path) — a timing MEASUREMENT
+#   - error                     a repr(exc) that can embed tmp paths / object addresses —
+#                               normalized to a stable sentinel (the frame KIND already
+#                               carries "a failure of this class happened here")
+# The decision identity that IS kept: input_sha256, firing_key, reason, trigger_id/route_id,
+# policy/decision, k (a config constant), view/seq (real positions). Application payloads
+# are NEVER touched (their content IS the decision being compared).
+_D8_DROP_KEYS = frozenset({"run_id", "instance", "measured_us"})
+_D8_NORMALIZE_KEYS = frozenset({"error"})  # value replaced by a stable sentinel
 
 
 def _d8_normalize_lifecycle(payload: Any) -> Any:
-    """Normalize a substrate.* lifecycle payload: drop the top-level run-identity keys and
-    reduce any `producer` ref to {kind} (instance/parent are run-specific ULIDs). Nested
-    values are NOT recursed (lifecycle payloads are flat); input_sha256/firing_key/reason
-    etc. — the actual decision identity — are preserved."""
+    """Normalize a substrate.* lifecycle payload for D-8: drop the run-varying supplementary
+    keys (run_id/instance/measured_us), reduce any `producer` ref to {kind}, and replace
+    free-form `error` reprs with a stable sentinel. Lifecycle payloads are flat (no recursion
+    needed); the decision-identity fields (input_sha256/firing_key/reason/k/...) are kept."""
     if not isinstance(payload, dict):
         return payload
     out: dict[str, Any] = {}
     for key, value in payload.items():
-        if key in _D8_RUN_IDENTITY_KEYS:
+        if key in _D8_DROP_KEYS:
             continue
         if key == "producer" and isinstance(value, dict):
             out[key] = {"kind": value.get("kind")}
+        elif key in _D8_NORMALIZE_KEYS:
+            out[key] = "<error>"  # presence is identity; the repr text is supplementary
         else:
             out[key] = value
     return out

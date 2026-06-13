@@ -110,6 +110,21 @@
 
 ---
 
+### 2026-06-13 (round 8) — the first vocabulary evolution, done by the book
+
+**What happened:** The Architect ratified the three carry-ahead TriggerFired proposals and ruled the bump be ADDITIVE: new `signals/0.2.json` (`prior_version:"0.1"`), v0.1 retained as audit trail, `0.2-rationale.md` recording the changes, proposals marked ratified. Built it by copying v0.1 → mutating exactly the metadata + the TriggerFired tag, and diff-verified nothing else changed. Folded external-review #1's D-8 honesty findings in at the same time (equivalence-relation concerns = vocabulary territory).
+
+**What worked:**
+- **The carry-ahead → ratify → additive-bump loop closed exactly as the methodology predicts.** Fields were implemented-ahead-of-ratification with typed proposals (Waves 5–6), surfaced for a ruling, and the ruling produced a real version bump with a rationale — not a silent edit to a locked file. v0.1 is untouched; a future session can diff 0.1→0.2 and read the why. The compounding-stability claim made concrete.
+- **Diff-verifying the additive bump caught nothing — which is the point.** Asserting `0.1 == 0.2` everywhere except {metadata, TriggerFired} is a cheap mechanical guard against an "additive" edit that silently perturbs an unrelated tag.
+- **The D-8 `measured_us` leak is the THIRD instance of one pattern:** a run-varying value leaking into an identity/comparison that should be stable (run_id at frame 0 → the global-key-strip over-reach → a wall-clock measurement). The equivalence relation's exclusion set is load-bearing and under-specified by the spec; enumerating it (rationale + amendment) is what makes check 13 honest.
+
+**What this says about the next kit version:**
+- 11. A version bump should ship with a machine-checkable "additive diff" assertion (old == new outside the declared change set) as part of its dual contract — the rationale says *what* changed; the diff proves *nothing else* did.
+- 12. "Supplementary metadata excluded" in an equivalence relation is a spec smell unless the exclusion set is enumerated. Every timing/identity/host-derived field that can reach a compared payload must be named; "etc." in an equivalence definition is where false-positives/negatives hide.
+
+---
+
 ## Phase boundary syntheses
 
 *(one per phase close)*

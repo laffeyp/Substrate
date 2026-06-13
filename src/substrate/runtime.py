@@ -25,7 +25,7 @@ from msgspec import Struct
 from ulid import ULID
 
 from . import locking
-from .constants import BUDGET_US, HYSTERESIS_K
+from .constants import BUDGET_US, HYSTERESIS_K, VOCAB_VERSION
 from .encoding import content_hash, try_canonical
 from .errors import FsyncError, ReentrantAppendError
 from .policies import Decision, TermContext, quiescence_with_watchdog
@@ -88,15 +88,23 @@ class Runtime:
         record: RecordWriter | None = None
         st: RunState | None = None
 
-        # Acquire the persistent-bus lock BEFORE the try so a BusLockedError /
-        # UnsupportedPlatformError propagates to the caller (a config-time refusal, not a
-        # failed run). The try then covers RecordWriter construction onward, so any failure
-        # there still hits the finally that releases the lock (no fd leak / self-deadlock).
+        # Pre-run SETUP — the lock and the record writer — happens BEFORE the run try and
+        # PROPAGATES on failure (a config-time / setup refusal, NOT a failed run): a caller
+        # can then distinguish "never started" (setup raised) from "started and failed"
+        # (status="failed" with a record on disk). BusLockedError/UnsupportedPlatformError
+        # (lock) and an OSError (record-root creation) both propagate. If the record writer
+        # fails after the lock was taken, the lock is released before re-raising — no fd
+        # leak / self-deadlock.
         if self._persistent:
             lock_fd = locking.acquire_lock(self._record_root, start_time=time.time())
         try:
             record = RecordWriter(self._record_root, fsync=self._fsync)
-            self._record = record
+        except BaseException:
+            if lock_fd is not None:
+                locking.release_lock(lock_fd)
+            raise
+        self._record = record
+        try:
             st = self._new_run_state(reg)
             self._st = st
             self._cyc = AppendCycle(
@@ -290,6 +298,10 @@ class Runtime:
                 "budget_us": self._budget_us,
                 "hysteresis_k": self._hysteresis_k,
                 "replay_ceiling": self._st.replay_ceiling,
+                # the signal-vocabulary version this record was written against — distinct
+                # from a per-kind wire schema; lets replay/inspection self-describe (v0.2
+                # added TriggerFired.instance/factory + input_blob).
+                "vocab_version": VOCAB_VERSION,
             },
         }
 

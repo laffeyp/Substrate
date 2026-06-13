@@ -245,8 +245,9 @@
       "element": "substrate.TriggerFired: does the frame carry `factory`?",
       "rationale": "Kernel v15 lifecycle table names `factory` among TriggerFired\u2019s identified elements; tech \u00a76.2 step 5 omits it. The spawned kind is recoverable via the trigger\u2019s `starts` in the RunStarted manifest, arguing factory is redundant on the frame. Reconcile or accept the omission explicitly.",
       "source": "kernel_spec/v15.md lifecycle table line 479; technical_spec/draft5.md \u00a76.2 step 5 line 501",
-      "disposition": "implemented-ahead-of-ratification (the runtime emits `factory` = the trigger's `starts`); awaiting kernel/Architect reconciliation + version bump. Carried because it is the cheapest provenance read of the spawned kind on the frame itself.",
-      "ratified": false
+      "disposition": "RATIFIED into v0.2 (Architect ruling 2026-06-13); signals/0.2.json + 0.2-rationale.md",
+      "ratified": true,
+      "ratified_into": "0.2"
     },
     {
       "id": "P-TRIGGERFIRED-INSTANCE",
@@ -254,8 +255,9 @@
       "element": "substrate.TriggerFired.instance (str): the ULID instance_id of the Producer the firing schedules.",
       "rationale": "Closes provenance F-OBS-2 / conformance check 11 (provenance closure): every spawned Producer must trace to its TriggerFired, and ProducerStarted carries {kind,instance,parent} (P-SUBJECT-ID) but TriggerFired carried no instance, so explain_producer/trace_ancestry could not link a ProducerStarted back to the exact firing without re-deriving it. Symmetric with P-SUBJECT-ID (ratified into v0.1 for the Producer* tags). The runtime emits this field on every TriggerFired (initial + trigger-fired paths). Under strict validator-extras it is an uncatalogued field until ratified. Architect-directed (Wave-6-prep) \u2014 surfaced here for the version bump rather than silently invented.",
       "source": "product_spec/draft7.md F-OBS-2; product \u00a77 check 11; technical_spec/draft5.md \u00a714 (explain_producer/trace_ancestry); locked vocabulary P-SUBJECT-ID precedent",
-      "disposition": "implemented-ahead-of-ratification (Architect-directed); awaiting version bump to v0.2",
-      "ratified": false
+      "disposition": "RATIFIED into v0.2 (Architect ruling 2026-06-13); signals/0.2.json + 0.2-rationale.md",
+      "ratified": true,
+      "ratified_into": "0.2"
     },
     {
       "id": "P-TRIGGERFIRED-INPUT-BLOB",
@@ -263,8 +265,9 @@
       "element": "Rename substrate.TriggerFired blob field `$blob` -> `input_blob` (carrying the BlobRef object).",
       "rationale": "The locked v0.1 schema names the oversized-input field `$blob` of type BlobRef; but a BlobRef serializes to {\"$blob\":\"sha256:..\",\"bytes\":n}, so the on-disk frame becomes {\"$blob\":{\"$blob\":..}} \u2014 the field key and the BlobRef's own key are textually identical, a footgun for any reader/CLI author distinguishing 'the field' from 'the ref'. The emission-payload blob case has no such collision (there the payload IS a bare BlobRef). Rename the TriggerFired field to `input_blob` so the two cases are unambiguous; still mutually exclusive with resolved_input (D-5). Architect-directed (review pass 2). Carried implemented-ahead-of-ratification, like P-TRIGGERFIRED-INSTANCE.",
       "source": "design review pass 2; technical_spec/draft5.md \u00a76.2 step 5 / \u00a73.7; locked TriggerFired schema $blob field",
-      "disposition": "implemented-ahead-of-ratification (Architect-directed); awaiting version bump to v0.2",
-      "ratified": false
+      "disposition": "RATIFIED into v0.2 (Architect ruling 2026-06-13); signals/0.2.json + 0.2-rationale.md",
+      "ratified": true,
+      "ratified_into": "0.2"
     }
   ]
 }

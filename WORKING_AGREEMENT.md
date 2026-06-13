@@ -62,7 +62,7 @@ Superseded drafts under `product_spec/`, `technical_spec/`, `kernel_spec/` are a
 | Test helpers (`assert_event`, `assert_no_event`, `assert_sequence`) | `substrate/testing.py` | F-API-4 / tech §15. |
 | Public API re-exports | `substrate/api.py` | F-API-6: `substrate.cli` may import only this. |
 | CLI (`run`, `replay`, `inspect`, `validate`, `tail`, `conformance`, `resume`, `stats`) | `substrate/cli.py` | Click + Rich; public API only. |
-| The locked vocabulary | `signals/0.1.json` | Produced by Sprint 0. Loaded, not hand-edited. |
+| The locked vocabulary | `signals/0.2.json` (active; `signals/0.1.json` retained as the v0.1 audit trail) | Sprint 0, evolved to v0.2 (2026-06-13 Ruling 1: TriggerFired instance/factory + input_blob). Loaded, not hand-edited. |
 
 ---
 
@@ -96,7 +96,7 @@ Superseded drafts under `product_spec/`, `technical_spec/`, `kernel_spec/` are a
 - **Validator-extras posture:** **strict.** Payload fields not declared in the schema raise at emit time (emission becomes `substrate.ProducerEmittedInvalidEvent` with reason `non_canonical_value`/`schema_violation`). Rationale: matches the substrate's own product principle 4 — bus-boundary validation is *mandatory and non-configurable*; a documentation-only posture would contradict the product the project ships.
 - **View-payload-universal convention:** the substrate has no `view` *category* in the UI sense — Views are runtime projections, not rendered scenes. The dual contract's "view-side counterpart" maps instead to **the run record on disk**: every behavior tag's effect must be reconstructable from the persisted log (replay Level 1/2). The dual-contract audit (BOOTSTRAP Step 9) pairs each behavior tag with a record-observable assertion (a sequenced event + a `view_at`/`decisions_between` reconstruction), not a screen element. Documented in the rationale doc.
 - **Reserved namespace:** kernel/control-plane kinds use the `substrate.` prefix (F-OBS-5); Producer-declared kinds MUST NOT collide. The vocabulary JSON marks each tag's namespace.
-- **Vocabulary location:** `signals/0.1.json` (default). Rationale doc: `signals/0.1-rationale.md`. Open proposals: `signals/proposals.json`.
+- **Vocabulary location:** `signals/0.2.json` (active locked vocabulary; `signals/0.1.json` retained as the v0.1 audit trail, no deletions). Rationale docs: `signals/0.2-rationale.md` (+ founding `signals/0.1-rationale.md`). Open/ratified proposals: `signals/proposals.json`.
 
 ---
 
