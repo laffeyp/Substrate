@@ -70,13 +70,21 @@ Superseded drafts under `product_spec/`, `technical_spec/`, `kernel_spec/` are a
 
 *Per AGENTS.md hard rule 10 / technique 46. The first sprint that imports an SDK without a bridge mapping here MUST halt with `bridge_mapping_required`. Reverse-engineer the real API surface before authoring against it. To be completed in a `pass_kind: bridge` sprint before the encoding/record sprints dispatch.*
 
-### msgspec (`>=0.21,<0.22`)
-- **Used for:** Struct definitions, schema validation at the bus boundary, `msgspec.to_builtins()` (input to the JCS pipeline), `msgspec.json.schema()` for `RunStarted` schema descriptors, pre-built `msgspec.json.Decoder` per (kind, version).
-- **Critical surface (verify against installed version before use):** `msgspec.Struct(frozen=True)`; frozen-Struct mutation raises; `msgspec.json.Decoder(Type)` / `.decode(bytes)`; `msgspec.to_builtins(obj)`; `msgspec.json.schema(Type)` → JSON Schema draft 2020-12. *Status: STUB — reverse-engineer and pin before the validation/encoding sprints.*
+### msgspec — VERIFIED against installed **0.21.1** (2026-06-13, `.venv/bin/python` introspection)
+- **Used for:** Struct definitions, schema validation at the bus boundary, `msgspec.to_builtins()` (input to the JCS pipeline), `msgspec.json.schema()` for `RunStarted` descriptors, pre-built `msgspec.json.Decoder` per (kind, version).
+- **Verified surface:**
+  - `class X(msgspec.Struct, frozen=True)` — mutating a frozen instance raises **`AttributeError`** (`"immutable type: 'X'"`). (Not a custom exception — catch `AttributeError`.)
+  - `msgspec.json.Decoder(Type)` then `.decode(bytes) -> Type`; on validation failure raises **`msgspec.ValidationError`** with a JSON path (e.g. `Expected \`int\`, got \`str\` - at \`$.x\``). Malformed JSON raises `msgspec.DecodeError`.
+  - `msgspec.json.encode(obj) -> bytes`; `msgspec.json.Encoder`.
+  - `msgspec.to_builtins(obj, *, str_keys=False, builtin_types=None, enc_hook=None, order=None) -> builtins` — returns dict/list/scalars. **Raw `bytes` fields become base64 strings** (confirms tech §4.2: forbid inline variable bytes; use schema-declared hex-`str` fields for `bytes16/20/32`).
+  - `msgspec.json.schema(Type) -> dict` (JSON Schema, `$ref` + `$defs`, draft 2020-12 shape); `msgspec.json.schema_components([Types]) -> (schemas, components)` for the multi-kind `RunStarted` manifest.
+  - `msgspec.convert(obj, Type)` — builtins→Struct (boundary conversion path for frozen Pydantic → Struct).
+  - Errors available: `msgspec.ValidationError`, `msgspec.DecodeError`, `msgspec.EncodeError`.
+  - Constrained/fixed types: `typing.Annotated[T, msgspec.Meta(min_length=…, max_length=…, ge=…, le=…)]`. *Status: VERIFIED.*
 
-### rfc8785 (pinned)
+### rfc8785 — VERIFIED against installed **0.1.4** (2026-06-13)
 - **Used for:** RFC 8785 (JCS) canonical JSON encoding — the bytes everything hashes over (`B_hash`).
-- **Critical surface:** the dump/encode entry point producing canonical bytes from Python builtins. CI runs the RFC 8785 conformance vectors every commit. *Status: STUB — reverse-engineer and pin before the encoding sprint.*
+- **Verified surface:** `rfc8785.dumps(obj) -> bytes` (UTF-8, minimal, sorted keys); `rfc8785.dump(obj, io)` writes to a binary file-like. Accepts dict/list/str/int/float/bool/None (tuples→lists). Raises **`rfc8785.CanonicalizationError`** (or subclass) on failure. **Does NOT coerce non-`str` dict keys** — our type whitelist already mandates str keys, and `substrate/encoding.py` enforces the whitelist (int range, finite floats, str keys) BEFORE calling `dumps`, rather than relying on rfc8785 to reject. Pipeline: `obj → msgspec.to_builtins → whitelist check → rfc8785.dumps → bytes`. CI runs the RFC 8785 conformance vectors every commit (an upgrade that changes any byte fails CI). *Status: VERIFIED.*
 
 ### python-ulid, click, rich
 - python-ulid: `run_id` generation. click: CLI parsing. rich: terminal output. Document surfaces before the CLI sprints.

@@ -1,39 +1,34 @@
-# Substrate spec corpus
+# Substrate
 
-Four documents form the connected corpus for the Substrate project.
-Read in order if new; cross-reference freely.
+A concurrent streaming dataflow runtime: an importable Python 3.12+ library plus
+a CLI. You bring computations — LLMs, ML models, deterministic transforms,
+subprocesses, simulators, parsers, sensors — as **Producers** that take typed
+input and emit a stream of typed **Events**; the runtime runs them concurrently,
+coordinates them through a single totally-ordered append-only **Bus**, and
+creates new Producers dynamically when **Predicates** over **Views** of the log
+are satisfied (**Triggers**). **Routes** carry data into future instantiations;
+a **TerminationPolicy** decides when the run ends. The load-bearing commitment:
+*all state lives on the log, and nothing consequential is silent* — the persisted
+**run record** is the canonical account of what happened.
 
-| File | What it is | Current draft |
-|---|---|---|
-| `horizon_substrate.md` | Kernel semantics (the abstract substrate, eight primitives, append cycle) | v15 |
-| `product_spec.md` | The product that ships the kernel (requirements, conformance gate, reference topologies) | DRAFT 7 |
-| `technical_spec.md` | The implementation contract (byte layout, writer cycle, public API) | DRAFT 5 |
-| `design_spec.md` | The felt experience (API ergonomics, CLI UX, error UX, future UI sketches) | DRAFT 1 |
+Working name "substrate" (official package name deferred — B-Q-1). Apache-2.0.
 
-## Reading order for someone new
+## Spec corpus
 
-1. **`horizon_substrate.md`** — what the substrate is conceptually.
-2. **`product_spec.md` Part I (§0)** — concrete worked example, eight primitives in plain language, what the bus is on disk.
-3. **`product_spec.md` Part II** — formal requirements, conformance suite, reference topologies.
-4. **`technical_spec.md`** — what gets built, byte-level.
-5. **`design_spec.md`** — what it feels like to use.
+This package implements a four-document spec corpus (in this repo):
 
-## Cross-references
+- `kernel_spec/v15.md` — the eight primitives, the append cycle, replay (+ `v16_reconciliation_note.md`).
+- `product_spec/draft7.md` — requirements, the 17 conformance checks, reference topologies.
+- `technical_spec/draft5.md` — byte layout, writer cycle, public API.
+- `design_spec/draft1.md` — API ergonomics, CLI UX, error UX.
 
-Each spec carries:
-- A status header with the draft number and what changed.
-- "Builds on" links to the other specs it depends on.
-- A "Document history" section at the bottom recording the changes per draft.
-- (Where applicable) "Flows back into" notes naming what the next revision of the upstream spec should incorporate.
+Built under Signal-Driven Development (`../sdd-kit-2/`); the locked signal
+vocabulary is `signals/0.1.json`. Implementation roadmap: `sprints/PHASE1_PLAN.md`.
 
-## Archive
+## Develop
 
-`archive/` holds prior drafts and ancillary review documents. When a new draft of any spec is cut, the previous draft should be moved into `archive/` named `<spec>_DRAFT<N>.md` (or `<spec>_v<N>.md` for the kernel spec, which uses `v` rather than `DRAFT`).
-
-Currently in `archive/`:
-- `product_spec_DRAFT1_critique.md` — critique notes written against product spec DRAFT 1, which were incorporated into DRAFT 2 and survive in the current DRAFT 7. Kept for reference.
-
-## What this corpus does NOT contain
-
-- Prior draft files of the four specs themselves. Each spec has only ever existed as the single file at the top of this folder; revisions were made in place (the Document History section records what changed each draft). Future revisions should preserve the prior draft to `archive/` before being overwritten.
-- The pre-substrate notes (`horizon_multi_agent.md`, `horizon_compositional_grammar.md`, `shared_log_design.md`, etc.) which live one directory up in `notes/`. Those belong to the original recursive-strategy-refinement project, not the Substrate corpus.
+```
+uv venv --python 3.12
+uv pip install -e ".[dev]"
+uv run pytest
+```

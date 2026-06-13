@@ -30,6 +30,8 @@
 
 *Agent appends one entry per sprint close. Append-only.*
 
+- **Wave 0 + S-1.1 (2026-06-13)** — Project skeleton + shared contracts + canonical encoding. Files: `pyproject.toml` (src-layout, py3.12+, deps pinned per tech §22), `src/substrate/__init__.py`, `README.md`, `src/substrate/constants.py` (tech §19 defaults + reserved namespace + 12 lifecycle kinds), `src/substrate/types.py` (`Event`/`ProducerRef`/`BlobRef`/`Subscription` frozen Structs, envelope per §3.4), `src/substrate/protocols.py` (`Producer`/`View` Protocols), `src/substrate/encoding.py` (JCS pipeline + §4.2 type whitelist + content hash), `tests/test_types.py`, `tests/test_encoding.py`. **Bridge mappings VERIFIED** (not guessed): msgspec 0.21.1 + rfc8785 0.1.4 introspected from the installed libs; WORKING_AGREEMENT § External SDK bridge mappings updated from STUB → VERIFIED. Dual contract: signal (vacuous — runtime not built yet) + artifact (15 tests pass; `ruff` clean; `mypy --strict` clean on 5 source files — pass). Toolchain: uv-provisioned CPython 3.12.13 (system py was 3.9 — D-6 required 3.12+). Rubber Duck Pass (no runtime trace): narrated self-review vs the locked vocabulary + tech §3.4/§4 + §19 — encoding enforces the whitelist BEFORE rfc8785 (not relying on the encoder to reject non-finite/out-of-range), bool-before-int ordering correct, content-hash `sha256:` prefix per §4.2; no anomalies. Closed clean.
+
 - **Sprint 000 (2026-06-12)** — Vocabulary Session (founding act). Files authored: `signals/0.1.json` (locked v0.1 — 38 entities, 14 categories, 12 reserved `substrate.*` lifecycle tags, layers 3–10), `signals/0.1-rationale.md` (signed), `signals/proposals.json` (27 proposals; 3 ratified into v0.1), `signals/research-pass.md`, `kernel_spec/v16_reconciliation_note.md`. Dual contract: signal (vacuous — content sprint) + artifact (all files exist; `0.1.json`/`proposals.json` validate as JSON — pass). Produced via a 15-agent parallel workflow with adversarial verification. Architect ratified `P-SUBJECT-ID`/`P-INJECTION-FIELDS`/`P-INVALID-PRODUCER-FIELD` into v0.1 and flagged kernel v16. `spec_ambiguity` halt resolved. v0.1 LOCKED. Phase 1 (implementation) unblocked.
 
 ---
@@ -37,6 +39,8 @@
 ## Deferred
 
 *Anyone may append. Re-visit conditions noted.*
+
+- **2026-06-13 (Agent)** — **S-1.INT RFC 8785 conformance vectors pending fetch.** Wave 1 closes its determinism check via unit tests now, but the authoritative RFC 8785 (JCS) conformance test vectors must be FETCHED from the standard / the rfc8785 project (never fabricated) and wired into CI per tech §4.1. Re-visit at the Wave-1 integration close / first CI setup sprint. Also add a `hypothesis` canonical-encoding round-trip property test.
 
 - **2026-06-12 (Architect direction)** — **B-Q-1 package/import name deferred.** Working name "Substrate" used throughout for now; no packages published. Re-visit before the first sprint that authors `pyproject.toml` or fixed import paths (Wave 0 of Phase 1). Until then, the canonical home registry uses placeholder import root `substrate`. Shortlist + brainstorm preserved in `## Open questions` B-Q-1. The kernel spec's *concept* word "the substrate" is unaffected regardless of the eventual package name.
 
@@ -62,6 +66,13 @@
 ## Sprint tail
 
 *Agent maintains. Last 10 sprint summaries; older entries roll into `## Built` as compressed paragraphs.*
+
+### Wave 0 + S-1.1 (2026-06-13, closed) — skeleton, contracts, canonical encoding
+- **Scope:** stand up the Python package (src layout, py3.12+ via uv), the shared contract types (envelope + Producer/View protocols + constants), and the Wave-1 canonical-encoding root. Auto-within-phase (Architect autonomy directive).
+- **Dual contract:** signal vacuous (runtime not built); artifact pass — 15 tests, ruff clean, mypy --strict clean.
+- **API fidelity:** msgspec 0.21.1 + rfc8785 0.1.4 surfaces VERIFIED by direct introspection of the installed libraries (frozen→AttributeError; ValidationError with path; to_builtins base64s raw bytes; dumps→bytes; CanonicalizationError) — bridge mapping moved STUB→VERIFIED. No invented APIs.
+- **Deferred:** S-1.INT official RFC 8785 conformance vectors (must be FETCHED from the spec, not fabricated — see ## Deferred) + a hypothesis round-trip property test.
+- **Closed:** clean. Next: Wave 2 (run record on disk — segments/frame-CRC/recovery/manifest/blob/durability).
 
 ### Sprint 000 (2026-06-12, closed) — Vocabulary Session
 - **Scope:** lock `signals/0.1.json` + rationale via the 12-step BOOTSTRAP procedure, preceded by a research pass; draft-all-then-review cadence; strict validator-extras.

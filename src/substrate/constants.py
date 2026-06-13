@@ -1,0 +1,49 @@
+"""Named constants and the reserved lifecycle vocabulary.
+
+Defaults are the technical spec §19 table; all are configurable at `Runtime(...)`
+construction. The reserved-namespace rule and the twelve lifecycle kinds are from
+kernel v15 / product F-LIFE-1 / the locked vocabulary signals/0.1.json.
+"""
+from __future__ import annotations
+
+# ── technical spec §19 (normative defaults; all configurable) ──────────────────
+SEGMENT_MAX_BYTES = 64 * 1024 * 1024  # 64 MiB — seal cadence vs file-count noise
+FRAME_MAX_BYTES = 1 * 1024 * 1024     # 1 MiB — larger payloads belong in the blob store
+BLOB_THRESHOLD_BYTES = 16 * 1024      # 16 KiB — frame size vs blob-store churn
+ADMISSION_BOUND = 1024                # events — backpressure latency vs burst absorption
+FSYNC_INTERVAL_MS = 100               # loss window vs throughput (default policy)
+BUDGET_US = 100                       # per-Predicate-call budget (N-PERF-2)
+HYSTERESIS_K = 3                      # consecutive violations before quarantine (§9)
+POLL_INTERVAL_MS = 100                # live-attach follower latency (§13)
+SIDECAR_FLUSH_MS = 500                # diagnostic sidecar flush cadence (§9)
+WRITER_STATS_INTERVAL_MS = 1000       # writer-observability cadence (§6.4)
+
+# ── canonical-encoding bounds (technical spec §4.2) ────────────────────────────
+# JCS numbers are IEEE-754 doubles; integers outside this range lose precision and
+# MUST be schema-typed as strings instead.
+JSON_SAFE_INT_MAX = 2**53 - 1
+JSON_SAFE_INT_MIN = -(2**53 - 1)
+
+# ── reserved namespace + the twelve lifecycle kinds (kernel v15 lifecycle table) ──
+RESERVED_PREFIX = "substrate."
+
+LIFECYCLE_KINDS: tuple[str, ...] = (
+    "substrate.RunStarted",
+    "substrate.TriggerFired",
+    "substrate.InputBuildFailed",
+    "substrate.ProducerStarted",
+    "substrate.ProducerEmittedInvalidEvent",
+    "substrate.ProducerCompleted",
+    "substrate.ProducerFailed",
+    "substrate.ProducerCancelled",
+    "substrate.InjectionApplied",
+    "substrate.PredicateQuarantined",
+    "substrate.TerminationMatched",
+    "substrate.RunFinalised",
+)
+
+
+def is_reserved(kind: str) -> bool:
+    """True if `kind` is in the reserved kernel namespace (F-OBS-5). Producer-declared
+    kinds MUST NOT use this prefix; registration rejects collisions."""
+    return kind.startswith(RESERVED_PREFIX)

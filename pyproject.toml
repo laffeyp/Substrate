@@ -1,0 +1,47 @@
+# Substrate — concurrent streaming dataflow runtime.
+# Working dist name "substrate" is a placeholder (B-Q-1 deferred; official package
+# name picked before any publish — product D-2). NOT published. Import name: substrate.
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "substrate"
+version = "0.0.0"
+description = "Concurrent streaming dataflow runtime (working name; see B-Q-1)."
+requires-python = ">=3.12"          # D-6: 3.12+ only (msgspec C ext, per-task eager exec)
+license = "Apache-2.0"              # D-1
+readme = "README.md"
+dependencies = [
+  "msgspec>=0.21,<0.22",            # D-3: validation + encoding + schema + to_builtins
+  "rfc8785",                        # D-7: RFC 8785 canonical JSON (the bytes everything hashes over)
+  "python-ulid",                    # run_id generation
+  "click",                          # CLI parsing
+  "rich",                           # terminal output for tail/inspect/replay
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest", "pytest-asyncio", "pytest-benchmark",
+  "mypy", "ruff", "hypothesis", "coverage",
+]
+openai-compat = ["httpx"]           # optional extra; kernel imports none of these
+
+[project.scripts]
+substrate = "substrate.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/substrate"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/substrate"]
