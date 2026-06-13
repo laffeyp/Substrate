@@ -17,6 +17,7 @@ from substrate.api import (
     RegistrationError,
     Runtime,
     Subscription,
+    all_completed,
     any_of,
     pause_await_input,
     quiescence_with_watchdog,
@@ -205,3 +206,48 @@ async def test_resume_rejects_reserved_kind_event(tmp_path):
     reserved.__name__ = "substrate.Injected"
     with pytest.raises(RegistrationError, match="reserved"):
         await Runtime(root, persistent=True).resume(pause_resume_topology, resume_event=reserved())
+
+
+# ── stuck-quiescence guard (FOLD 2): a resumable run whose terminal is all_completed would
+#    HANG on resume — the pause leaves stage1 started-but-not-ended, so restored started>ended
+#    and completed>=started is unmeetable. The guard turns that silent hang into a loud,
+#    recorded failure rather than spinning forever. ─────────────────────────────────────────
+def _all_completed_pause_topology(b):
+    b.producer_kind("stage1", schemas=[Stage1Done], schema_version=1, factory=lambda: stage1)
+    b.producer_kind("stage2", schemas=[Stage2Done], schema_version=1, factory=lambda: stage2)
+    b.initial("stage1", input=None)
+    b.trigger(
+        "on-approval",
+        subscription=Subscription(kinds=frozenset({"ApprovalGranted"})),
+        predicate=lambda event, views: bool(event.payload.get("approved")),
+        starts="stage2",
+        input_builder=lambda views, staged, event: {"value": 1},
+        policy=PerEvent(),
+    )
+    # WRONG terminal for a resumable run: all_completed compares restored started/ended counts.
+    b.termination(
+        any_of(
+            pause_await_input(_paused_when, resume_condition="ApprovalGranted"),
+            all_completed(),
+        )
+    )
+
+
+@pytest.mark.timeout(10)
+async def test_resume_on_all_completed_fails_loud_instead_of_hanging(tmp_path):
+    root = tmp_path / "run"
+    paused = await Runtime(root, persistent=True).run(_all_completed_pause_topology)
+    assert paused.status == "paused"
+
+    # Resume: stage2 runs and goes quiescent, but all_completed can never be met (the pre-pause
+    # stage1 start has no durable end across the pause). The guard must FAIL the run loudly
+    # within the timeout, not hang.
+    resumed = await Runtime(root, persistent=True).resume(
+        _all_completed_pause_topology, resume_event=ApprovalGranted(approved=True)
+    )
+    assert resumed.status == "failed"
+    # the failure is RECORDED and citable: a RunFinalised with reason "stuck_quiescent".
+    finals = [e for e in read_record(root) if e["kind"] == "substrate.RunFinalised"]
+    assert finals, "the stuck run must record a RunFinalised, not hang silently"
+    assert finals[-1]["payload"]["reason"] == "stuck_quiescent"
+    assert "all_completed" in finals[-1]["payload"]["policy"]

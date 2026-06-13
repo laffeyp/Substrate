@@ -1084,6 +1084,27 @@ $ rostrum resume ./runs/01JFAB.../ --input /tmp/decision.json
 Resume reattaches to the persistent bus, appends the resume event,
 the resume Trigger fires, and the run continues.
 
+The appended resume event is an application event the resume Trigger
+subscribes to. It is **canonical-checked** (§4.2 whitelist) and
+**reserved-kind-refused** (a `substrate.*` kind is rejected so it cannot
+forge a lifecycle frame) — but it is NOT schema-typed-validated the way a
+Producer *emission* is, because an external injection has no registered
+producer_kind to validate against (it routes through the lifecycle-append
+path with a `<kind>@1` schema string).
+
+**Resumable-terminal constraint.** A pausable topology MUST finalise on a
+**process-local** condition — quiescence (`quiescence_with_watchdog`) or a
+count threshold (`threshold_count`) — and MUST NOT use `all_completed`.
+`all_completed` compares started-vs-ended counts, but a pause trips while
+the emitting Producer is still inflight, so its `ProducerStarted` has no
+durable end across the pause: on resume the restored `started > ended` and
+`completed >= started` can never be met, and the run would never finalise.
+The runtime guards this — a resumed run that goes fully quiescent while its
+policy still returns CONTINUE is recorded as a `RunFinalised` with reason
+`"stuck_quiescent"` and FAILS loudly rather than hanging — but the correct
+fix is to choose a process-local terminal. (The reference R-2 pipeline does
+this and documents why.)
+
 ---
 
 ## 7. User journeys

@@ -82,7 +82,13 @@ def threshold_count(kind: str, n: int) -> TerminationPolicy:
 
 
 def all_completed() -> TerminationPolicy:
-    """Finalise on quiescence once every started Producer has ended."""
+    """Finalise on quiescence once every started Producer has ended.
+
+    NOT for a RESUMABLE run: this compares started vs ended COUNTS, which are restored from the
+    whole log on resume — but a pause leaves the emitting Producer started-without-a-durable-end
+    across the pause, so on resume `completed >= started` can never be met and the run would
+    hang. A pausable topology MUST finalise on a process-local terminal instead (quiescence /
+    threshold); see `pause_await_input`. (The runtime fails such a run loudly, not silently.)"""
     return TerminationPolicy(
         "all_completed",
         lambda c: (
@@ -136,7 +142,18 @@ def quiescence_with_watchdog(seconds: float = 30.0) -> TerminationPolicy:
 def pause_await_input(
     when: Callable[[TermContext], bool], resume_condition: str
 ) -> TerminationPolicy:
-    """Pause and emit a typed resume_condition when `when` holds (kernel halt-with-resume)."""
+    """Pause and emit a typed resume_condition when `when` holds (kernel halt-with-resume).
+
+    RESUMABLE-TERMINAL CONSTRAINT: a topology that can PAUSE here and later resume MUST pair
+    this with a PROCESS-LOCAL finalisation terminal — quiescence (`quiescence_with_watchdog`)
+    or a count threshold (`threshold_count`) — NOT `all_completed`. `all_completed` compares
+    started vs ended COUNTS, but a pause trips while the emitting Producer is still inflight, so
+    its ProducerStarted has no durable end across the pause: on resume the restored started >
+    ended and `completed >= started` can never be met, so the resumed run would never finalise.
+    The runtime guards this (a stuck-quiescent resumed run is recorded as a RunFinalised with
+    reason "stuck_quiescent" and FAILS loudly rather than hanging), but the fix is to choose a
+    process-local terminal. The reference R-2 pipeline does exactly this (quiescence, not
+    all_completed) and documents why."""
     return TerminationPolicy(
         "pause_await_input",
         lambda c: Decision.PAUSE_AWAIT_INPUT if when(c) else Decision.CONTINUE,

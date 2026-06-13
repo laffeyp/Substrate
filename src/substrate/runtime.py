@@ -38,6 +38,11 @@ from .topology import Registration, RegistrationError, TopologyBuilder
 from .types import Event, ProducerRef
 
 _QUIESCENCE_POLL_S = 0.01  # writer idle-poll for the quiescence/watchdog check
+# Consecutive fully-quiescent idle polls where the policy still returns CONTINUE before the
+# run is declared STUCK (the silent-hang guard, e.g. a resumable run on all_completed). Two
+# polls is unambiguous: with logical cooldowns true quiescence is terminal — no event can
+# arrive to clear it — so a second confirming poll just rules out a transient first read.
+_STUCK_QUIESCENT_POLLS = 2
 
 
 class RunResult(Struct, frozen=True):
@@ -96,8 +101,20 @@ class Runtime:
         fresh (the same registration the original run used), pointed at the existing root.
 
         Persistent mode is required: a paused run must survive on a named persistent root under
-        the exclusive lock. `resume_event` is a Producer-declared event Struct (validated at the
-        bus boundary like any emission)."""
+        the exclusive lock. `resume_event` is an application event Struct. It is NOT
+        schema-typed-validated the way a Producer EMISSION is (an external injection routes
+        through the lifecycle-append path with a `<kind>@1` schema string — there is no
+        registered producer_kind to validate it against); it IS canonical-checked (§4.2
+        whitelist; a non-canonical resume_event raises) and reserved-kind-refused (a
+        `substrate.*` kind is rejected so it cannot forge a lifecycle frame).
+
+        TERMINATION CONSTRAINT (footgun): a resumable run MUST finalise on a PROCESS-LOCAL
+        condition — quiescence (`quiescence_with_watchdog`) or a threshold over event counts —
+        NOT `all_completed`. `all_completed` compares restored started/ended COUNTS, but a pause
+        trips while the emitting Producer is still inflight, so its ProducerStarted has no
+        durable end across the pause: on resume `started > ended` and `completed >= started` can
+        never be met. resume() warns loudly if the topology's terminal cannot be satisfied on
+        process-local state (rather than hanging silently)."""
         if not self._persistent:
             raise RegistrationError(
                 "resume requires persistent=True: only a persistent-bus run can pause and "
@@ -283,6 +300,42 @@ class Runtime:
             )
         except Exception:
             pass  # already failing; do not mask the original error or block the finally
+
+    def _fail_stuck_quiescent(self) -> None:
+        """The run is fully quiescent yet the TerminationPolicy will not finalise — it can never
+        finalise (no inflight work and, with logical cooldowns, no event can ever arrive), so it
+        would otherwise hang forever. Turn that silent hang into a LOUD signal: record a
+        RunFinalised with reason "stuck_quiescent" naming the policy (citable on the log) and
+        fail the run. The canonical cause is a RESUMABLE run whose terminal is all_completed —
+        the pause leaves a Producer's start without a durable end, so restored started>ended and
+        completed>=started is unmeetable; the fix is a process-local terminal (quiescence /
+        threshold). (Nothing consequential is silent — product §1.)"""
+        st = self._st
+        policy = self._termination.name
+        msg = (
+            f"RunStuckQuiescent: the run went quiescent (no inflight Producers, no queued or "
+            f"control work) but TerminationPolicy {policy!r} returned CONTINUE, so it can never "
+            f"finalise. A resumable run MUST finalise on a PROCESS-LOCAL condition (quiescence "
+            f"or a count threshold), not all_completed — see Runtime.resume / pause_await_input."
+        )
+        st.kernel_error = msg
+        if not st.record_closed:
+            try:
+                seq = st.next_seq
+                st.next_seq += 1
+                self._record.append(
+                    {
+                        "seq": seq,
+                        "kind": "substrate.RunFinalised",
+                        "schema": "substrate.RunFinalised@1",
+                        "producer": None,
+                        "t": time.time(),
+                        "payload": {"reason": "stuck_quiescent", "policy": policy, "error": msg},
+                    }
+                )
+            except Exception:
+                pass  # best-effort; the finally still closes the record
+        st.phase = RunPhase.FAILED
 
     # ── bootstrap ────────────────────────────────────────────────────────────--
     def _bootstrap(self, reg: Registration) -> None:
@@ -485,6 +538,8 @@ class Runtime:
 
     async def _writer_loop(self) -> None:
         st = self._st
+        stuck_quiescent = 0  # consecutive idle polls where the run is fully quiescent yet the
+        # TerminationPolicy will not finalise (CONTINUE) — the silent-hang signature.
         while st.phase is RunPhase.RUNNING:
             try:
                 msg = await asyncio.wait_for(st.inbox.get(), timeout=st.poll_s)
@@ -497,7 +552,22 @@ class Runtime:
                 # mature. Wall-clock-cooldown pending-timer quiescence is deferred.
                 if st.inflight == 0 and st.inbox.empty() and not st.control:
                     self._consult_termination(None, quiescent=True)
+                    # STUCK-QUIESCENCE GUARD (turns a silent hang into a loud signal): the run
+                    # is fully quiescent (no inflight Producer, no queued/control work, no
+                    # wall-clock cooldown) yet the policy returned CONTINUE — so NOTHING can ever
+                    # produce another event and the run can never finalise. The canonical cause
+                    # is a resumable run whose terminal is all_completed (restored started>ended
+                    # across the pause makes completed>=started unmeetable). Rather than spin
+                    # forever, surface it as a recorded kernel error and fail the run (the
+                    # detection is robust because true quiescence with logical cooldowns is
+                    # terminal — no event can arrive to clear it).
+                    if st.phase is RunPhase.RUNNING:
+                        stuck_quiescent += 1
+                        if stuck_quiescent >= _STUCK_QUIESCENT_POLLS:
+                            self._fail_stuck_quiescent()
+                            break
                 continue
+            stuck_quiescent = 0  # any inbound work clears the stuck-quiescence streak
             # BATCH DRAIN (perf): one `await inbox.get()` wakes the writer; then drain every
             # item ALREADY ready (get_nowait) into a batch and process the whole batch before
             # awaiting again — amortizing the per-event event-loop round-trip. This changes
