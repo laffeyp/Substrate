@@ -14,15 +14,21 @@ from .types import Event, Subscription
 
 @runtime_checkable
 class Producer(Protocol):
-    """Anything implementing `start(input) -> AsyncIterable[Event]` (kernel §1).
+    """A callable `(input) -> AsyncIterable[Event]` (kernel §1; design §4.2/§9.6).
 
-    The runtime calls `start` with the sealed, resolved input and consumes the event
-    stream until the Producer completes, fails, or is cancelled — emitting the
-    corresponding lifecycle event. A Producer has no runtime-level identity, planning,
-    or goal state (kernel non-goals); state lives on the log.
+    The factory returns this callable per instantiation; the runtime calls it with the
+    sealed, resolved input and consumes the event stream until the Producer completes,
+    fails, or is cancelled — emitting the corresponding lifecycle event. A Producer has
+    no runtime-level identity, planning, or goal state (kernel non-goals); state lives
+    on the log.
+
+    NOTE (flow-back): technical §16 shows the object-with-`.start()` form; design §9.6
+    chooses the callable form deliberately (simpler, asyncio-native, no class
+    hierarchy) and rejects the class form. We follow the design spec; technical §16
+    should be updated to the callable form to match.
     """
 
-    def start(self, input: Any) -> AsyncIterable[Event]: ...
+    def __call__(self, input: Any) -> AsyncIterable[Event]: ...
 
 
 @runtime_checkable
