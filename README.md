@@ -96,6 +96,10 @@ the same shape. See Docs.
 
 ## Docs
 
+- **See it run** — `docs/demo.md` (or `bash demo.sh`): a guided read of the
+  runtime working — three reference topologies, their logs annotated line by line,
+  replay and provenance queries, and the conformance gate. All against committed
+  records, no LLM or network. The fastest way to see what the thing actually does.
 - **Write your first topology** — `docs/tutorial.md`: from install to a running
   two-Producer topology, step by step. Start here.
 - **Worked example topologies** — `docs/walkthroughs/README.md`: three complete
