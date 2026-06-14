@@ -677,6 +677,7 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "coverage" },
+    { name = "httpx" },
     { name = "hypothesis" },
     { name = "import-linter" },
     { name = "mypy" },
@@ -694,6 +695,7 @@ openai-compat = [
 requires-dist = [
     { name = "click" },
     { name = "coverage", marker = "extra == 'dev'" },
+    { name = "httpx", marker = "extra == 'dev'" },
     { name = "httpx", marker = "extra == 'openai-compat'" },
     { name = "hypothesis", marker = "extra == 'dev'" },
     { name = "import-linter", marker = "extra == 'dev'" },
