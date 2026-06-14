@@ -1,24 +1,29 @@
 """R-3 — Code synthesis with overlap, composed (product §8).
 
-A writer Producer streams code in chunks; an AST Producer emits a declaration event from a
-View on the writer's accumulating buffer when a complete declaration appears (the
-chunk-boundary/overlap predicate); a typecheck Producer fires on each complete declaration.
-The whole inner pipeline is wrapped as an EMBEDDED SUBSTRATE that exports only `ArtifactReady`
-onto an OUTER two-stage topology.
+A writer Producer streams code in chunks; a checker Producer (the "AST" stand-in) emits a
+declaration event from a View on the writer's accumulating buffer when a complete declaration
+appears (the chunk-boundary/overlap predicate); a typecheck Producer fires on each complete
+declaration WHILE the writer is still streaming. The whole inner pipeline is wrapped as an
+EMBEDDED SUBSTRATE that exports only `ArtifactReady` onto an OUTER two-stage topology.
 
-Exercises: buffer Views (the AST predicate reads a View over the writer's emitted chunks),
+Exercises: buffer Views (the checker predicate reads a View over the writer's emitted chunks),
 chunk-boundary predicates with overlap (a declaration may span chunks; the predicate fires
 once per COMPLETE declaration, not per chunk), composition / export maps (only ArtifactReady
 crosses the inner→outer boundary), and `substrate tail` (the outer run is followable).
 
-CI mode: the writer streams a fixed chunked program; the "AST" stand-in is a simple
-complete-`def`-counter over the buffered chunks (no tree-sitter dependency in CI). Walkthrough:
-the writer is a real code model (qwen2.5-coder) streaming a small function; tree-sitter (a
-walkthrough-only optional dep) replaces the counter.
+This is a deterministic STAND-IN, not a real toolchain: the "AST" detector is a `def`-block
+splitter over the buffered chunks (no tree-sitter dependency in CI), and the typecheck stage
+runs a real but cheap, deterministic `ast.parse()`/`compile()` over the accumulated source —
+emitting `ok=False` on a SyntaxError — so it genuinely checks something while staying
+reproducible. It does NOT run mypy/pytest/a subprocess. Swap a real type/test checker into the
+typecheck Producer in your own topology; the wiring (a checker firing per complete declaration
+as the writer streams) is what R-3 demonstrates. Walkthrough mode swaps a real code model
+(qwen2.5-coder) into the writer.
 """
 
 from __future__ import annotations
 
+import ast
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
@@ -44,6 +49,7 @@ class Declaration(Struct, frozen=True):
 
 class TypecheckOk(Struct, frozen=True):
     index: int
+    ok: bool
 
 
 class ArtifactReady(Struct, frozen=True):
@@ -71,8 +77,17 @@ def _ast_factory() -> _Factory:
 
 def _typecheck_factory() -> _Factory:
     async def typecheck(inp: Any) -> AsyncIterator[TypecheckOk]:
-        idx = inp["index"] if hasattr(inp, "get") else 0
-        yield TypecheckOk(index=idx)
+        idx = inp.get("index", 0) if hasattr(inp, "get") else 0
+        source = inp.get("source", "") if hasattr(inp, "get") else ""
+        # A real but cheap, DETERMINISTIC check: parse the declaration's source. ok=False on a
+        # SyntaxError (so the stand-in genuinely checks something), without running mypy/pytest/a
+        # subprocess. Swap a real type/test checker here in your own topology.
+        try:
+            ast.parse(source)
+            ok = True
+        except SyntaxError:
+            ok = False
+        yield TypecheckOk(index=idx, ok=ok)
 
     return lambda: typecheck
 
@@ -177,14 +192,17 @@ def codesynth_inner_topology(
             subscription=api.Subscription(kinds=frozenset({"Declaration"})),
             predicate=lambda event, views: True,
             starts="typecheck",
-            input_builder=lambda views, staged, event: {"index": event.payload["index"]},
+            input_builder=lambda views, staged, event: {
+                "index": event.payload["index"],
+                "source": event.payload["source"],
+            },
             policy=api.PerEvent(),
         )
-        # once a typecheck passes, the artifact is ready
+        # once a typecheck PASSES (ok), the artifact is ready
         b.trigger(
             "to-artifact",
             subscription=api.Subscription(kinds=frozenset({"TypecheckOk"})),
-            predicate=lambda event, views: True,
+            predicate=lambda event, views: bool(event.payload.get("ok")),
             starts="artifact",
             input_builder=lambda views, staged, event: {"declarations": event.payload["index"] + 1},
             policy=api.Once(),

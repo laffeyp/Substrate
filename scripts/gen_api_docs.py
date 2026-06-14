@@ -41,7 +41,6 @@ GROUPS: dict[str, list[str]] = {
         "quiescence_with_watchdog",
         "pause_await_input",
         "cancel_all_others",
-        "let_finish",
         "any_of",
         "all_of",
     ],

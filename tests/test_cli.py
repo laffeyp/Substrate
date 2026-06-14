@@ -225,6 +225,20 @@ def test_run_prints_root_on_config_error_when_root_known(tmp_path):
     assert str(root) in res.stdout
 
 
+def test_run_topology_module_import_failure_is_clean_config_error(tmp_path):
+    # A --topology-module whose import RAISES (here a NameError at module scope) must surface as
+    # EXIT_CONFIG with a clean message, NOT a raw traceback escaping the CLI.
+    bad = tmp_path / "bad.py"
+    bad.write_text("this_name_is_not_defined\n")  # NameError on import
+    runner = CliRunner()
+    root = tmp_path / "out"
+    res = runner.invoke(main, ["run", "--topology-module", f"{bad}:topo", "--root", str(root)])
+    assert res.exit_code == EXIT_CONFIG
+    assert "failed to import" in res.stderr
+    assert "NameError" in res.stderr
+    assert "Traceback" not in res.stderr  # the raw traceback did not escape
+
+
 def test_run_tail_streams_events(tmp_path):
     register_topology("cli_count_tail", _topo)
     runner = CliRunner()

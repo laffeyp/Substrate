@@ -1,4 +1,4 @@
-"""cancel-others / let-finish TerminationPolicy paths (kernel §8; F-LIFE-2).
+"""cancel-others TerminationPolicy path (kernel §8; F-LIFE-2).
 
 Exercises the runtime CANCEL_OTHERS path: when a subject Producer (an adjudicator)
 completes, cancel_all_others cancels the still-running others, which emit

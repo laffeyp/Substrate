@@ -57,8 +57,9 @@ A topology is assembled from a small, fixed set of named pieces:
 - **View** — a running summary maintained over the log as events land (e.g.
   "everything Producer X has emitted so far", "how many answers are in").
 - **Predicate** — a cheap yes/no question asked of the Views when an event lands.
-- **Trigger** — starts a new Producer when its Predicate holds. This is the only
-  way new Producers come into existence.
+- **Trigger** — starts a new Producer when its Predicate holds. Aside from the
+  initial Producers you declare to start the run, a Trigger is the only way new
+  Producers are created.
 - **Route** — carries data from past events into the input of a future Producer.
 - **TerminationPolicy** — decides when the run ends, or pauses to wait for outside
   input.
@@ -74,9 +75,10 @@ Each of these is a topology — a short Python program against the runtime:
   adjudicating and the losing runs cancelled once a verdict lands.
 - A pipeline that retries a failed step with the failure reason fed back in,
   escalates after N attempts, and pauses for a human when it can't recover.
-- A code-writing setup where one Producer streams code while a parser and a
-  type/test checker run against it concurrently, each firing the moment its input
-  is ready.
+- A code-writing setup where one Producer streams code while a checker Producer
+  fires on each complete declaration as it arrives — running concurrently with the
+  still-streaming writer. (The shipped reference uses a deterministic stand-in
+  checker, `ast.parse`; swap in a real type/test checker in your own topology.)
 - A planner that emits subtasks, each starting a solver that can itself emit more
   subtasks — recursive decomposition to arbitrary depth.
 - An adversarial pair — one Producer writes, another attacks — streaming at each
@@ -88,8 +90,9 @@ Each of these is a topology — a short Python program against the runtime:
 - A tool-using agent loop as a chain of model → tool → model Producers, each call
   independently replayable.
 
-Runnable versions of several of these, with real recorded LLM runs, are linked
-under Docs.
+Runnable versions of the first three ship with the runtime (the reference
+topologies), with committed run records you can read back; the rest are sketches of
+the same shape. See Docs.
 
 ## Docs
 
@@ -97,8 +100,9 @@ under Docs.
   two-Producer topology, step by step. Start here.
 - **Worked example topologies** — `docs/walkthroughs/README.md`: three complete
   topologies that ship with the runtime — an ensemble-and-adjudicator, an
-  error-cascade pipeline, and code-synthesis with concurrent checking — each shown
-  with a real recorded LLM run you can read back.
+  error-cascade pipeline, and code-synthesis with concurrent checking. Each ships
+  with a committed (deterministic, CI-mode) run record you can read back, plus an
+  illustrative transcript from a real local-LLM run you can reproduce.
 - **What replay means** — `docs/replay.md`: replaying a run from its log has four
   levels of fidelity; this explains which ship in v1.0. (Short version: state and
   decision reconstruction plus log-equivalence diffing ship; full byte-for-byte
@@ -106,7 +110,10 @@ under Docs.
 - **API reference** — `docs/api.md`: the public surface (`substrate.api`),
   generated from the code.
 - **Conformance** — `uv run substrate conformance` runs the release gate: a suite
-  of checks that proves the runtime behaves the way the spec says.
+  of checks that exercises the runtime against the spec's required behaviors (one
+  canonical topology per property). It runs in CI on every push. (The throughput
+  floor is hardware-dependent, so it's checked on controlled hardware, not the CI
+  matrix — see `CONTRIBUTING.md`.)
 
 ## Develop
 

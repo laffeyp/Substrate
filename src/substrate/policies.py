@@ -16,15 +16,16 @@ from typing import Any
 
 
 class Decision(enum.Enum):
-    """The verdict a TerminationPolicy returns each cycle — the five kernel §8 outcomes:
-    CONTINUE (do nothing), FINALISE_RUN (end the run), CANCEL_OTHERS (cancel every other live
-    Producer), LET_FINISH (drain in-flight then finalise), PAUSE_AWAIT_INPUT (halt, resumable).
-    Recorded on substrate.TerminationMatched."""
+    """The verdict a TerminationPolicy returns each cycle. v1.0 ships four of the kernel §8
+    outcomes: CONTINUE (do nothing), FINALISE_RUN (end the run), CANCEL_OTHERS (cancel every
+    other live Producer), PAUSE_AWAIT_INPUT (halt, resumable). Recorded on
+    substrate.TerminationMatched. (The fifth kernel outcome, `let-finish` — drain in-flight then
+    finalise — is DEFERRED post-1.0: it has no runtime dispatch branch yet, so shipping the enum
+    value would be a silent no-op. See CONTRIBUTING.md's deferral list.)"""
 
     CONTINUE = "continue"
     FINALISE_RUN = "finalise-run"
     CANCEL_OTHERS = "cancel-others"
-    LET_FINISH = "let-finish"
     PAUSE_AWAIT_INPUT = "pause-await-input"
 
 
@@ -114,21 +115,6 @@ def cancel_all_others(when: Callable[[TermContext], bool]) -> TerminationPolicy:
     return TerminationPolicy(
         "cancel_all_others",
         lambda c: Decision.CANCEL_OTHERS if when(c) else Decision.CONTINUE,
-    )
-
-
-def let_finish(when: Callable[[TermContext], bool]) -> TerminationPolicy:
-    """Let all running Producers finish (no cancellation), then finalise — when `when(ctx)`
-    holds (kernel §8; F-LIFE-2). LET_FINISH stops admitting new work and finalises once the
-    in-flight Producers drain; here modelled as: when `when` holds AND the run is quiescent
-    with all started Producers ended, finalise (the 'graceful drain' terminal)."""
-    return TerminationPolicy(
-        "let_finish",
-        lambda c: (
-            Decision.FINALISE_RUN
-            if (when(c) and c.quiescent and c.running == 0)
-            else Decision.CONTINUE
-        ),
     )
 
 

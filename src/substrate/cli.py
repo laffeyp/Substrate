@@ -31,7 +31,11 @@ EXIT_CONFIG = 64  # configuration error (CLI args, topology import, registration
 EXIT_LOCKED = 65  # persistent-bus lock contention
 EXIT_SIGINT = 130  # user interrupted
 
-_err = Console(stderr=True)  # narration only; data goes to stdout via click.echo (unwrapped)
+# Narration only; data goes to stdout via click.echo (unwrapped). markup=False is load-bearing:
+# the narration lines start with literal tags like [config]/[lock]/[deferred]/[FAIL], which rich
+# would otherwise parse as console-markup style tags and SILENTLY EAT (e.g. "[config] ..." would
+# print as " ..."). This channel never uses markup, so disable it.
+_err = Console(stderr=True, markup=False)
 
 
 # ── topology loading (a CLI concern; uses only public Runtime/TopologyBuilder) ──
@@ -60,7 +64,13 @@ def _load_attr(spec: str) -> Callable[..., Any]:
     if mod_spec is None or mod_spec.loader is None:
         raise click.ClickException(f"cannot load module: {path}")
     module = importlib.util.module_from_spec(mod_spec)
-    mod_spec.loader.exec_module(module)
+    try:
+        mod_spec.loader.exec_module(module)
+    except Exception as exc:
+        # Importing/executing the user module failed (ImportError, SyntaxError, a raise at module
+        # scope, ...). Surface it as a clean config error (-> EXIT_CONFIG) naming the cause, not a
+        # raw traceback escaping the CLI.
+        raise click.ClickException(f"failed to import {path}: {type(exc).__name__}: {exc}") from exc
     if not hasattr(module, attr_name):
         raise click.ClickException(f"module {path} has no attribute {attr_name!r}")
     return getattr(module, attr_name)  # type: ignore[no-any-return]
@@ -362,7 +372,14 @@ def replay(root: str, level: str, diff_root: str | None) -> None:
     if level == "3a" and result.preconditions_ok is False:
         _err.print(f"[FAIL] Level 3(a) refused: {result.refusal_reason}")
         sys.exit(EXIT_FAILED)
-    click.echo(f"[OK] Level {level} replay successful.")
+    if level == "3a":
+        # Level 3(a) gate-checks the re-execution PRECONDITIONS (replay ceiling 3a + every
+        # Producer kind author-deterministic) and re-verifies the Level-2 input hashes; it does
+        # NOT itself re-execute the Producers (re-execution is the Runtime's job, against the
+        # same record). Say so plainly rather than implying a re-run happened.
+        click.echo("[OK] Level 3(a) preconditions verified (re-execution NOT performed).")
+    else:
+        click.echo(f"[OK] Level {level} replay successful.")
     click.echo(f"Frames replayed: {result.frame_count}")
     if level in ("2", "3a"):
         click.echo(f"Decisions verified: {result.decisions_verified} (all inputs verified by hash)")

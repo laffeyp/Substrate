@@ -17,13 +17,15 @@ dependencies = [
   "rfc8785",                        # D-7: RFC 8785 canonical JSON (the bytes everything hashes over)
   "python-ulid",                    # run_id generation
   "click",                          # CLI parsing
-  "rich",                           # terminal output for tail/inspect/replay
+  "rich",                           # the CLI's stderr narration channel ([config]/[lock]/[FAIL]
+                                    # status lines); record DATA goes to stdout via plain click.echo
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest", "pytest-asyncio", "pytest-benchmark", "pytest-timeout",
   "mypy", "ruff", "hypothesis", "coverage",
+  "import-linter",                  # enforces the F-API-6 cli-imports-only-api contract (below)
 ]
 openai-compat = ["httpx"]           # optional extra; kernel imports none of these
 
@@ -52,3 +54,31 @@ extend-exclude = ["kernel_spec", "proof"]
 python_version = "3.12"
 strict = true
 files = ["src/substrate"]
+
+# F-API-6: the CLI is the standing proof that the public API suffices — `substrate.cli` may
+# import `substrate.api` (and stdlib / third-party) but NO other `substrate.*` module. Enforced
+# by `uv run lint-imports` (import-linter), run in CI. The src layout means the package must be
+# importable; the editable install (`uv pip install -e`) provides that.
+[tool.importlinter]
+root_package = "substrate"
+
+[[tool.importlinter.contracts]]
+name = "cli imports only substrate.api"
+type = "forbidden"
+source_modules = ["substrate.cli"]
+# Only DIRECT cli imports are constrained: cli -> api is allowed, and api -> internals is fine
+# (that is the whole point — api is the facade). Without this, the cli -> api -> internal chain
+# would be flagged. The rule we enforce is "cli's own imports touch no private module".
+allow_indirect_imports = true
+# Every internal module EXCEPT substrate.api. cli may import only the public facade; a new
+# private module added here keeps the contract honest (and a missing one is caught by the CLI's
+# own AST import-lint test, tests/test_cli.py::test_cli_imports_only_substrate_api).
+forbidden_modules = [
+  "substrate.attach", "substrate.blobstore", "substrate.composition",
+  "substrate.conformance", "substrate.conformance_perf", "substrate.constants",
+  "substrate.encoding", "substrate.errors", "substrate.framing", "substrate.inspect",
+  "substrate.locking", "substrate.policies", "substrate.protocols", "substrate.record",
+  "substrate.replay", "substrate.runstate", "substrate.runtime", "substrate.sealing",
+  "substrate.sequencer", "substrate.sidecar", "substrate.testing", "substrate.topology",
+  "substrate.triggers", "substrate.types", "substrate.views",
+]
