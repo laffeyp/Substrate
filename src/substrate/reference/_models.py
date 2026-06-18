@@ -101,11 +101,7 @@ class OllamaResponder:
         self._max_retries = max_retries
         self._system = system
 
-    def respond(self, prompt: str) -> str:
-        import time
-
-        import httpx  # lazy: the openai-compat optional extra; kernel/CI need not have it
-
+    def _request(self, prompt: str) -> tuple[dict[str, str], dict[str, object]]:
         messages: list[dict[str, str]] = []
         if self._system:
             messages.append({"role": "system", "content": self._system})
@@ -113,7 +109,7 @@ class OllamaResponder:
         options: dict[str, object] = {"num_ctx": self._num_ctx, "temperature": self._temperature}
         if self._max_tokens > 0:
             options["num_predict"] = self._max_tokens
-        payload = {
+        payload: dict[str, object] = {
             "model": self._model,
             "messages": messages,
             "stream": False,
@@ -123,18 +119,59 @@ class OllamaResponder:
         headers = {"Content-Type": "application/json"}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
+        return headers, payload
 
+    @staticmethod
+    def _content(data: dict[str, object]) -> str:
+        message = data.get("message")
+        text = message.get("content", "") if isinstance(message, dict) else ""
+        return str(text).strip()
+
+    def respond(self, prompt: str) -> str:
+        """Synchronous call (the Responder protocol + non-async callers). For use INSIDE an async
+        Producer, prefer `call_responder`, which routes through `arespond` so the call is cancellable
+        rather than orphaning a worker thread on cancel-others / finalise."""
+        import time
+
+        import httpx  # lazy: the openai-compat optional extra; kernel/CI need not have it
+
+        headers, payload = self._request(prompt)
         last_exc: Exception | None = None
         for attempt in range(self._max_retries):
             try:
                 resp = httpx.post(self._endpoint, headers=headers, json=payload, timeout=self._timeout)
                 resp.raise_for_status()
-                data = resp.json()
-                return str((data.get("message") or {}).get("content", "")).strip()
+                return self._content(resp.json())
             except httpx.HTTPError as exc:  # transport OR 4xx/5xx: retry with backoff, then fail loud
                 last_exc = exc
                 if attempt < self._max_retries - 1:
                     time.sleep(1.0 * (2**attempt))
+        raise RuntimeError(
+            f"OllamaResponder({self._model}) failed after {self._max_retries} attempts: {last_exc!r}"
+        )
+
+    async def arespond(self, prompt: str) -> str:
+        """Async call over httpx.AsyncClient. The await is genuinely CANCELLABLE: when a Producer is
+        cancelled (cancel-others, or any finalise racing an in-flight call) the request is cancelled
+        with the coroutine, so no worker thread is orphaned inside a blocking POST. That is the fix
+        for the shutdown stall — a blocking `respond` wrapped in `asyncio.to_thread` cannot be
+        cancelled, so `asyncio.run` then blocks on the default executor up to `timeout`."""
+        import asyncio as _asyncio
+
+        import httpx
+
+        headers, payload = self._request(prompt)
+        last_exc: Exception | None = None
+        for attempt in range(self._max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    resp = await client.post(self._endpoint, headers=headers, json=payload)
+                resp.raise_for_status()
+                return self._content(resp.json())
+            except httpx.HTTPError as exc:
+                last_exc = exc
+                if attempt < self._max_retries - 1:
+                    await _asyncio.sleep(1.0 * (2**attempt))
         raise RuntimeError(
             f"OllamaResponder({self._model}) failed after {self._max_retries} attempts: {last_exc!r}"
         )
@@ -150,13 +187,21 @@ async def call_responder(responder: Responder, prompt: str) -> str:
     one after another. Offload the blocking call to a worker thread so the loop stays free and the
     Producers genuinely overlap.
 
+    A responder that exposes an async `arespond` (OllamaResponder does) is awaited DIRECTLY — real
+    network I/O over httpx.AsyncClient, genuinely cancellable, so a cancelled Producer cancels the
+    request rather than orphaning a worker thread (which `asyncio.to_thread` cannot cancel, stalling
+    process shutdown up to the responder timeout — REVIEW.md kernel-correctness-1).
+
     DeterministicResponder is pure CPU and instant; it is called SYNCHRONOUSLY here (no thread, and
     this coroutine then completes without awaiting, so it never yields control). That is deliberate:
     in CI the deterministic stand-ins must complete in a fixed order so concurrent Producers produce
-    a byte-identical record (N-DET-1 / conformance check 9). Offloading them to threads would inject
-    real scheduling nondeterminism into CI and make the committed records non-reproducible — exactly
-    what must not happen. So: real responders offload (concurrency); stand-ins stay sync (determinism).
+    a byte-identical record (N-DET-1 / conformance check 9). A blocking custom responder (pure-code
+    transform, etc.) still offloads to a thread for concurrency. So: async real responders are
+    cancellable; stand-ins stay sync (determinism); other blocking responders offload.
     """
+    arespond = getattr(responder, "arespond", None)
+    if callable(arespond):
+        return str(await arespond(prompt))
     if isinstance(responder, DeterministicResponder):
         return responder.respond(prompt)
     return await asyncio.to_thread(responder.respond, prompt)
