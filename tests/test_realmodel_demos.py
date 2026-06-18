@@ -30,6 +30,8 @@ import pytest
 from substrate.api import Runtime, read_record
 from substrate.reference._models import OllamaResponder
 from substrate.reference.r1_ensemble import ensemble_topology
+from substrate.reference.r2_pipeline import operator_override, pipeline_topology
+from substrate.reference.r3_codesynth import codesynth_composed_topology
 from substrate.topologies.code_review import DEFAULT_ROLES, code_review_topology
 from substrate.topologies.conversation_demos import (
     debate_topology,
@@ -229,3 +231,51 @@ async def test_instrument_ablation_delta(tmp_path):
     # same prompts. Fails if the ablation shows no difference.
     assert instrument_kinds & with_kinds, "instruments did not emit in the WITH arm"
     assert not (instrument_kinds & without_kinds), "the WITHOUT arm leaked instrument events"
+
+
+# ── pipeline (R-2): the structured-error cascade, with halt-and-resume ──────────
+@pytest.mark.timeout(180)
+async def test_pipeline_cascade_halt_and_resume(tmp_path):
+    _require(_FAST)
+    # R-2's claim is the CASCADE, not the transform content: the faults are SEEDED (a real model
+    # only does the transform), so the demo proves invalid-emission -> retry -> RetryExhausted ->
+    # PAUSE, then resume in a FRESH Runtime -> Recovered -> finalise on a continuous seq. We do NOT
+    # assert the transform text (the weak model's transform is incidental to this claim).
+    tx = OllamaResponder(_FAST, max_tokens=16, system="Uppercase the input word. Reply with ONLY the uppercased word.")
+    topo = pipeline_topology(
+        ["alpha", "beta", "gamma", "delta"], transform_model=tx,
+        fault_row=1, hard_fault_row=2, malformed_row=3, deterministic=False,
+    )
+    root = tmp_path / "run"
+    paused = await Runtime(root, persistent=True).run(topo)
+    envs = list(read_record(root))
+    assert paused.status == "paused", f"the cascade did not pause: {paused.status}"
+    assert [e for e in envs if e["kind"] == "Transformed"], "the real transform produced nothing"
+    assert [e for e in envs if e["kind"] == "RetryExhausted"], "the unrecoverable fault did not exhaust retries"
+    # resume across a FRESH Runtime (the cross-process persistence promise) with the operator override
+    resumed = await Runtime(root, persistent=True).resume(topo, resume_event=operator_override(row=2))
+    after = list(read_record(root))
+    assert resumed.status == "finalised" and resumed.run_id == paused.run_id, "resume did not continue the run"
+    assert [e for e in after if e["kind"] == "Recovered"], "the override did not recover the paused row"
+    assert [e["seq"] for e in after] == list(range(len(after))), "seq not continuous across pause/resume"
+
+
+# ── codesynth (R-3): concurrent checker over real code + composition isolation ──
+@pytest.mark.timeout(180)
+async def test_codesynth_concurrent_checker_isolation(tmp_path):
+    _require(_SMART)
+    writer = OllamaResponder(_SMART, max_tokens=160, system="Write ONLY Python code, no prose, no markdown fences.")
+    code = writer.respond("Write two functions: add(a,b) returning a+b, and mul(a,b) returning a*b.")
+    chunks = [code[i : i + 30] for i in range(0, len(code), 30)]  # ~30-char chunks -> cross-chunk overlap
+    inner_root = tmp_path / "inner"
+    await Runtime(tmp_path / "run").run(codesynth_composed_topology(chunks, str(inner_root), deterministic=False))
+    inner = list(read_record(inner_root))
+    outer = list(read_record(tmp_path / "run"))
+    declarations = [e for e in inner if e["kind"] == "Declaration"]
+    leaked = [e["kind"] for e in outer if e["kind"] in ("CodeChunk", "Declaration", "TypecheckOk")]
+    artifacts = [e for e in outer if e["kind"] == "OuterArtifact"]
+    # SUBSTANCE: the concurrent checker found real declarations in the streamed REAL code, the inner
+    # composition stayed ISOLATED (no inner kind crossed outward), and the artifact crossed the seam.
+    assert len(declarations) >= 2, f"checker found <2 Declarations in the streamed code: {len(declarations)}"
+    assert not leaked, f"inner kinds leaked to the outer record: {leaked}"
+    assert artifacts, "no OuterArtifact crossed the composition boundary"
