@@ -19,7 +19,7 @@ from substrate.api import (
     view_at,
 )
 from substrate.errors import ProducerNotFound, SequenceOutOfRange
-from substrate.inspect import decisions_between
+from substrate.projections.inspect import decisions_between
 
 
 class CountReached(Struct, frozen=True):
@@ -305,7 +305,7 @@ async def test_first_divergence_excludes_measured_us_on_quarantine(tmp_path):
 
 
 # ── D-8 must normalize finalisation_payload_dropped (external review #2, Fix B) ──
-from substrate.policies import Decision, TerminationPolicy  # noqa: E402
+from substrate.kernel.policies import Decision, TerminationPolicy  # noqa: E402
 
 
 def _raising_finalisation_topo(b):
@@ -348,7 +348,7 @@ async def test_first_divergence_normalizes_finalisation_payload_dropped(tmp_path
 
 
 def test_error_sentinel_is_class_preserving():
-    from substrate.inspect import _error_sentinel
+    from substrate.projections.inspect import _error_sentinel
 
     assert _error_sentinel("ValueError('boom at /tmp/x')") == "<ValueError>"
     assert _error_sentinel("finalisation callback raised: RuntimeError(...)") == "<RuntimeError>"

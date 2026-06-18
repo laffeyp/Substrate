@@ -31,16 +31,16 @@ from msgspec import Struct
 
 # Direct concrete-module imports (NOT via substrate.api): conformance is an internal module,
 # and importing api here would form a cycle (api re-exports run_conformance for the CLI).
-from .composition import embedded_substrate
-from .errors import BusLockedError, ProducerNotFound
-from .inspect import first_divergence, trace_ancestry, view_at
-from .policies import Decision, TerminationPolicy, quiescence_with_watchdog, threshold_count
-from .replay import replay
-from .record import read_record
-from .runtime import Runtime
-from .triggers import Once, PerEvent
-from .types import Subscription
-from .views import KindCount
+from ..kernel.composition import embedded_substrate
+from ..errors import BusLockedError, ProducerNotFound
+from ..projections.inspect import first_divergence, trace_ancestry, view_at
+from ..kernel.policies import Decision, TerminationPolicy, quiescence_with_watchdog, threshold_count
+from ..projections.replay import replay
+from ..record.record import read_record
+from ..kernel.runtime import Runtime
+from ..kernel.triggers import Once, PerEvent
+from ..types import Subscription
+from ..kernel.views import KindCount
 
 
 class Status(enum.Enum):
@@ -392,7 +392,7 @@ async def _check_9_determinism(root: Path) -> CheckResult:
 
 
 async def _check_10_locking(root: Path) -> CheckResult:
-    from . import locking
+    from ..record import locking
 
     persist = root.parent / "c10-persist"
     fd = locking.acquire_lock(persist, start_time=time.time())

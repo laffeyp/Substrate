@@ -23,17 +23,17 @@ from typing import TYPE_CHECKING, Any
 from msgspec import Struct
 from ulid import ULID
 
-from .constants import BLOB_THRESHOLD_BYTES, is_reserved
-from .encoding import SafeCanonical, content_hash, safe_raw, try_canonical
-from .protocols import TriggerContext
+from ..constants import BLOB_THRESHOLD_BYTES, is_reserved
+from ..encoding import SafeCanonical, content_hash, safe_raw, try_canonical
+from ..protocols import TriggerContext
 from .runstate import RunPhase, RunState
-from .sealing import seal
-from .sidecar import DiagnosticSidecar
+from ..record.sealing import seal
+from ..record.sidecar import DiagnosticSidecar
 from .triggers import Logical
-from .types import Event, ProducerRef
+from ..types import Event, ProducerRef
 
 if TYPE_CHECKING:
-    from .record import RecordWriter
+    from ..record.record import RecordWriter
     from .topology import Registration
 
 

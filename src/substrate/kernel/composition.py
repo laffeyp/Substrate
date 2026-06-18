@@ -46,8 +46,8 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
 
-from .attach import LiveRecord
-from .errors import SubstrateError
+from ..projections.attach import LiveRecord
+from ..errors import SubstrateError
 from .runtime import Runtime
 from .topology import TopologyBuilder
 

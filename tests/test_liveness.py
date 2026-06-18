@@ -22,7 +22,7 @@ from substrate.api import (
     quiescence_with_watchdog,
     read_record,
 )
-from substrate.triggers import Logical
+from substrate.kernel.triggers import Logical
 
 
 class Tick(Struct, frozen=True):

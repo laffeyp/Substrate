@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .types import Event
+    from ..types import Event
 
 
 class RunPhase(enum.Enum):

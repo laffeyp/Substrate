@@ -29,8 +29,8 @@ from pathlib import Path
 
 from msgspec import Struct
 
-from . import api
-from .record import NoFsync
+from .. import api
+from ..record.record import NoFsync
 
 # the burst size: enough events to amortize startup, bounded so the probe stays well under
 # the test timeout even on slow hardware.

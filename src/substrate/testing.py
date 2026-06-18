@@ -12,7 +12,7 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
-from .record import read_record
+from .record.record import read_record
 
 
 def _load(rec: Any) -> list[dict[str, Any]]:

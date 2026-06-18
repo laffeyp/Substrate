@@ -23,9 +23,9 @@ from typing import Any
 
 import rfc8785
 
-from .constants import FRAME_MAX_BYTES
-from .encoding import to_canonical_builtins
-from .errors import CRCMismatchError, FrameTooLargeError, TornFrameError
+from ..constants import FRAME_MAX_BYTES
+from ..encoding import to_canonical_builtins
+from ..errors import CRCMismatchError, FrameTooLargeError, TornFrameError
 
 
 def _crc8(data: bytes) -> str:

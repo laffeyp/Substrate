@@ -14,12 +14,12 @@ from typing import Any
 
 from msgspec import Struct
 
-from .constants import is_reserved
-from .errors import SubstrateError
+from ..constants import is_reserved
+from ..errors import SubstrateError
 from .policies import TerminationPolicy
-from .protocols import Producer, TriggerContext, View
+from ..protocols import Producer, TriggerContext, View
 from .triggers import Cooldown, FiringPolicy, Logical, PerEvent, WallClock, WhileTrue
-from .types import Subscription
+from ..types import Subscription
 
 
 class RegistrationError(SubstrateError):

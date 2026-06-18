@@ -18,9 +18,9 @@ truly needed."""
 
 from __future__ import annotations
 
-from .attach import LiveRecord, attach
-from .composition import EmbeddedRunFailed, embedded_substrate
-from .conformance import CheckResult, ConformanceReport, Status, run_conformance
+from .projections.attach import LiveRecord, attach
+from .kernel.composition import EmbeddedRunFailed, embedded_substrate
+from .conformance.conformance import CheckResult, ConformanceReport, Status, run_conformance
 from .encoding import canonical_bytes, content_hash
 from .errors import (
     BusLockedError,
@@ -33,7 +33,7 @@ from .errors import (
     SubstrateError,
     UnsupportedPlatformError,
 )
-from .inspect import (
+from .projections.inspect import (
     Divergence,
     Explanation,
     decisions_between,
@@ -42,7 +42,7 @@ from .inspect import (
     trace_ancestry,
     view_at,
 )
-from .graph import (
+from .projections.graph import (
     ProducerInstance,
     ProducerNode,
     RouteEdge,
@@ -52,8 +52,8 @@ from .graph import (
     run_graph,
     topology_graph,
 )
-from .narrate import NarrationLine, NarrationSummary, narrate, narration_summary
-from .policies import (
+from .projections.narrate import NarrationLine, NarrationSummary, narrate, narration_summary
+from .kernel.policies import (
     Decision,
     TerminationPolicy,
     all_completed,
@@ -65,15 +65,15 @@ from .policies import (
     threshold_count,
 )
 from .protocols import Producer, ProducerFactory, Responder, TriggerContext, View
-from .record import Always, Interval, NoFsync, read_record, recover_open_segment
-from .replay import HashMismatch, ReplayError, ReplayResult, assert_replayable, replay
-from .runtime import Runtime, RunResult
-from .sidecar import read_sidecar
+from .record.record import Always, Interval, NoFsync, read_record, recover_open_segment
+from .projections.replay import HashMismatch, ReplayError, ReplayResult, assert_replayable, replay
+from .kernel.runtime import Runtime, RunResult
+from .record.sidecar import read_sidecar
 from .testing import assert_event, assert_no_event, assert_sequence
-from .topology import RegistrationError, TopologyBuilder, get_topology, register_topology
-from .triggers import Logical, Once, PerEvent, PerKey, WallClock, WhileTrue
+from .kernel.topology import RegistrationError, TopologyBuilder, get_topology, register_topology
+from .kernel.triggers import Logical, Once, PerEvent, PerKey, WallClock, WhileTrue
 from .types import BlobRef, Event, ProducerRef, Subscription
-from .views import BufferView, KindBuffer, KindCount, PerKindLatest, StartedCompletedCounts
+from .kernel.views import BufferView, KindBuffer, KindCount, PerKindLatest, StartedCompletedCounts
 
 __all__ = [
     # data

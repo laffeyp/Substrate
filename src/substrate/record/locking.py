@@ -16,7 +16,7 @@ import socket
 import sys
 from pathlib import Path
 
-from .errors import BusLockedError, UnsupportedPlatformError
+from ..errors import BusLockedError, UnsupportedPlatformError
 
 
 def acquire_lock(root: Path, *, start_time: float) -> int:

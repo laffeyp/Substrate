@@ -29,10 +29,10 @@ from typing import Any
 
 from msgspec import Struct
 
-from .encoding import content_hash
-from .errors import ProducerNotFound, SequenceOutOfRange
-from .protocols import View
-from .record import read_record
+from ..encoding import content_hash
+from ..errors import ProducerNotFound, SequenceOutOfRange
+from ..protocols import View
+from ..record.record import read_record
 
 # Producer-creating causes (F-OBS-2): a Producer traces to one of these.
 _TRIGGER_FIRED = "substrate.TriggerFired"
@@ -351,7 +351,7 @@ def _envelope_matches(env: dict[str, Any], sub: Any) -> bool:
 def _as_event(env: dict[str, Any]) -> Any:
     """Reconstruct an Event from a record envelope (imported lazily to avoid a cycle:
     inspect <- runtime would be circular via api re-exports)."""
-    from .types import Event, ProducerRef
+    from ..types import Event, ProducerRef
 
     ref = env.get("producer")
     producer = ProducerRef(**ref) if isinstance(ref, dict) else None

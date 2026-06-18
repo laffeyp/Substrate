@@ -32,10 +32,10 @@ from typing import Any, Literal
 
 from msgspec import Struct
 
-from .blobstore import is_blob_hex
-from .encoding import content_hash, sha256_hex
-from .errors import RecordIncompleteError, SubstrateError
-from .record import read_record
+from ..record.blobstore import is_blob_hex
+from ..encoding import content_hash, sha256_hex
+from ..errors import RecordIncompleteError, SubstrateError
+from ..record.record import read_record
 
 ReplayLevel = Literal["1", "2", "3a", "3b"]
 

@@ -6,7 +6,7 @@ import pytest
 from msgspec import Struct
 
 from substrate.errors import InputTypeError
-from substrate.sealing import seal
+from substrate.record.sealing import seal
 from substrate.types import BlobRef
 
 

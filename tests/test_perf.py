@@ -27,7 +27,7 @@ import os
 
 import pytest
 
-from substrate.conformance_perf import measure_append_rate
+from substrate.conformance.conformance_perf import measure_append_rate
 
 _FLOOR = 40_000  # N-PERF-1 appends/sec, per product amendment A2.1 (was 100K)
 

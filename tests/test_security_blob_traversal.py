@@ -7,8 +7,8 @@ with no validation). A sha256 is always 64 lowercase hex; anything else must nev
 
 import pytest
 
-from substrate.blobstore import BlobStore, is_blob_hex
-from substrate.replay import _UNRESOLVABLE, _resolved_input_hash
+from substrate.record.blobstore import BlobStore, is_blob_hex
+from substrate.projections.replay import _UNRESOLVABLE, _resolved_input_hash
 
 
 def test_is_blob_hex_only_accepts_64_lowercase_hex():

@@ -15,8 +15,8 @@ import os
 import re
 from pathlib import Path
 
-from .errors import CRCMismatchError
-from .types import BlobRef
+from ..errors import CRCMismatchError
+from ..types import BlobRef
 
 _SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 

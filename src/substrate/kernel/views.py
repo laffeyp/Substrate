@@ -10,7 +10,7 @@ from __future__ import annotations
 from types import MappingProxyType
 from typing import Any
 
-from .types import Event, Subscription
+from ..types import Event, Subscription
 
 
 class BufferView:

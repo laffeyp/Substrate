@@ -13,8 +13,8 @@ from typing import Any
 
 from msgspec import Struct
 
-from .encoding import canonical_bytes
-from .types import Event
+from ..encoding import canonical_bytes
+from ..types import Event
 
 
 # ── cooldowns ──────────────────────────────────────────────────────────────────

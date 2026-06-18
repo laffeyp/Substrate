@@ -25,8 +25,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from . import framing
-from .constants import POLL_INTERVAL_MS
+from ..record import framing
+from ..constants import POLL_INTERVAL_MS
 
 
 def _sealed_segments(root: Path) -> list[Path]:

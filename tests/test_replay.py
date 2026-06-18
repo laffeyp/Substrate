@@ -14,7 +14,7 @@ from substrate.api import (
     replay,
     threshold_count,
 )
-from substrate.replay import ReplayError
+from substrate.projections.replay import ReplayError
 
 
 class CountReached(Struct, frozen=True):

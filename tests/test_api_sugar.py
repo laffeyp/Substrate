@@ -19,7 +19,7 @@ from substrate.api import (
     TopologyBuilder,
     read_record,
 )
-from substrate.topology import RegistrationError
+from substrate.kernel.topology import RegistrationError
 
 
 class Tick(Struct, frozen=True):

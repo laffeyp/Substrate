@@ -3,7 +3,7 @@
 import pytest
 
 from substrate.errors import BusLockedError
-from substrate.locking import acquire_lock, release_lock
+from substrate.record.locking import acquire_lock, release_lock
 
 
 def test_second_runtime_against_locked_root_fails_fast(tmp_path):

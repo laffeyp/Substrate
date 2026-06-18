@@ -15,7 +15,7 @@ from substrate.api import (
     read_sidecar,
     threshold_count,
 )
-from substrate.triggers import PerEvent
+from substrate.kernel.triggers import PerEvent
 from substrate.types import Subscription
 
 

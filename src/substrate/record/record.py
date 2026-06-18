@@ -34,9 +34,9 @@ from typing import Any
 from msgspec import Struct
 
 from .blobstore import BlobStore, _fsync_dir
-from .constants import SEGMENT_MAX_BYTES
-from .errors import CRCMismatchError, FsyncError, RecordGapError, TornFrameError
-from .types import BlobRef
+from ..constants import SEGMENT_MAX_BYTES
+from ..errors import CRCMismatchError, FsyncError, RecordGapError, TornFrameError
+from ..types import BlobRef
 from . import framing
 
 

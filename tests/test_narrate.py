@@ -8,7 +8,7 @@ of envelopes — the inspect-surface contract.
 """
 
 from substrate import api
-from substrate.narrate import narrate, narration_summary
+from substrate.projections.narrate import narrate, narration_summary
 from substrate.topologies import bundled
 
 REC = bundled.record_path("code_review")  # the committed, deterministic CI record

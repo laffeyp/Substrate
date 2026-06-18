@@ -24,12 +24,12 @@ import msgspec
 from msgspec import Struct
 from ulid import ULID
 
-from . import locking
-from .constants import BUDGET_US, HYSTERESIS_K, VOCAB_VERSION, is_reserved
-from .encoding import content_hash, to_canonical_builtins, try_canonical
-from .errors import FsyncError, ReentrantAppendError
+from ..record import locking
+from ..constants import BUDGET_US, HYSTERESIS_K, VOCAB_VERSION, is_reserved
+from ..encoding import content_hash, to_canonical_builtins, try_canonical
+from ..errors import FsyncError, ReentrantAppendError
 from .policies import Decision, TermContext, quiescence_with_watchdog
-from .record import (
+from ..record.record import (
     FsyncPolicy,
     Interval,
     RecordWriter,
@@ -38,11 +38,11 @@ from .record import (
     recover_open_segment,
 )
 from .runstate import RunPhase, RunState
-from .sealing import seal
+from ..record.sealing import seal
 from .sequencer import AppendCycle, _Emission, _Lifecycle
-from .sidecar import DiagnosticSidecar, WriterStatsSidecar
+from ..record.sidecar import DiagnosticSidecar, WriterStatsSidecar
 from .topology import Registration, RegistrationError, TopologyBuilder
-from .types import Event, ProducerRef
+from ..types import Event, ProducerRef
 
 _QUIESCENCE_POLL_S = 0.01  # writer idle-poll for the quiescence/watchdog check
 # Consecutive fully-quiescent idle polls where the policy still returns CONTINUE before the

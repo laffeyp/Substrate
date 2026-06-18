@@ -9,7 +9,7 @@ import pathlib
 
 from substrate import api
 from substrate.errors import RecordIncompleteError, SubstrateError
-from substrate.graph import run_graph, topology_graph
+from substrate.projections.graph import run_graph, topology_graph
 from substrate.topologies import bundled
 
 CODE_REVIEW = bundled.record_path("code_review")

@@ -58,7 +58,7 @@ async def test_follower_ignores_a_partial_trailing_frame(tmp_path):
     # follower must yield only the complete frame and leave the partial for a later poll.
     root = tmp_path / "run"
     root.mkdir()
-    from substrate import framing
+    from substrate.record import framing
 
     complete = framing.frame(
         {"seq": 0, "kind": "X", "schema": "X@1", "producer": None, "t": 1.0, "payload": {"n": 1}}
@@ -82,7 +82,7 @@ async def test_follow_across_a_segment_roll_no_duplicate_or_skipped_frames(tmp_p
     # not the basename. Force segment rolls by shrinking SEGMENT_MAX_BYTES, follow the live
     # record, and assert the followed seq stream is exactly the recorded one — no frame
     # re-yielded when a hot segment seals (`.open` dropped, index unchanged) and none skipped.
-    import substrate.record as record_mod
+    import substrate.record.record as record_mod
 
     monkeypatch.setattr(record_mod, "SEGMENT_MAX_BYTES", 256)  # roll every few frames
 
@@ -142,7 +142,7 @@ async def test_follower_opens_files_read_only(tmp_path, monkeypatch):
         seen_flags.append(flags)
         return real_open(path, flags, *a, **k)
 
-    monkeypatch.setattr("substrate.attach.os.open", spy_open)
+    monkeypatch.setattr("substrate.projections.attach.os.open", spy_open)
     live = attach(tmp_path / "run")
     live.read_new()
     assert seen_flags, "the follower opened at least one segment"

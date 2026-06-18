@@ -5,9 +5,9 @@ manifest-is-advisory / segments-are-authoritative invariant (§3.5)."""
 
 import pytest
 
-import substrate.record as record
+import substrate.record.record as record
 from substrate.errors import RecordGapError
-from substrate.record import Always, RecordWriter, read_record, recover_open_segment
+from substrate.record.record import Always, RecordWriter, read_record, recover_open_segment
 
 
 def _env(seq, kind="K"):

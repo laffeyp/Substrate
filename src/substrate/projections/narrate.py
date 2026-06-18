@@ -34,7 +34,7 @@ from typing import Any
 
 from msgspec import Struct
 
-from .record import read_record
+from ..record.record import read_record
 
 # Lifecycle bracketing suppressed by default — implied by the trigger beat + the work event.
 _LIFECYCLE_NOISE = frozenset(

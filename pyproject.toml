@@ -77,15 +77,14 @@ source_modules = ["substrate.cli"]
 # (that is the whole point — api is the facade). Without this, the cli -> api -> internal chain
 # would be flagged. The rule we enforce is "cli's own imports touch no private module".
 allow_indirect_imports = true
-# Every internal module EXCEPT substrate.api. cli may import only the public facade; a new
-# private module added here keeps the contract honest (and a missing one is caught by the CLI's
-# own AST import-lint test, tests/test_cli.py::test_cli_imports_only_substrate_api).
+# Every internal surface EXCEPT substrate.api. cli may import only the public facade. Naming the
+# four internal SUBPACKAGES (kernel/record/projections/conformance) forbids all their submodules at
+# once, so a new private module dropped inside one is covered automatically — no per-module denylist
+# to keep in sync (the old flat list had to enumerate all ~25). The remaining top-level leaves
+# (types/protocols/errors/constants/encoding) + testing are named directly. A miss is still caught
+# by the CLI's own AST import-lint test, tests/test_cli.py::test_cli_imports_only_substrate_api.
 forbidden_modules = [
-  "substrate.attach", "substrate.blobstore", "substrate.composition",
-  "substrate.conformance", "substrate.conformance_perf", "substrate.constants",
-  "substrate.encoding", "substrate.errors", "substrate.framing", "substrate.inspect",
-  "substrate.locking", "substrate.policies", "substrate.protocols", "substrate.record",
-  "substrate.replay", "substrate.runstate", "substrate.runtime", "substrate.sealing",
-  "substrate.sequencer", "substrate.sidecar", "substrate.testing", "substrate.topology",
-  "substrate.triggers", "substrate.types", "substrate.views",
+  "substrate.kernel", "substrate.record", "substrate.projections", "substrate.conformance",
+  "substrate.types", "substrate.protocols", "substrate.errors", "substrate.constants",
+  "substrate.encoding", "substrate.testing",
 ]

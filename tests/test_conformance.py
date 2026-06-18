@@ -7,7 +7,7 @@ this stays green and fast while never hiding the deferred/perf truth."""
 
 import pytest
 
-from substrate.conformance import Status, run_conformance
+from substrate.conformance.conformance import Status, run_conformance
 
 
 @pytest.mark.timeout(60)
@@ -39,8 +39,8 @@ async def test_check_6_is_deferred_not_pass():
 async def test_check_6_fails_on_a_level2_mismatch_not_masked_as_deferred():
     # FIX A (honesty): Level 2 SHIPS — a genuine Level-2 input-hash mismatch inside check 6
     # must FAIL, NOT be masked as DEFERRED. Drive it by patching replay to report a mismatch.
-    import substrate.conformance as conf
-    from substrate.replay import HashMismatch, ReplayResult
+    import substrate.conformance.conformance as conf
+    from substrate.projections.replay import HashMismatch, ReplayResult
 
     real_replay = conf.replay
 

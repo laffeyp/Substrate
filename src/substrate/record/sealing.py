@@ -23,8 +23,8 @@ from typing import Any
 
 from msgspec import Struct
 
-from .errors import InputTypeError
-from .types import BlobRef
+from ..errors import InputTypeError
+from ..types import BlobRef
 
 
 def seal(obj: Any, path: str = "$") -> Any:

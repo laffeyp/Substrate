@@ -29,8 +29,8 @@ from typing import Any
 
 from msgspec import Struct
 
-from .errors import RecordIncompleteError
-from .record import read_record
+from ..errors import RecordIncompleteError
+from ..record.record import read_record
 
 _RUN_STARTED = "substrate.RunStarted"
 _TRIGGER_FIRED = "substrate.TriggerFired"

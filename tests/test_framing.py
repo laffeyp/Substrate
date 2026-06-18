@@ -1,6 +1,6 @@
 """Tests for the frame format and torn-tail recovery (technical §3.3)."""
 
-import substrate.framing as framing
+import substrate.record.framing as framing
 from hypothesis import given, strategies as st
 
 from substrate.errors import CRCMismatchError, FrameTooLargeError, TornFrameError

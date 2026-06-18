@@ -22,7 +22,7 @@ from substrate.api import (
 )
 from substrate.encoding import safe_raw, try_canonical
 from substrate.errors import BusLockedError
-from substrate.topology import RegistrationError, TopologyBuilder
+from substrate.kernel.topology import RegistrationError, TopologyBuilder
 
 
 # ── shared encoding helper (try_canonical / safe_raw) ──────────────────────────
@@ -195,7 +195,7 @@ async def test_persistent_lock_blocks_a_second_runtime(tmp_path):
     # against the same root must fail fast.
     import time as _time
 
-    from substrate import locking
+    from substrate.record import locking
 
     fd = locking.acquire_lock(root, start_time=_time.time())
     try:
@@ -468,7 +468,7 @@ def test_empty_view_subscription_rejected():
 
 
 # ── finalisation payload flows policy -> RunFinalised -> RunResult (Priority B item 6) ──
-from substrate.policies import Decision, TerminationPolicy  # noqa: E402
+from substrate.kernel.policies import Decision, TerminationPolicy  # noqa: E402
 
 
 def _final_payload_policy():
