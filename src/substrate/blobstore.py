@@ -15,6 +15,7 @@ import os
 import re
 from pathlib import Path
 
+from .errors import CRCMismatchError
 from .types import BlobRef
 
 _SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
@@ -68,15 +69,23 @@ class BlobStore:
         return BlobRef(sha256=f"sha256:{hex_digest}", bytes=len(data))
 
     def get(self, ref: BlobRef) -> bytes:
-        """Read a blob by reference. Symlinks are not followed (§17)."""
+        """Read a blob by reference, VERIFYING its content hash — the blob id IS the sha256 of its
+        bytes, so a corrupted blob file is caught here, not returned as if valid. Symlinks not
+        followed (§17)."""
         hex_digest = ref.sha256.removeprefix("sha256:")
         path = self._path_for(hex_digest)
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
         fd = os.open(path, flags)
         try:
-            return _read_all(fd)
+            data = _read_all(fd)
         finally:
             os.close(fd)
+        actual = hashlib.sha256(data).hexdigest()
+        if actual != hex_digest:
+            raise CRCMismatchError(
+                f"blob {ref.sha256} content-hash mismatch (read bytes hash to sha256:{actual}) — corrupted blob"
+            )
+        return data
 
 
 def _read_all(fd: int) -> bytes:

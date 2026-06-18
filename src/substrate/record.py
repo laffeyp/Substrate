@@ -35,7 +35,7 @@ from msgspec import Struct
 
 from .blobstore import BlobStore, _fsync_dir
 from .constants import SEGMENT_MAX_BYTES
-from .errors import FsyncError, RecordGapError
+from .errors import CRCMismatchError, FsyncError, RecordGapError, TornFrameError
 from .types import BlobRef
 from . import framing
 
@@ -170,7 +170,11 @@ class RecordWriter:
     def _seal_and_roll(self) -> None:
         """Seal the hot segment (durable + rename + dir fsync) and open the next one
         (technical §3.2)."""
-        os.fsync(self._fd)
+        # route the seal flush through _do_fsync so it honors the durable/F_FULLFSYNC policy AND the
+        # fsyncgate (§5.2): on a seal-time medium failure it closes the fd and raises FsyncError (which
+        # the runtime catches), instead of a bare os.fsync that leaves the fd open and gets retried at
+        # close() — the "do not retry fsync after failure" invariant the rest of the writer honors.
+        self._do_fsync()
         os.close(self._fd)
         sealed_path = self._segment_path(self._seg_index, hot=False)
         os.replace(self._open_path, sealed_path)
@@ -279,9 +283,15 @@ def read_record(root: Path | str) -> Iterator[dict[str, Any]]:
                 f"sealed segment {seg.name} has a torn tail — its last frame was truncated (data "
                 f"loss). A sealed segment must be complete; only the hot segment may have a torn tail."
             )
-        for line in data.splitlines(keepends=True):
+        for offset, line in enumerate(data.splitlines(keepends=True)):
             if line.endswith(b"\n"):
-                yield _checked(framing.verify_line(line[:-1]))
+                try:
+                    env = framing.verify_line(line[:-1])
+                except (CRCMismatchError, TornFrameError) as exc:
+                    # a corrupt frame in a SEALED segment is data loss (the segment is supposed to be
+                    # immutable + complete). Fatal, like a seq gap — but say WHERE (segment + line).
+                    raise CRCMismatchError(f"corruption in sealed segment {seg.name} at line {offset}: {exc}") from exc
+                yield _checked(env)
     hot = _hot_segment(root)
     if hot is not None:
         frames, _cut = framing.recover(_read_bytes_nofollow(hot))

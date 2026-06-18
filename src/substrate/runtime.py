@@ -29,7 +29,14 @@ from .constants import BUDGET_US, HYSTERESIS_K, VOCAB_VERSION, is_reserved
 from .encoding import content_hash, to_canonical_builtins, try_canonical
 from .errors import FsyncError, ReentrantAppendError
 from .policies import Decision, TermContext, quiescence_with_watchdog
-from .record import FsyncPolicy, Interval, RecordWriter, read_record, recover_open_segment
+from .record import (
+    FsyncPolicy,
+    Interval,
+    RecordWriter,
+    _hot_segment,
+    read_record,
+    recover_open_segment,
+)
 from .runstate import RunPhase, RunState
 from .sealing import seal
 from .sequencer import AppendCycle, _Emission, _Lifecycle
@@ -168,9 +175,12 @@ class Runtime:
         # leak / self-deadlock.
         if self._persistent:
             lock_fd = locking.acquire_lock(self._record_root, start_time=time.time())
-        if resuming:
-            # Resume: recover the existing record's torn tail (writer-side, §3.3) before
-            # reopening it for append, so we continue from the last complete frame.
+        # Recover an existing record's torn tail (writer-side, §3.3) before reopening for append, so
+        # we continue from the last complete frame. On resume this is always needed; for a FRESH run
+        # aimed at a root that already holds a crash-torn open segment (operator error / a reused
+        # persistent root), recover too — otherwise new frames append AFTER the torn bytes, embedding
+        # a permanently-corrupt line. recover_open_segment is non-destructive of good frames.
+        if resuming or (self._record_root.exists() and _hot_segment(self._record_root) is not None):
             recover_open_segment(self._record_root)
         try:
             record = RecordWriter(self._record_root, fsync=self._fsync, resume=resuming)
