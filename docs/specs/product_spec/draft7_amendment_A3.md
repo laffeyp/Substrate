@@ -33,6 +33,22 @@ For the v1.0 milestone, the manifest is **lossy in two known, non-correctness wa
 - **`source_sha256` is not recorded** — the fingerprint carries `qualname` + `author_version` only; `inspect.getsource` is not invoked.
 **Run correctness is unaffected** — the runtime executes the live `Subscription` and the live factories, never the manifest; this is an *observability / projection* gap, not a behavioural one. Re-visit (post-1.0): serialize the full `{kinds, producers}` subscription and render producer-scoped edges; add best-effort `source_sha256` per the F-OBS-1 failure-mode contract. Until then F-OBS-1's `source_sha256` clause and §7's full-subscription expectation are relaxed to SHOULD for the v1.0 milestone.
 
+## A3.4 — Replay Level 1 is structural-integrity verification, not schema decode (clarifies technical §12)
+
+### What technical §12 says
+The Level-1 definition describes decoding each frame against the `RunStarted` schema descriptors.
+
+### What this amendment rules
+The shipped Level 1 verifies **structural integrity** — it walks the frames, tallies kinds, and confirms the run reached `RunFinalised` (completeness), but does **not** decode each frame against the manifest's schema descriptors. Per-frame schema-decode at Level 1 is **deferred**; the substantive replay tier that ships is **Level 2** (decision reconstruction + per-decision input-hash verification), with Level 3a (state hash) above it and 3b (full byte re-execution) deferred under amendment A1. The replay-tier ladder a consumer should rely on for v1.0 is: L1 = "the record is structurally whole", L2 = "every recorded decision verifies by hash", L3a = "state reconstructs to the same hash". Technical §12's Level-1 schema-decode clause is relaxed to a post-1.0 SHOULD.
+
+## A3.5 — Public read API is `read_record` over envelope dicts, not `load_record` / `RunRecord` (clarifies technical §16)
+
+### What technical §16 says
+§16 names `load_record` returning a typed `RunRecord`, and replay/inspect taking that typed object.
+
+### What this amendment rules
+The shipped public surface (`substrate.api.__all__`) is **`read_record(root)`** returning an iterator of envelope dicts, with `replay` / `inspect` / the projections accepting a record-root path or an envelope iterable. The typed `load_record` / `RunRecord` names in §16 are **not** the shipped API; they are relaxed to the shipped names for v1.0. (A typed read-record object is a candidate post-1.0 ergonomic addition — see also REVIEW.md architecture-canon-1, the stringly-typed read surface — but it is additive, not a v1.0 contract.)
+
 ---
 
-*Amendment A3 to product DRAFT 7. Additive; DRAFT 7 preserved. Three spec ↔ code reconciliations surfaced by REVIEW.md (check-5 wall-clock half, F-LIFE-2 let-finish/subtree-cancellation deferral, RunStarted manifest fidelity). 2026-06-18.*
+*Amendment A3 to product DRAFT 7. Additive; DRAFT 7 preserved. Five spec ↔ code reconciliations surfaced by REVIEW.md (check-5 wall-clock half; F-LIFE-2 let-finish/subtree-cancellation deferral; RunStarted manifest fidelity; Level-1 replay = structural integrity, not schema decode; public read API = read_record, not load_record/RunRecord). 2026-06-18.*
