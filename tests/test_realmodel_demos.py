@@ -23,8 +23,6 @@ Run here (Ollama present): part of `uv run pytest`. Deselect elsewhere: `pytest 
 
 from __future__ import annotations
 
-import re
-
 import pytest
 
 from substrate.api import Runtime, read_record
@@ -64,10 +62,6 @@ def _require(*models: str) -> None:
 
 def _payloads(root, kind):  # noqa: ANN001
     return [e["payload"] for e in read_record(root) if e["kind"] == kind]
-
-
-def _has_decision_token(text: str) -> bool:
-    return bool(re.search(r"\bTALK\b|STAY\s+SILENT|\bSILENT\b", text, re.IGNORECASE))
 
 
 # ── ensemble (R-1): real DISAGREEMENT + real adjudication + cancel-others ───────
@@ -131,38 +125,36 @@ async def test_code_review_role_divergence_and_cancel(tmp_path):
     assert len(cancelled) >= 1, "lingering reviewers were not cancelled"
 
 
-# ── prisoner's dilemma: the real DECISION (parsed from the real turn) is on record ──
+# ── prisoner's dilemma: the prisoner emits its own DECISION (attributed to it) ──
 @pytest.mark.timeout(180)
 async def test_pd_real_decision_on_record(tmp_path):
     _require(_SMART)
     await Runtime(tmp_path / "run").run(
         prisoners_dilemma_topology(walkthrough=True, model=_SMART, max_rounds=1)
     )
-    envs = list(read_record(tmp_path / "run"))
-    turns = {t["speaker"]: t["text"] for t in (e["payload"] for e in envs if e["kind"] == "Turn")}
-    decisions = {d["prisoner"]: d["choice"] for d in (e["payload"] for e in envs if e["kind"] == "Decision")}
-    # SUBSTANCE: both prisoners decided, and each decision was PARSED FROM THE REAL TURN (the turn
-    # contains an actual decision token) — NOT the detector's CI fallback. Fails on a thin/no-token run.
-    assert set(decisions) == {1, 2}, f"both decisions not recorded: {decisions}"
-    assert all(_has_decision_token(turns.get(p, "")) for p in (1, 2)), f"decision not from real turn: {turns}"
-    assert all(c in {"silent", "talk"} for c in decisions.values())
+    decisions = [e for e in read_record(tmp_path / "run") if e["kind"] == "Decision"]
+    # SUBSTANCE: both prisoners decided. A Decision exists ONLY if the prisoner's own turn carried a
+    # real token (the outcome fn returns None otherwise) — so its existence proves a real decision; no
+    # cross-check needed. And the record ATTRIBUTES it to the prisoner (F-OBS-2), not a parser.
+    by_prisoner = {e["payload"]["prisoner"]: e for e in decisions}
+    assert set(by_prisoner) == {1, 2}, f"both decisions not recorded: {[e['payload'] for e in decisions]}"
+    assert all(e["payload"]["choice"] in {"silent", "talk"} for e in decisions)
+    assert all(e["producer"]["kind"] == f"speaker-{p}" for p, e in by_prisoner.items())
 
 
-# ── intel asymmetry: a calibrated JOINT CALL (from a real turn) is on record ────
+# ── intel asymmetry: the analyst emits its own calibrated JOINT CALL ────────────
 @pytest.mark.timeout(240)
 async def test_intel_real_jointcall_on_record(tmp_path):
     _require(_SMART)
     await Runtime(tmp_path / "run").run(
         intel_asymmetry_topology(walkthrough=True, model=_SMART, max_rounds=2)
     )
-    envs = list(read_record(tmp_path / "run"))
-    turns = " ".join(e["payload"]["text"] for e in envs if e["kind"] == "Turn")
-    calls = [e["payload"] for e in envs if e["kind"] == "JointCall"]
-    # SUBSTANCE: a calibrated assessment is recorded AND a real confidence % actually appeared in the
-    # transcript (so the JointCall reflects the real model, not only the CI fallback). Fails if neither.
-    assert calls, "no JointCall recorded"
-    assert all(0 <= c["confidence"] <= 100 for c in calls)
-    assert re.search(r"\d{1,3}\s*%", turns), f"no calibrated %% in any real turn: {turns[:200]!r}"
+    calls = [e for e in read_record(tmp_path / "run") if e["kind"] == "JointCall"]
+    # SUBSTANCE: a JointCall exists only if the analyst's own turn carried a real calibrated call, and
+    # it is attributed to the analyst (F-OBS-2). Existence => real; provenance => the right author.
+    assert calls, "no JointCall recorded — the analyst made no calibrated call"
+    assert all(0 <= e["payload"]["confidence"] <= 100 for e in calls)
+    assert all(e["producer"]["kind"] == f"speaker-{e['payload']['analyst']}" for e in calls)
 
 
 # ── debate: a two-sided pressure test that PROGRESSES (no echo) ─────────────────
@@ -233,24 +225,33 @@ async def test_instrument_ablation_delta(tmp_path):
     assert not (instrument_kinds & without_kinds), "the WITHOUT arm leaked instrument events"
 
 
-# ── pipeline (R-2): the structured-error cascade, with halt-and-resume ──────────
-@pytest.mark.timeout(180)
+class _UppercaseTransform:
+    """A deterministic CODE transform — uppercasing a word is not a model task. Substrate Producers
+    are heterogeneous; a 1b LLM here was 'a model where code belongs' (spec §0.1's transform/validator
+    path is deterministic). R-2's claim is the CASCADE, which is model-agnostic — so this app has NO
+    model role, and the demo is not gated on Ollama. respond() is the Responder seam being pure code."""
+
+    def respond(self, text: str) -> str:
+        return text.upper()
+
+
+# ── pipeline (R-2): the structured-error cascade, with halt-and-resume (deterministic) ──
+@pytest.mark.timeout(60)
 async def test_pipeline_cascade_halt_and_resume(tmp_path):
-    _require(_FAST)
-    # R-2's claim is the CASCADE, not the transform content: the faults are SEEDED (a real model
-    # only does the transform), so the demo proves invalid-emission -> retry -> RetryExhausted ->
-    # PAUSE, then resume in a FRESH Runtime -> Recovered -> finalise on a continuous seq. We do NOT
-    # assert the transform text (the weak model's transform is incidental to this claim).
-    tx = OllamaResponder(_FAST, max_tokens=16, system="Uppercase the input word. Reply with ONLY the uppercased word.")
+    # R-2 has no model role: the transform is deterministic CODE, the faults are SEEDED. The demo
+    # proves the CASCADE — invalid-emission -> retry -> RetryExhausted -> PAUSE, then resume in a
+    # FRESH Runtime -> Recovered -> finalise on a continuous seq.
     topo = pipeline_topology(
-        ["alpha", "beta", "gamma", "delta"], transform_model=tx,
+        ["alpha", "beta", "gamma", "delta"], transform_model=_UppercaseTransform(),
         fault_row=1, hard_fault_row=2, malformed_row=3, deterministic=False,
     )
     root = tmp_path / "run"
     paused = await Runtime(root, persistent=True).run(topo)
     envs = list(read_record(root))
     assert paused.status == "paused", f"the cascade did not pause: {paused.status}"
-    assert [e for e in envs if e["kind"] == "Transformed"], "the real transform produced nothing"
+    # the deterministic transform is CORRECT (code, not a flaky model): row 0 'alpha' -> 'ALPHA'.
+    transformed = {e["payload"]["row"]: e["payload"]["out"] for e in envs if e["kind"] == "Transformed"}
+    assert transformed.get(0) == "ALPHA", f"the code transform is wrong: {transformed}"
     assert [e for e in envs if e["kind"] == "RetryExhausted"], "the unrecoverable fault did not exhaust retries"
     # resume across a FRESH Runtime (the cross-process persistence promise) with the operator override
     resumed = await Runtime(root, persistent=True).resume(topo, resume_event=operator_override(row=2))

@@ -135,7 +135,10 @@ def _transform_factory(
         if row == hard_fault_row:
             yield BadEmission(row=row, junk="<<persistently-invalid>>")
             return
-        yield Transformed(row=row, out=responder.respond(f"transform: {raw}"), attempt=attempt)
+        # send the bare row value, not "transform: {raw}" — a weak model told to "uppercase the input
+        # word" uppercases the literal label "transform" and ignores the row. The caller's system
+        # prompt defines the transform; the user message is just the thing to transform.
+        yield Transformed(row=row, out=responder.respond(raw), attempt=attempt)
 
     return lambda: transform
 

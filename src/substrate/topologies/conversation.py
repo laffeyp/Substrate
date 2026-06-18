@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import AsyncIterator, Callable, Sequence
-from typing import Any, NamedTuple
+from typing import Any
 
 from msgspec import Struct
 
@@ -44,18 +44,11 @@ class Converged(Struct, frozen=True):
     by: int  # the speaker who declared convergence (CONVERGED early-stop)
 
 
-class Detector(NamedTuple):
-    """A per-game OUTCOME detector: a side Producer fired on each Turn that emits a typed outcome
-    event (the game's claim as a record assertion, not prose). Deterministic — a pure parse of the
-    turn, no model. Installed observation-only (no Route), exactly like the grader instrument. The
-    game (debate / PD / intel) supplies the kind + the factory that reads a Turn and emits it; the
-    CI stub text has no decision token, so a detector emits a deterministic stand-in there (the
-    wiring is what CI proves) and parses the real choice in walkthrough mode."""
-
-    name: str
-    schemas: list[type]
-    factory: _Factory
-    input_builder: Callable[[api.TriggerContext], Any]
+# A per-game OUTCOME extractor: (text, speaker_id, round) -> a typed outcome event the DECIDING
+# speaker emits at its OWN mouth (PD's Decision, intel's JointCall), or None. NOT a downstream
+# detector parsing another Producer's prose — the player structures its own output into a typed
+# event before the bus validates it (F-OBS-2: the decision is attributed to the player, not a parser).
+_OutcomeFn = Callable[[str, int, int], Any]
 
 
 def _next_round(turn: dict[str, Any], n: int) -> int:
@@ -83,7 +76,10 @@ def _after_input(nxt: int, n: int) -> Callable[[api.TriggerContext], Any]:
 
 
 def _speaker_factory(
-    speaker_id: int, responder: Responder, converge_at: tuple[int, int] | None
+    speaker_id: int,
+    responder: Responder,
+    converge_at: tuple[int, int] | None,
+    outcome_fn: _OutcomeFn | None = None,
 ) -> _Factory:
     async def speaker(inp: Any) -> AsyncIterator[Any]:
         rnd = int(inp.get("round", 1)) if hasattr(inp, "get") else 1
@@ -115,16 +111,26 @@ def _speaker_factory(
         # strip any leaked transcript label ("S2:", even doubled "S2: S2:") the model copied from the
         # transcript format into its own output — cosmetic, keeps the recorded turn clean.
         text = re.sub(r"^\s*(S\d+:\s*)+", "", text)
-        # A deterministic convergence hook for CI (in walkthrough, a speaker converges by the
-        # responder emitting the CONVERGED sentinel; that path is a demo concern). converge_at
-        # names the (speaker, round) that declares convergence, so tests can exercise early-stop.
+        # converge_at is a deterministic CI test hook for the early-stop (Converged) termination
+        # path: it names the (speaker, round) that declares convergence. Real-model convergence is
+        # NOT wired — no current demo claims it (debate's claim is the two-sided pressure-test, not
+        # convergence). A demo that wanted it would emit Converged from its OWN model output here,
+        # the same at-the-mouth pattern as outcome_fn — not via a downstream sentinel parser.
         if converge_at is not None and converge_at == (speaker_id, rnd):
             yield Converged(by=speaker_id)
-        else:
-            # cap the recorded turn — generous enough to retain a trailing decision line (PD's
-            # "STAY SILENT / TALK", intel's calibrated %), which a per-game detector parses. CI stub
-            # text is ~20 chars, so this cap only bounds verbose real-model turns.
-            yield Turn(speaker=speaker_id, text=text[:700], round=rnd)
+            return
+        # cap the recorded turn — generous enough to retain a trailing decision line (PD's
+        # "STAY SILENT / TALK", intel's calibrated %); CI stub text is short, so this bounds only
+        # verbose real-model turns.
+        yield Turn(speaker=speaker_id, text=text[:700], round=rnd)
+        # the deciding speaker structures its OWN output into a typed outcome event and emits it
+        # HERE — so the record attributes the decision to this player (F-OBS-2), and the bus
+        # validates it (F-BUS-6). The parse happens inside the deciding Producer, not in a
+        # downstream detector reading this speaker's prose.
+        if outcome_fn is not None:
+            outcome = outcome_fn(text, speaker_id, rnd)
+            if outcome is not None:
+                yield outcome
 
     return lambda: speaker
 
@@ -142,7 +148,7 @@ def conversation_topology(
     instrument_responder: Responder | None = None,
     ci_repair_status: str = REPAIR_OK,
     ci_repair_alternate: bool = False,
-    detectors: Sequence[Detector] = (),
+    outcome: tuple[type[Struct], _OutcomeFn] | None = None,
 ) -> Callable[[api.TopologyBuilder], None]:
     """Build an N-speaker turn-based conversation. `responders` is one Responder per speaker
     (N = len). Speaker 1 opens; a round-robin Trigger fires the next speaker on each Turn until
@@ -158,13 +164,17 @@ def conversation_topology(
     if n < 2:
         raise api.RegistrationError("a conversation needs at least 2 speakers")
 
+    # a speaker that owns an outcome declares that kind too, and emits it at its own mouth.
+    outcome_schemas: list[type[Struct]] = [outcome[0]] if outcome else []
+    outcome_fn: _OutcomeFn | None = outcome[1] if outcome else None
+
     def topo(b: api.TopologyBuilder) -> None:
         for i, r in enumerate(responders, start=1):
             b.producer_kind(
                 f"speaker-{i}",
-                schemas=[Turn, Converged],
+                schemas=[Turn, Converged, *outcome_schemas],
                 schema_version=1,
-                factory=_speaker_factory(i, r, converge_at),
+                factory=_speaker_factory(i, r, converge_at, outcome_fn),
                 deterministic=deterministic,
             )
         b.initial("speaker-1", input={"round": 1, "prior_turns": []})
@@ -221,19 +231,6 @@ def conversation_topology(
                     "round": int(ctx.event.payload["round"]),
                     "prior_turns": list(ctx.views["transcript"].value()),
                 },
-            )
-        # per-game OUTCOME detectors: a side Producer fired on each Turn that emits the game's typed
-        # outcome (Decision / JointCall) — the claim as a record assertion. Observation-only (no
-        # Route), deterministic (a pure parse of the Turn). The natural-conversation `score` grader
-        # is the same shape; this generalizes it to the game claims.
-        for det in detectors:
-            b.instrument(
-                det.name,
-                on="Turn",
-                schemas=det.schemas,
-                factory=det.factory,
-                deterministic=True,
-                input_builder=det.input_builder,
             )
         # one round-robin Trigger per speaker: after speaker k's Turn, fire speaker k+1 (wrapping
         # N→1), carrying the next round and the transcript-so-far, while within the round budget.

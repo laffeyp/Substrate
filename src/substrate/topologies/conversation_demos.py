@@ -16,20 +16,22 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from typing import Any
 
 from msgspec import Struct
 
 from .. import api
 from ..reference._models import DeterministicResponder, OllamaResponder, Responder
-from .conversation import Detector, conversation_topology
+from .conversation import conversation_topology
 
 
-# ── per-game OUTCOME detectors (the claim as a record assertion, not prose) ─────
-# A detector is a side Producer fired on each Turn that emits a typed outcome event, deterministically
-# parsed from the (prompt-constrained) turn text. In CI the stub text carries no decision token, so the
-# detector emits a deterministic stand-in (CI proves the WIRING); in walkthrough it parses the real
-# model's choice (the real model proves the CLAIM). NOT an LLM judge — a pure string parse.
+# ── per-game OUTCOME events, emitted by the DECIDING speaker at its own mouth ───
+# These are NOT produced by a downstream detector parsing another Producer's prose — the deciding
+# player (the prisoner / the analyst) structures ITS OWN output into a typed event and emits it
+# itself (conversation.py `outcome=`), so the record attributes the decision to the player, not to a
+# parser (F-OBS-2 provenance), and the bus validates it (F-BUS-6). The functions below are the
+# structuring step the player runs on its own text; they return None when the player did not decide
+# this turn (honest absence — no fabrication). In CI the speaker's DeterministicResponder carries a
+# menu of decision-bearing phrases, so the choice is deterministic without a stand-in.
 
 
 class Decision(Struct, frozen=True):
@@ -60,51 +62,33 @@ _OFFENSIVE = re.compile(r"offensive|pre-?position|attack|hostile", re.IGNORECASE
 _ROUTINE = re.compile(r"routine|logistic|exercise|readiness|benign", re.IGNORECASE)
 
 
-def _decision_detector() -> Detector:
-    async def detect(inp: Any) -> Any:
-        text = inp.get("text", "") if hasattr(inp, "get") else ""
-        speaker = int(inp.get("speaker", 0)) if hasattr(inp, "get") else 0
-        if _TALK.search(text):
-            choice = "talk"
-        elif _SILENT.search(text):
-            choice = "silent"
-        else:  # CI stub text (no token) -> a deterministic stand-in (CI proves the wiring)
-            choice = "talk" if speaker % 2 == 0 else "silent"
-        yield Decision(prisoner=speaker, choice=choice)
-
-    return Detector(
-        name="decision", schemas=[Decision], factory=lambda: detect,
-        input_builder=lambda ctx: {"text": ctx.event.payload["text"], "speaker": ctx.event.payload["speaker"]},
-    )
+def _pd_outcome(text: str, speaker: int, _round: int) -> Decision | None:
+    """The prisoner structures its own turn into a typed Decision. Returns None if it did not decide
+    this turn (no fabrication — the absence is honest)."""
+    if _TALK.search(text):
+        return Decision(prisoner=speaker, choice="talk")
+    if _SILENT.search(text):
+        return Decision(prisoner=speaker, choice="silent")
+    return None
 
 
-def _jointcall_detector() -> Detector:
-    async def detect(inp: Any) -> Any:
-        text = inp.get("text", "") if hasattr(inp, "get") else ""
-        speaker = int(inp.get("speaker", 0)) if hasattr(inp, "get") else 0
-        rnd = int(inp.get("round", 1)) if hasattr(inp, "get") else 1
-        # the structured "CONFIDENCE: n%" line is the model's actual call; take the LAST one. Fall
-        # back to any percent, then to a deterministic CI stand-in (no token in the stub text).
-        cm = _CONF_LINE.findall(text) or _CONF.findall(text)
-        conf = max(0, min(100, int(cm[-1]))) if cm else min(100, 50 + rnd * 10)
-        am = _ASSESS_LINE.search(text)
-        if am:
-            assess = am.group(1).lower()
-        elif _OFFENSIVE.search(text):
-            assess = "offensive"
-        elif _ROUTINE.search(text):
-            assess = "routine"
-        else:
-            assess = "uncertain" if cm else "routine"
-        yield JointCall(analyst=speaker, assessment=assess, confidence=conf)
-
-    return Detector(
-        name="joint-call", schemas=[JointCall], factory=lambda: detect,
-        input_builder=lambda ctx: {
-            "text": ctx.event.payload["text"], "speaker": ctx.event.payload["speaker"],
-            "round": ctx.event.payload["round"],
-        },
-    )
+def _intel_outcome(text: str, speaker: int, _round: int) -> JointCall | None:
+    """The analyst structures its own turn into a typed JointCall (its current calibrated assessment).
+    Prefers the prompt-mandated 'ASSESSMENT: x CONFIDENCE: n%' line; None if it made no call."""
+    cm = _CONF_LINE.findall(text) or _CONF.findall(text)
+    am = _ASSESS_LINE.search(text)
+    if not cm and not am:
+        return None
+    conf = max(0, min(100, int(cm[-1]))) if cm else 50
+    if am:
+        assess = am.group(1).lower()
+    elif _OFFENSIVE.search(text):
+        assess = "offensive"
+    elif _ROUTINE.search(text):
+        assess = "routine"
+    else:
+        assess = "uncertain"
+    return JointCall(analyst=speaker, assessment=assess, confidence=conf)
 
 # ── debate (positional asymmetry) ──────────────────────────────────────────────
 _DEBATE_CLAIM = "Open-source AI development is, on net, safer than closed development."
@@ -131,10 +115,15 @@ capability-vs-patchability specifically; do not strawman.
 {_DEBATE_RULES}"""
 
 
-def _speakers(systems: list[str], *, walkthrough: bool, model: str) -> list[Responder]:
+def _speakers(
+    systems: list[str], *, walkthrough: bool, model: str, ci_menu: list[str] | None = None
+) -> list[Responder]:
     if walkthrough:
         return [OllamaResponder(model, system=s) for s in systems]
-    return [DeterministicResponder(seed=i) for i, _ in enumerate(systems)]
+    # CI: a seeded stub. For games with a typed outcome, `ci_menu` makes the stub emit a real
+    # decision-bearing phrase, so the speaker's outcome function parses a deterministic choice — no
+    # stand-in fabrication, the choice is genuinely in the (stub) turn the player parses.
+    return [DeterministicResponder(seed=i, menu=ci_menu) for i, _ in enumerate(systems)]
 
 
 def debate_topology(
@@ -170,10 +159,14 @@ def prisoners_dilemma_topology(
     """A one-shot prisoner's dilemma (payoff asymmetry): ALPHA reasons, then BRAVO decides with
     ALPHA's reasoning visible. Defect/cooperate dynamics emerge from the incentives, not a
     script. Default one round (ALPHA then BRAVO)."""
-    speakers = _speakers([_PD_ALPHA_SYS, _PD_BRAVO_SYS], walkthrough=walkthrough, model=model)
+    speakers = _speakers(
+        [_PD_ALPHA_SYS, _PD_BRAVO_SYS], walkthrough=walkthrough, model=model,
+        ci_menu=["STAY SILENT", "TALK"],
+    )
+    # the prisoner emits its own typed Decision at its mouth (outcome=); no downstream detector.
     return conversation_topology(
         speakers, max_rounds=max_rounds, deterministic=not walkthrough,
-        detectors=[_decision_detector()],  # Decision{prisoner, choice} — PD's claim, record-assertable
+        outcome=(Decision, _pd_outcome),
     )
 
 
@@ -212,11 +205,13 @@ def intel_asymmetry_topology(
     calibrated assessment (information asymmetry). Hypothesis-testing, questioning, and
     cross-source corroboration emerge as the rational response."""
     speakers = _speakers(
-        [_INTEL_HUMINT_SYS, _INTEL_SIGINT_SYS], walkthrough=walkthrough, model=model
+        [_INTEL_HUMINT_SYS, _INTEL_SIGINT_SYS], walkthrough=walkthrough, model=model,
+        ci_menu=["ASSESSMENT: offensive CONFIDENCE: 60%", "ASSESSMENT: routine CONFIDENCE: 75%"],
     )
+    # the analyst emits its own typed JointCall at its mouth (outcome=); no downstream detector.
     return conversation_topology(
         speakers, max_rounds=max_rounds, deterministic=not walkthrough,
-        detectors=[_jointcall_detector()],  # JointCall{analyst, assessment, confidence} — intel's claim
+        outcome=(JointCall, _intel_outcome),
     )
 
 

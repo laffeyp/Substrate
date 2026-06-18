@@ -49,20 +49,24 @@ async def test_intel_asymmetry_runs_and_is_deterministic(tmp_path):
 
 @pytest.mark.timeout(15)
 async def test_prisoners_dilemma_decision_is_on_the_record(tmp_path):
-    # PD's claim is the OUTCOME (who defected), and it must be a record assertion, not a reading of
-    # the prose. The detector emits one Decision{prisoner, choice} per prisoner.
+    # PD's claim is the OUTCOME (who defected), a record assertion not a reading of prose. The PRISONER
+    # emits its own Decision{prisoner, choice} — and the record must ATTRIBUTE it to the prisoner, not
+    # a parser (F-OBS-2). That provenance assertion is what catches the misattribution we just fixed.
     await Runtime(tmp_path / "run").run(prisoners_dilemma_topology(max_rounds=1))
-    decisions = [e["payload"] for e in read_record(tmp_path / "run") if e["kind"] == "Decision"]
-    assert {d["prisoner"] for d in decisions} == {1, 2}  # both prisoners' choices recorded
-    assert all(d["choice"] in {"silent", "talk"} for d in decisions)  # the outcome is typed, readable
+    decisions = [e for e in read_record(tmp_path / "run") if e["kind"] == "Decision"]
+    assert {e["payload"]["prisoner"] for e in decisions} == {1, 2}
+    assert all(e["payload"]["choice"] in {"silent", "talk"} for e in decisions)
+    # the author of prisoner N's Decision is speaker-N, not a detector:
+    assert all(e["producer"]["kind"] == f"speaker-{e['payload']['prisoner']}" for e in decisions)
 
 
 @pytest.mark.timeout(15)
 async def test_intel_asymmetry_jointcall_is_on_the_record(tmp_path):
-    # intel's claim is a calibrated JOINT CALL; the detector emits JointCall{analyst, assessment,
-    # confidence} so "they reached a calibrated assessment" is record-derivable, not prose.
+    # intel's claim is a calibrated JOINT CALL; the ANALYST emits JointCall{analyst, assessment,
+    # confidence} itself, so the call is record-derivable AND attributed to the analyst (F-OBS-2).
     await Runtime(tmp_path / "run").run(intel_asymmetry_topology(max_rounds=3))
-    calls = [e["payload"] for e in read_record(tmp_path / "run") if e["kind"] == "JointCall"]
+    calls = [e for e in read_record(tmp_path / "run") if e["kind"] == "JointCall"]
     assert calls, "no JointCall recorded — the joint assessment is not on the log"
-    assert all(0 <= c["confidence"] <= 100 for c in calls)  # calibrated confidence is typed
-    assert all(c["assessment"] in {"offensive", "routine", "uncertain"} for c in calls)
+    assert all(0 <= e["payload"]["confidence"] <= 100 for e in calls)
+    assert all(e["payload"]["assessment"] in {"offensive", "routine", "uncertain"} for e in calls)
+    assert all(e["producer"]["kind"] == f"speaker-{e['payload']['analyst']}" for e in calls)
