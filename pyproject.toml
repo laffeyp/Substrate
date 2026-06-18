@@ -39,6 +39,12 @@ packages = ["src/substrate"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+  # real-model demos run a topology against a LIVE local LLM (Ollama) and verify the claim from the
+  # record. Self-skip when the models are absent (so CI / other machines stay green); run here.
+  # Deselect with `-m "not realmodel"`. The per-test timeouts override the 30s suite default below.
+  "realmodel: runs against a live local model (Ollama); skips if the model is absent",
+]
 # Hard safety net: any test (e.g. a never-quiescent writer or a self-feeding Trigger
 # loop) FAILS FAST instead of wedging the machine. The whole suite runs in <1s; 30s is
 # generous headroom that still catches non-termination immediately.
