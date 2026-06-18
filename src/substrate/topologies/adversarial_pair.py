@@ -38,10 +38,19 @@ class Challenge(Struct, frozen=True):
 def _writer_factory(responder: Responder) -> _Factory:
     async def write(inp: Any) -> AsyncIterator[Artifact]:
         version = int(inp.get("version", 0)) if hasattr(inp, "get") else 0
-        challenge = inp.get("challenge") if hasattr(inp, "get") else None
-        prompt = "draft the artifact" if version == 0 else f"revise to address: {challenge}"
+        challenge: Any = inp.get("challenge") if hasattr(inp, "get") else None
+        prior = str(inp.get("prior", "")) if hasattr(inp, "get") else ""
+        if version == 0:
+            prompt = "Write a short artifact (a few sentences)."
+        else:
+            issue = challenge.get("issue") if hasattr(challenge, "get") else challenge
+            # revise the PRIOR artifact against the REAL flaw the finder named.
+            prompt = (
+                f"Here is an artifact:\n{prior}\n\nA reviewer found this flaw: {issue}\n"
+                "Revise the artifact to fix it; reply with only the revised artifact."
+            )
         text = await call_responder(responder, prompt)
-        yield Artifact(text=text[:120], version=version)
+        yield Artifact(text=text[:200], version=version)
 
     return lambda: write
 
@@ -50,9 +59,14 @@ def _finder_factory(responder: Responder) -> _Factory:
     async def find(inp: Any) -> AsyncIterator[Challenge]:
         version = int(inp.get("version", 0)) if hasattr(inp, "get") else 0
         text = str(inp.get("artifact", "")) if hasattr(inp, "get") else ""
-        _ = await call_responder(responder, f"find the worst vulnerability in: {text}")
-        severity = (sum(text.encode()) % 3) + 1  # deterministic 1..3
-        yield Challenge(issue=f"issue@v{version}", severity=severity, version=version)
+        # the finder OWNS the finding: it emits the model's REAL vulnerability as the Challenge, not
+        # a templated placeholder, so the writer revises against an actual flaw (not "issue@vN").
+        finding = await call_responder(
+            responder, f"Name the single worst flaw in this artifact in one short sentence:\n{text}"
+        )
+        finding = finding.strip().splitlines()[0][:120] if finding.strip() else "no flaw found"
+        severity = (sum(finding.encode()) % 3) + 1  # a deterministic projection of the real finding
+        yield Challenge(issue=finding, severity=severity, version=version)
 
     return lambda: find
 
@@ -97,6 +111,8 @@ def adversarial_pair_topology(
             deterministic=deterministic,
         )
         b.initial("writer", input={"version": 0, "challenge": None})
+        # the artifacts so far — the refine loop reads the latest to revise it against the challenge.
+        b.view("artifacts", api.KindBuffer("Artifact"))
         # each artifact is challenged by the finder (the adversary reads the draft).
         b.trigger(
             "to-finder",
@@ -129,6 +145,11 @@ def adversarial_pair_topology(
             input_builder=lambda ctx: {
                 "version": int(ctx.event.payload["version"]) + 1,
                 "challenge": ctx.staged.get("challenge"),
+                "prior": (
+                    ctx.views["artifacts"].value()[-1]["text"]
+                    if ctx.views["artifacts"].value()
+                    else ""
+                ),
             },
             policy=api.PerEvent(),
         )

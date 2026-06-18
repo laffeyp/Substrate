@@ -30,6 +30,7 @@ from substrate.reference._models import OllamaResponder
 from substrate.reference.r1_ensemble import ensemble_topology
 from substrate.reference.r2_pipeline import operator_override, pipeline_topology
 from substrate.reference.r3_codesynth import codesynth_composed_topology
+from substrate.topologies.adversarial_pair import adversarial_pair_topology
 from substrate.topologies.code_review import DEFAULT_ROLES, code_review_topology
 from substrate.topologies.conversation_demos import (
     debate_topology,
@@ -237,6 +238,30 @@ class _UppercaseTransform:
 
     def respond(self, text: str) -> str:
         return text.upper()
+
+
+# ── adversarial pair: a bounded refinement loop with REAL findings routed back ─
+@pytest.mark.timeout(180)
+async def test_adversarial_pair_real_findings_and_bounded_loop(tmp_path):
+    _require(_SMART)
+    topo = adversarial_pair_topology(
+        writer_model=OllamaResponder(_SMART, max_tokens=80, temperature=0.7, system="You write a short artifact."),
+        finder_model=OllamaResponder(_SMART, max_tokens=40, system="You find one flaw."),
+        max_attempts=2, deterministic=False,
+    )
+    await Runtime(tmp_path / "run").run(topo)
+    envs = list(read_record(tmp_path / "run"))
+    artifacts = [e["payload"] for e in envs if e["kind"] == "Artifact"]
+    challenges = [e["payload"] for e in envs if e["kind"] == "Challenge"]
+    injections = [e for e in envs if e["kind"] == "substrate.InjectionApplied"]
+    # SUBSTANCE: the finder emits a REAL flaw (not the old templated "issue@vN"), the Route carries it
+    # into the writer's next version, and the loop is BOUNDED (stops at max_attempts, can't run away).
+    # (Whether the writer's revision *improves* the artifact is model-dependent and NOT asserted here.)
+    assert len(artifacts) >= 3, "the refinement loop did not produce v0..v2"
+    assert challenges and all(len(c["issue"]) > 15 and "issue@v" not in c["issue"] for c in challenges), \
+        f"findings are not real model output: {[c['issue'] for c in challenges]}"
+    assert injections, "the challenge was not routed into the next writer (InjectionApplied)"
+    assert max(c["version"] for c in challenges) == 2, "the loop is not bounded at max_attempts"
 
 
 # ── pipeline (R-2): the structured-error cascade, with halt-and-resume (deterministic) ──
