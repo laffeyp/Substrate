@@ -18,8 +18,8 @@ from typing import Any
 
 from msgspec import Struct
 
-from .. import api
-from ..reference._models import Responder, call_responder
+from ... import api
+from ...reference._models import Responder, call_responder
 
 _Factory = Callable[[], Any]
 
@@ -84,7 +84,7 @@ def adversarial_pair_topology(
     deterministic stand-ins. Produces `max_attempts + 1` artifacts (v0..v_max) and `max_attempts`
     refinements; the loop stops when a challenge's version reaches the attempt cap."""
 
-    from ..reference._models import DeterministicResponder, OllamaResponder
+    from ...reference._models import DeterministicResponder, OllamaResponder
 
     if walkthrough:
         writer = writer_model or OllamaResponder(
