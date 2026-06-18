@@ -5,6 +5,10 @@ models, deterministic transforms, subprocesses, parsers, simulators: anything th
 takes typed input and emits typed events — and coordinating them through a single
 shared, append-only log.
 
+> **New here?** The fastest way in is the [tutorial](docs/tutorial.md) — install to a
+> running two-Producer topology, step by step. The [docs index](docs/README.md) lays out
+> the rest of the path.
+
 ## What it is
 
 Say you have several computations that need to work together: a few models

@@ -7,3 +7,10 @@ __pycache__/
 .venv/
 dist/
 build/
+
+# Tool caches — untracked, regenerated; never source.
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.benchmarks/
+.import_linter_cache/

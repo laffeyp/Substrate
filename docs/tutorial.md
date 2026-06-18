@@ -1,5 +1,11 @@
 # First topology: zero to a working two-Producer run
 
+The plain version first: two small computations where one reacts to the other, and a
+complete, replayable record of what happened. That's the whole of this tutorial. In
+Substrate's words — a counter *Producer* emits numbers, and a *Trigger* fires a doubler
+*Producer* for each. New to the eight words? The [README glossary](../README.md#the-pieces)
+names them all, in order, first.
+
 This walks from nothing to a running two-Producer topology and shows how to read what it
 recorded. It mirrors the design-spec §3 shape: a counter Producer emits numbers, and a
 Trigger fires a doubler Producer for each one.
