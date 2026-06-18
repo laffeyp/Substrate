@@ -134,6 +134,25 @@ uv pip install -e ".[dev]"
 uv run pytest
 ```
 
-Built under Signal-Driven Development against a four-document spec corpus; layout,
-SDD notes, and the spec amendments are in `CONTRIBUTING.md`. Working name
-"substrate" (official package name deferred). Apache-2.0.
+## Repository layout
+
+To use or contribute, you need `src/` (the runtime), `docs/` (how to use it), and
+`CONTRIBUTING.md` (how to develop). Everything else is the development record.
+
+The runtime implements a four-document spec corpus. The **canonical** drafts are:
+
+| Spec | Canonical |
+|---|---|
+| Kernel semantics | `kernel_spec/v15.md` |
+| Product (requirements, conformance, reference topologies) | `product_spec/draft7.md` + amendments `A1`, `A2` |
+| Technical (byte layout, writer cycle, public API) | `technical_spec/draft5.md` + amendment `A1` |
+| Design (API ergonomics, CLI/error UX) | `design_spec/draft1.md` |
+
+Everything else under those dirs is history, not load-bearing: superseded drafts are
+relocated into each spec dir's `history/` (kept, not deleted — the audit trail). The
+top-level `signals/`, `sprints/`, `proof/`, `archive/`, `BLACKBOARD.md`, and
+`KIT_DIARY.md` are the Signal-Driven Development record of how it was built — read
+them for the *why*, skip them to use or contribute. `CONTRIBUTING.md` has the full
+layout + the SDD notes.
+
+Working name "substrate" (official package name deferred). Apache-2.0.
