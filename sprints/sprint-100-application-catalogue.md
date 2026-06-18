@@ -29,9 +29,9 @@ Read every §What this enables and §Where this points section across the spec c
 
 ## context_files
 
-- `kernel_spec/v15.md` — §What this enables (13 worked topology examples) and §Where this points (8 experimental directions).
-- `product_spec/draft7.md` §8 — the three reference topologies already shipped (R-1 ensemble, R-2 error cascade, R-3 code synthesis).
-- `design_spec/draft1.md` §7 (user journeys) and §8 (future UI sketches that name what topologies would benefit from each visualization).
+- `docs/specs/kernel_spec/v15.md` — §What this enables (13 worked topology examples) and §Where this points (8 experimental directions).
+- `docs/specs/product_spec/draft7.md` §8 — the three reference topologies already shipped (R-1 ensemble, R-2 error cascade, R-3 code synthesis).
+- `docs/specs/design_spec/draft1.md` §7 (user journeys) and §8 (future UI sketches that name what topologies would benefit from each visualization).
 - `precursors/horizon_multi_agent.md`, `horizon_compositional_grammar.md`, `orchestrating_conversation.md` — the precursor thinking that fed into the substrate.
 - `WORKING_AGREEMENT.md` — tone canon for the survey doc (concise, honest, no overclaim).
 - `BLACKBOARD.md` — current `## Open questions` and `## Drift watchlist` for any topology candidates surfaced previously.

@@ -1,6 +1,6 @@
 # Product Spec DRAFT 7 — Amendment A1 (additive)
 
-**Status:** ADDITIVE AMENDMENT to `product_spec/draft7.md`. DRAFT 7 is preserved unchanged (audit trail / no deletions). This note amends two normative items; where it conflicts with DRAFT 7 prose, this amendment governs for the v1.0-milestone build. Cut 2026-06-13 under Architect Ruling 2 (resolve-in-spec-first, product principle 1: a spec disagreement is resolved in the spec, not in a code comment).
+**Status:** ADDITIVE AMENDMENT to `docs/specs/product_spec/draft7.md`. DRAFT 7 is preserved unchanged (audit trail / no deletions). This note amends two normative items; where it conflicts with DRAFT 7 prose, this amendment governs for the v1.0-milestone build. Cut 2026-06-13 under Architect Ruling 2 (resolve-in-spec-first, product principle 1: a spec disagreement is resolved in the spec, not in a code comment).
 
 ---
 
@@ -57,7 +57,7 @@ Without enumerating and excluding `measured_us` and `error`, two runs of the sam
 
 ### Flow-back
 
-The technical spec §14 ("Inspection, provenance, divergence") D-8 definition and the §"Log-equivalence relation" / D-8 decisions-table row should name this exclusion set rather than "and other supplementary metadata." See `technical_spec/draft5_amendment_A1.md`.
+The technical spec §14 ("Inspection, provenance, divergence") D-8 definition and the §"Log-equivalence relation" / D-8 decisions-table row should name this exclusion set rather than "and other supplementary metadata." See `docs/specs/technical_spec/draft5_amendment_A1.md`.
 
 ---
 

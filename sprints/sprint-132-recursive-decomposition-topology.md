@@ -32,10 +32,10 @@ This is the demo that LangGraph structurally cannot do — its graph is declared
 
 ## context_files
 
-- `kernel_spec/v15.md` §What this enables — "Recursive decomposition" example; §The primitives §6 (Trigger) for the recursive-matching semantics.
-- `kernel_spec/v15.md` §Where this points — adjacent self-modifying / meta-orchestration directions (these inform the depth-bound design but are out of scope here).
-- `product_spec/draft7.md` D-17 — the arbitrary-depth Trigger decision.
-- `design_spec/draft1.md` §6.4 — "Diagnosing slowness" journey (relevant: a runaway recursive Trigger is the failure mode this topology must prevent).
+- `docs/specs/kernel_spec/v15.md` §What this enables — "Recursive decomposition" example; §The primitives §6 (Trigger) for the recursive-matching semantics.
+- `docs/specs/kernel_spec/v15.md` §Where this points — adjacent self-modifying / meta-orchestration directions (these inform the depth-bound design but are out of scope here).
+- `docs/specs/product_spec/draft7.md` D-17 — the arbitrary-depth Trigger decision.
+- `docs/specs/design_spec/draft1.md` §6.4 — "Diagnosing slowness" journey (relevant: a runaway recursive Trigger is the failure mode this topology must prevent).
 - `docs/application-catalogue.md` — Sprint 100's entry.
 - `docs/tui-design-spec.md` §3 — tree mode design.
 

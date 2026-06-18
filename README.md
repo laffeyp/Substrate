@@ -143,16 +143,16 @@ The runtime implements a four-document spec corpus. The **canonical** drafts are
 
 | Spec | Canonical |
 |---|---|
-| Kernel semantics | `kernel_spec/v15.md` |
-| Product (requirements, conformance, reference topologies) | `product_spec/draft7.md` + amendments `A1`, `A2` |
-| Technical (byte layout, writer cycle, public API) | `technical_spec/draft5.md` + amendment `A1` |
-| Design (API ergonomics, CLI/error UX) | `design_spec/draft1.md` |
+| Kernel semantics | `docs/specs/kernel_spec/v15.md` |
+| Product (requirements, conformance, reference topologies) | `docs/specs/product_spec/draft7.md` + amendments `A1`, `A2` |
+| Technical (byte layout, writer cycle, public API) | `docs/specs/technical_spec/draft5.md` + amendment `A1` |
+| Design (API ergonomics, CLI/error UX) | `docs/specs/design_spec/draft1.md` |
 
-Everything else under those dirs is history, not load-bearing: superseded drafts are
-relocated into each spec dir's `history/` (kept, not deleted — the audit trail). The
-top-level `signals/`, `sprints/`, `proof/`, `archive/`, `BLACKBOARD.md`, and
-`KIT_DIARY.md` are the Signal-Driven Development record of how it was built — read
-them for the *why*, skip them to use or contribute. `CONTRIBUTING.md` has the full
-layout + the SDD notes.
+Everything else under `docs/specs/` is history, not load-bearing: superseded drafts
+are relocated into each spec dir's `history/` (kept, not deleted — the audit trail).
+And `docs/proof/`, plus the top-level `signals/`, `sprints/`, `archive/`,
+`BLACKBOARD.md`, and `KIT_DIARY.md`, are the Signal-Driven Development record of how
+it was built — read them for the *why*, skip them to use or contribute.
+`CONTRIBUTING.md` has the full layout + the SDD notes.
 
 Working name "substrate" (official package name deferred). Apache-2.0.

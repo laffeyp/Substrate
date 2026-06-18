@@ -32,10 +32,10 @@ The honest constraint from the kernel: routes stage into the *next* instantiatio
 
 ## context_files
 
-- `kernel_spec/v15.md` §What this enables — "Pair coding" example.
-- `kernel_spec/v15.md` §The primitives §7 (Route) and §The primitives §1 (Producer input immutability) — the constraints that force chunked instantiation.
-- `product_spec/draft7.md` §0.1 — the worked example (the row-translation pipeline) has the same retry-with-context shape this topology uses.
-- `design_spec/draft1.md` §6.4 (pair coding journey) and §4.5 (Routes API).
+- `docs/specs/kernel_spec/v15.md` §What this enables — "Pair coding" example.
+- `docs/specs/kernel_spec/v15.md` §The primitives §7 (Route) and §The primitives §1 (Producer input immutability) — the constraints that force chunked instantiation.
+- `docs/specs/product_spec/draft7.md` §0.1 — the worked example (the row-translation pipeline) has the same retry-with-context shape this topology uses.
+- `docs/specs/design_spec/draft1.md` §6.4 (pair coding journey) and §4.5 (Routes API).
 - `docs/application-catalogue.md` — Sprint 100's entry.
 - `docs/tui-design-spec.md` — for rendering considerations (two streams running concurrently).
 - `src/substrate/topologies/code_review.py` (Sprint 130 output) — for the Producer-factory pattern to follow.

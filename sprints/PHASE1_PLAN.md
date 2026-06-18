@@ -2,7 +2,7 @@
 
 *Build-organizer planning artifact. Status: PROPOSED, pending (a) Sprint-0 vocabulary lock and (b) Architect go. Not a dispatch. Each wave below becomes a chain of sprint cards authored with the locked `signals/0.1.json` in hand — this document fixes the wave structure, the dependency order, the ≤2-file decomposition, and the conformance-check mapping so the chains can be authored fast and in the right sequence.*
 
-*Grounded in: technical_spec/draft5.md (module decomposition, §-refs), product_spec/draft7.md §7 (the 17 conformance checks = the acceptance spine, technique CT-5) and §8 (R-1..R-3), and the canonical home registry in WORKING_AGREEMENT.md.*
+*Grounded in: docs/specs/technical_spec/draft5.md (module decomposition, §-refs), docs/specs/product_spec/draft7.md §7 (the 17 conformance checks = the acceptance spine, technique CT-5) and §8 (R-1..R-3), and the canonical home registry in WORKING_AGREEMENT.md.*
 
 ---
 

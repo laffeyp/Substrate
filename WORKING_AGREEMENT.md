@@ -31,14 +31,14 @@
 
 | Spec | Canonical file | Draft |
 |---|---|---|
-| Kernel semantics (eight primitives, append cycle, replay) | `kernel_spec/v15.md` | v15 |
-| Product (requirements F-*, N-*, conformance §7, reference topologies §8, decisions D-1..D-9) | `product_spec/draft7.md` | DRAFT 7 |
-| Technical (byte layout, writer cycle, public API, constants §19) | `technical_spec/draft5.md` | DRAFT 5 |
-| Design (API ergonomics, CLI UX, error UX) | `design_spec/draft1.md` | DRAFT 1 |
+| Kernel semantics (eight primitives, append cycle, replay) | `docs/specs/kernel_spec/v15.md` | v15 |
+| Product (requirements F-*, N-*, conformance §7, reference topologies §8, decisions D-1..D-9) | `docs/specs/product_spec/draft7.md` | DRAFT 7 |
+| Technical (byte layout, writer cycle, public API, constants §19) | `docs/specs/technical_spec/draft5.md` | DRAFT 5 |
+| Design (API ergonomics, CLI UX, error UX) | `docs/specs/design_spec/draft1.md` | DRAFT 1 |
 
-Superseded drafts under `product_spec/`, `technical_spec/`, `kernel_spec/` are audit-trail history (no deletions, hard rule 12); cite only the canonical drafts above.
+Superseded drafts under `docs/specs/product_spec/`, `docs/specs/technical_spec/`, `docs/specs/kernel_spec/` are audit-trail history (no deletions, hard rule 12); cite only the canonical drafts above.
 
-**Additive amendments** (govern over the base draft where they conflict; the base draft is preserved): `product_spec/draft7_amendment_A1_replay_3b.md` + `technical_spec/draft5_amendment_A1.md` — 2026-06-13 Ruling 2: Level 3(b) replay deferred (F-RPLY-1 relaxed to SHOULD for v1.0; conformance check 6 = "deferred (spec-amended)"), and the D-8 supplementary-metadata exclusion set enumerated. `product_spec/draft7_amendment_A2_nperf1.md` — 2026-06-13: N-PERF-1 floor recalibrated 100K → 40K appends/sec (the 100K was derived from a prototype that didn't measure the required canonical encoding; measured ~56K). Cite the base draft + its amendments together.
+**Additive amendments** (govern over the base draft where they conflict; the base draft is preserved): `docs/specs/product_spec/draft7_amendment_A1_replay_3b.md` + `docs/specs/technical_spec/draft5_amendment_A1.md` — 2026-06-13 Ruling 2: Level 3(b) replay deferred (F-RPLY-1 relaxed to SHOULD for v1.0; conformance check 6 = "deferred (spec-amended)"), and the D-8 supplementary-metadata exclusion set enumerated. `docs/specs/product_spec/draft7_amendment_A2_nperf1.md` — 2026-06-13: N-PERF-1 floor recalibrated 100K → 40K appends/sec (the 100K was derived from a prototype that didn't measure the required canonical encoding; measured ~56K). Cite the base draft + its amendments together.
 
 ---
 

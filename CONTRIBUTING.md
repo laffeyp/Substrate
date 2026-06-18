@@ -5,21 +5,21 @@
 Substrate implements a four-document spec corpus (in this repo); the code is held
 accountable to it, not the other way round:
 
-- `kernel_spec/v15.md` — the eight primitives, the append cycle, replay
+- `docs/specs/kernel_spec/v15.md` — the eight primitives, the append cycle, replay
   (+ `v16_reconciliation_note.md`).
-- `product_spec/draft7.md` — requirements, the 17 conformance checks, reference
+- `docs/specs/product_spec/draft7.md` — requirements, the 17 conformance checks, reference
   topologies.
-- `technical_spec/draft5.md` — byte layout, writer cycle, public API.
-- `design_spec/draft1.md` — API ergonomics, CLI UX, error UX.
+- `docs/specs/technical_spec/draft5.md` — byte layout, writer cycle, public API.
+- `docs/specs/design_spec/draft1.md` — API ergonomics, CLI UX, error UX.
 
 ### Spec amendments
 
 Changes to a shipped spec are made as **additive amendment files**, never by editing
 the base draft (the base stays as the audit trail):
 
-- `product_spec/draft7_amendment_A1_replay_3b.md` — replay Level 3(b) deferral +
+- `docs/specs/product_spec/draft7_amendment_A1_replay_3b.md` — replay Level 3(b) deferral +
   the D-8 supplementary-metadata exclusion set.
-- `product_spec/draft7_amendment_A2_nperf1.md` — the N-PERF-1 throughput floor
+- `docs/specs/product_spec/draft7_amendment_A2_nperf1.md` — the N-PERF-1 throughput floor
   re-baseline.
 
 ## Signal-Driven Development

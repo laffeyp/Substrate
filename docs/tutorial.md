@@ -251,7 +251,7 @@ runs modulo supplementary metadata (wall-clock `t`, run ids, per-run instance id
 
 ## Next
 
-- The eight primitives in depth: `kernel_spec/v15.md`.
+- The eight primitives in depth: `docs/specs/kernel_spec/v15.md`.
 - Worked reference topologies (ensemble+adjudicator, error cascade, composed code-synth),
   with real local-LLM runs: `docs/walkthroughs/README.md`.
 - The full public API: `docs/api.md`.

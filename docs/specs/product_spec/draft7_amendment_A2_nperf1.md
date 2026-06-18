@@ -1,6 +1,6 @@
 # Product Spec DRAFT 7 — Amendment A2 (additive): N-PERF-1 floor recalibration
 
-**Status:** ADDITIVE AMENDMENT to `product_spec/draft7.md`. DRAFT 7 is preserved unchanged (audit trail / no deletions). This note amends one non-functional requirement; where it conflicts with DRAFT 7 prose, this amendment governs for the v1.0-milestone build. Cut 2026-06-13 under Architect ruling (resolve-in-spec-first, product principle 1). Companion to amendment A1 (replay 3b deferral + D-8 exclusion set).
+**Status:** ADDITIVE AMENDMENT to `docs/specs/product_spec/draft7.md`. DRAFT 7 is preserved unchanged (audit trail / no deletions). This note amends one non-functional requirement; where it conflicts with DRAFT 7 prose, this amendment governs for the v1.0-milestone build. Cut 2026-06-13 under Architect ruling (resolve-in-spec-first, product principle 1). Companion to amendment A1 (replay 3b deferral + D-8 exclusion set).
 
 ---
 

@@ -32,9 +32,9 @@ This is the first of the priority topologies and the first user-facing demo of t
 
 ## context_files
 
-- `kernel_spec/v15.md` §What this enables — the "Ensemble generation" and "Code teams" examples (composition of the two).
-- `product_spec/draft7.md` §8 R-1 — the existing ensemble reference topology (this builds on R-1's shape with role differentiation).
-- `design_spec/draft1.md` §4 — `TopologyBuilder` API patterns; the named-helper conventions for retry-with-failure-context, halt-with-resume, threshold-count.
+- `docs/specs/kernel_spec/v15.md` §What this enables — the "Ensemble generation" and "Code teams" examples (composition of the two).
+- `docs/specs/product_spec/draft7.md` §8 R-1 — the existing ensemble reference topology (this builds on R-1's shape with role differentiation).
+- `docs/specs/design_spec/draft1.md` §4 — `TopologyBuilder` API patterns; the named-helper conventions for retry-with-failure-context, halt-with-resume, threshold-count.
 - `docs/application-catalogue.md` — Sprint 100's catalogue entry for this topology.
 - `docs/tui-design-spec.md` — for the rendering-friendly considerations (Producer-kind color assignment, max simultaneous emission streams the TUI handles).
 - `src/substrate/topologies/r1_ensemble.py` (or wherever R-1 lives in the existing code) — for the existing ensemble pattern to extend.

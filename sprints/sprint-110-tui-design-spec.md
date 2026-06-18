@@ -29,13 +29,13 @@ Produce the full design spec for `rostrum tui` — a terminal UI for watching a 
 
 ## context_files
 
-- `design_spec/draft1.md` §8 — the future-UI sketches: trace UI, topology visualizer, diff viewer, operator dashboard. Each names the public surfaces it builds on.
-- `design_spec/draft1.md` §6 — error-and-observability UX (what the user sees when things fail).
-- `technical_spec/draft5.md` §6.4 — writer-stats sidecar (what the status bar reads from).
-- `technical_spec/draft5.md` §13 — live attach contract (the read path the TUI uses).
-- `technical_spec/draft5.md` §14 — inspection / provenance / divergence API surface.
-- `product_spec/draft7.md` §4 principle 8 — "No UI, UI-ready" and F-API-6.
-- `product_spec/draft7.md` F-API-6 — UI buildability requirement (the contract this TUI lives under).
+- `docs/specs/design_spec/draft1.md` §8 — the future-UI sketches: trace UI, topology visualizer, diff viewer, operator dashboard. Each names the public surfaces it builds on.
+- `docs/specs/design_spec/draft1.md` §6 — error-and-observability UX (what the user sees when things fail).
+- `docs/specs/technical_spec/draft5.md` §6.4 — writer-stats sidecar (what the status bar reads from).
+- `docs/specs/technical_spec/draft5.md` §13 — live attach contract (the read path the TUI uses).
+- `docs/specs/technical_spec/draft5.md` §14 — inspection / provenance / divergence API surface.
+- `docs/specs/product_spec/draft7.md` §4 principle 8 — "No UI, UI-ready" and F-API-6.
+- `docs/specs/product_spec/draft7.md` F-API-6 — UI buildability requirement (the contract this TUI lives under).
 - `docs/application-catalogue.md` (output of Sprint 100) — the topology surface the TUI must visualize well.
 
 ---

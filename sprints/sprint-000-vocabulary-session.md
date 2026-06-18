@@ -38,10 +38,10 @@ This sprint is preceded by a **research + re-grounding pass** (Architect directi
 - `sdd-kit-2/grammar/BOOTSTRAP.md` (the 12-step procedure)
 - `sdd-kit-2/templates/VOCABULARY.json` (the layer scaffold)
 - `sdd-kit-2/example/signals/0.1.json` (a worked, locked vocabulary to pattern-match against)
-- `kernel_spec/v15.md` (the eight primitives, 13 lifecycle kinds, envelope, append cycle, replay)
-- `product_spec/draft7.md` (F-* / N-* requirements, §7 conformance, §8 reference topologies, D-1..D-9)
-- `technical_spec/draft5.md` (§3 envelope/record, §4 encoding, §6 writer cycle, §16 public API)
-- `design_spec/draft1.md` (vocabulary discipline, error UX, CLI output shapes)
+- `docs/specs/kernel_spec/v15.md` (the eight primitives, 13 lifecycle kinds, envelope, append cycle, replay)
+- `docs/specs/product_spec/draft7.md` (F-* / N-* requirements, §7 conformance, §8 reference topologies, D-1..D-9)
+- `docs/specs/technical_spec/draft5.md` (§3 envelope/record, §4 encoding, §6 writer cycle, §16 public API)
+- `docs/specs/design_spec/draft1.md` (vocabulary discipline, error UX, CLI output shapes)
 - `WORKING_AGREEMENT.md` (strict posture; record-as-view-side override; tone canon; CT-1..CT-5)
 
 ---

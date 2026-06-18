@@ -264,7 +264,7 @@ def replay(record: Any, level: ReplayLevel = "1") -> ReplayResult:
         # BYTE-IDENTICAL log; byte-identity includes the envelope `t`, so it needs a t-replay
         # (replay-mode writer that replays recorded `t` instead of re-sampling the clock) —
         # a mechanism the specs leave open. Deferred to a later wave by product amendment
-        # A1.1 (product_spec/draft7_amendment_A1_replay_3b.md): F-RPLY-1 3(b) relaxed to
+        # A1.1 (docs/specs/product_spec/draft7_amendment_A1_replay_3b.md): F-RPLY-1 3(b) relaxed to
         # SHOULD for the v1.0 milestone, conformance check 6 marked "deferred (spec-amended)"
         # (NOT silently failing). Levels 1/2/3a are complete. See BLACKBOARD ## Deferred.
         raise NotImplementedError(

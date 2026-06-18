@@ -1,6 +1,6 @@
 # Technical Spec DRAFT 5 — Amendment A1 (additive)
 
-**Status:** ADDITIVE AMENDMENT to `technical_spec/draft5.md`. DRAFT 5 is preserved unchanged. Companion to `product_spec/draft7_amendment_A1_replay_3b.md` (the normative product ruling). Cut 2026-06-13 under Architect Ruling 2 (+ Ruling 3 flow-back). Where this conflicts with DRAFT 5 prose, this amendment governs for the v1.0-milestone build.
+**Status:** ADDITIVE AMENDMENT to `docs/specs/technical_spec/draft5.md`. DRAFT 5 is preserved unchanged. Companion to `docs/specs/product_spec/draft7_amendment_A1_replay_3b.md` (the normative product ruling). Cut 2026-06-13 under Architect Ruling 2 (+ Ruling 3 flow-back). Where this conflicts with DRAFT 5 prose, this amendment governs for the v1.0-milestone build.
 
 ---
 
