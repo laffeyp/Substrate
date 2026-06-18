@@ -282,8 +282,15 @@ class TopologyBuilder:
 
     def termination(self, policy: TerminationPolicy, *, scope: str = "run") -> None:
         """Set the TerminationPolicy that decides when the run ends (see the termination recipes:
-        quiescence_with_watchdog, threshold_count, all_completed, pause_await_input, ...). v0.1
-        ships run-scoped termination; per-Producer scoping is a documented extension."""
+        quiescence_with_watchdog, threshold_count, all_completed, pause_await_input, ...). Only
+        run-scoped termination ships; per-Producer / subtree scoping is deferred post-1.0 (product
+        amendment A3.2). A non-"run" scope RAISES rather than being silently ignored (it used to be
+        a no-op trap — the caller thought they had scoped termination and didn't)."""
+        if scope != "run":
+            raise RegistrationError(
+                f"termination scope={scope!r} is not supported — only run-scoped termination ships; "
+                "per-Producer / subtree scoping is deferred to post-1.0 (product amendment A3.2)"
+            )
         self._reg.termination = policy
 
     # NOTE: there is deliberately NO `b.export`. The composition export map is declared ONCE,

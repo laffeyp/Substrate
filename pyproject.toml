@@ -46,7 +46,7 @@ markers = [
   "realmodel: runs against a live local model (Ollama); skips if the model is absent",
 ]
 # Hard safety net: any test (e.g. a never-quiescent writer or a self-feeding Trigger
-# loop) FAILS FAST instead of wedging the machine. The whole suite runs in <1s; 30s is
+# loop) FAILS FAST instead of wedging the machine. Each test finishes well under a second (this timeout is PER-TEST, not whole-suite); 30s is
 # generous headroom that still catches non-termination immediately.
 timeout = 30
 
