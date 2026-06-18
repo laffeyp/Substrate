@@ -90,19 +90,83 @@ def topology(b: TopologyBuilder) -> None:
     b.trigger(
         "double-each",
         subscription=Subscription(kinds=frozenset({"CountReached"})),   # what it watches
-        predicate=lambda event, views: True,                            # fire on every match
+        predicate=lambda ctx: True,                                     # fire on every match
         starts="doubler",                                               # the kind it creates
-        input_builder=lambda views, staged, event: {"n": event.payload["n"]},  # the input
+        input_builder=lambda ctx: {"n": ctx.event.payload["n"]},        # the input
         policy=PerEvent(),                                              # once per matching event
     )
     b.termination(quiescence_with_watchdog(seconds=2))                  # end when work settles
 ```
 
 A Trigger has: a `subscription` (which event kinds/producers it watches), a `predicate` (a
-cheap boolean over the event and the Views), an `input_builder` (builds the new Producer's
-input from current state), the kind it `starts`, and a firing `policy`
+cheap boolean over the context), an `input_builder` (builds the new Producer's input from the
+context), the kind it `starts`, and a firing `policy`
 (`PerEvent`/`Once`/`PerKey`/`WhileTrue`). This run emits three `CountReached` and three
 `Doubled`, then goes quiescent and finalises.
+
+Both callbacks take ONE argument — a `TriggerContext`, here called `ctx`:
+
+- `ctx.event` — the event that matched the subscription.
+- `ctx.views` — the named Views; read `ctx.views["name"].value()`.
+- `ctx.staged` — the Route slots staged for this firing (see §2.6).
+
+> **`finalised` does not mean "it worked".** A run finalises whenever it reaches a terminal —
+> even if a Producer raised, an `input_builder` raised, or a predicate quarantined. Those are on
+> the record (`substrate.ProducerFailed` / `InputBuildFailed` / `PredicateQuarantined`), and the
+> CLI prints a `WARNING: N ProducerFailed` line on `run` — but `result.status` is still
+> `finalised`. After a run, read the warning, inspect the record, or assert with
+> `assert_event` / `assert_no_event`. `substrate run --strict` makes any such failure a nonzero
+> exit.
+
+## 2.5 Gate on accumulated state (Views + Predicates)
+
+A predicate that is always `True` fires on every event. The point of a **View** is to gate on
+*accumulated* state — "fire once three are in":
+
+```python
+from substrate.api import KindCount
+
+
+def topology(b: TopologyBuilder) -> None:
+    b.producer_kind("counter", schemas=[CountReached], schema_version=1, factory=lambda: counter)
+    b.producer_kind("doubler", schemas=[Doubled], schema_version=1, factory=lambda: doubler)
+    b.initial("counter", input=None)
+    b.view("seen", KindCount("CountReached"))                       # a deterministic projection
+    b.trigger(
+        "when-three",
+        subscription=Subscription(kinds=frozenset({"CountReached"})),
+        predicate=lambda ctx: ctx.views["seen"].value() >= 3,       # gate on the View
+        starts="doubler",
+        input_builder=lambda ctx: {"n": ctx.views["seen"].value()},
+        policy=PerEvent(),
+    )
+    b.termination(quiescence_with_watchdog(seconds=2))
+```
+
+A View (`KindCount`, `KindBuffer`, `PerKindLatest`, …) is a deterministic incremental projection
+over the bus; the predicate reads `ctx.views[name].value()`. Forgetting `.value()` (reading the View
+object itself) quarantines the predicate — surfaced as the `WARNING` above.
+
+## 2.6 Carry context forward (Route + `staged`)
+
+A **Route** stages data from an event into a named *slot* so a later Trigger's `input_builder`
+can read it (that is `ctx.staged`) — how context flows into a Producer's *next* instantiation.
+A Route's own `transform` takes the event directly (`lambda event: ...`), since it runs per event
+before any Trigger:
+
+```python
+b.route(
+    "carry",
+    subscription=Subscription(kinds=frozenset({"Doubled"})),
+    slot="last_doubled",
+    transform=lambda event: event.payload["doubled"],
+)
+# ... a later input_builder reads it:  ctx.staged.get("last_doubled")
+```
+
+The staging is recorded as `substrate.InjectionApplied`, so the context that reached a Producer
+is on the log. (The bundled `pair_coding` topology is a worked example — a navigator's suggestion
+Routed into the driver's next chunk.)
 
 ## 3. Read the record
 
@@ -121,6 +185,34 @@ seq=N   substrate.RunFinalised
 Filter at bus volumes: `--kind CountReached`, `--producer counter`, `--since 100` (compose
 with AND); `--format jsonl` for the raw on-disk bytes (pipe into `jq`).
 
+`tail` is every frame. To read the run as a *story* — the plot, not the heartbeat — use
+`narrate`:
+
+```
+$ uv run substrate narrate ./runs/first
+seq     0  Run started (run_id=01J...).
+seq     1  Initial trigger starts counter.
+seq     3  counter -> CountReached (n=1)
+seq    12  Trigger double-each fired -> starts doubler.
+seq    14  doubler -> Doubled (original=2, doubled=4)
+seq     N  Run finalised.
+```
+
+It renders the substrate causal beats in prose and the application events as the work,
+suppressing the producer-lifecycle bracketing (`--lifecycle` restores every frame). `--summary`
+answers *did it work?* at a glance:
+
+```
+$ uv run substrate narrate ./runs/first --summary
+Run finalised: 14 events.
+  producers: 4 started, 4 completed, 0 cancelled, 0 failed
+  work: CountReached=3, Doubled=3
+```
+
+Every authoring failure is shown, and finalising is not the same as working: when a run
+finalises with failures, the summary header says so on line one — `Run finalised WITH 2
+FAILURES: ...` — so a broken run looks broken at a glance, not green.
+
 Ask *why* a Producer existed:
 
 ```
@@ -134,9 +226,10 @@ caused_by:
 Or in code:
 
 ```python
-from substrate.api import read_record, explain_producer, view_at, KindCount, first_divergence
+from substrate.api import read_record, explain_producer, narrate, view_at, KindCount
 
 events = list(read_record("./runs/first"))                 # every envelope, in seq order
+story = list(narrate("./runs/first"))                      # NarrationLine(seq, kind, text) per beat
 exp = explain_producer("./runs/first", "doubler[01J...]")  # typed cause, cites the firing seq
 count_at = view_at("./runs/first", 5, KindCount("CountReached"))  # a View's state as of seq 5
 ```
@@ -162,3 +255,5 @@ runs modulo supplementary metadata (wall-clock `t`, run ids, per-run instance id
 - Worked reference topologies (ensemble+adjudicator, error cascade, composed code-synth),
   with real local-LLM runs: `docs/walkthroughs/README.md`.
 - The full public API: `docs/api.md`.
+- Evolving your event schemas without breaking old records: `docs/schema-evolution.md`.
+- A custom LLM backend: implement `Responder` (`from substrate.reference import Responder`).

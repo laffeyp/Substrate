@@ -62,6 +62,18 @@ chooses the callable form deliberately (simpler, asyncio-native, no class
 hierarchy) and rejects the class form. We follow the design spec; technical §16
 should be updated to the callable form to match.
 
+### `ProducerFactory(*args, **kwargs)`
+
+_(no docstring)_
+
+### `Responder(*args, **kwargs)`
+
+The application-layer model seam: turn a prompt into a text response. A Producer depends
+on this, not on a concrete model — CI hands it a deterministic stand-in, the walkthrough a
+real local LLM. NOT a kernel primitive (the runtime never sees it); it lives among the
+structural protocols because, like Producer and View, the user implements it by shape.
+The reference adapters (DeterministicResponder, OllamaResponder) live in `substrate.reference`.
+
 ### `View(*args, **kwargs)`
 
 A deterministic incremental projection over the bus (kernel §4).
@@ -73,15 +85,38 @@ a View holding non-canonical types sets it False and is flagged
 `determinism: excluded` at registration (technical §4.2). (N-DET-1 is View-state
 determinism — distinct from full byte-identical L3b re-execution, which is post-1.0.)
 
+### `TriggerContext(event: 'Event', views: 'Mapping[str, View]', staged: 'Mapping[str, Any]') -> None`
+
+What a Trigger's `predicate` and `input_builder` callbacks receive — both take ONE of
+these: `predicate(ctx) -> bool` decides whether the Trigger fires; `input_builder(ctx) -> input`
+builds the started Producer's input. One context is constructed per appended event and shared
+by every Trigger's callbacks, so it allocates once per event, not per evaluation.
+
+- `event`  — the just-appended Event that matched the Trigger's subscription.
+- `views`  — the named Views (deterministic projections over the bus); read
+             `ctx.views["name"].value()`.
+- `staged` — the Route slots: data a Route staged forward for this firing; read
+             `ctx.staged.get("slot")`. (A predicate may read it too; usually only the
+             input_builder does.)
+
 ### `BufferView(producer: 'str') -> 'None'`
 
 Accumulated payloads from one Producer kind (kernel §4 — the most common View).
+
+MEMORY (same class as PerKey's N-MEM-1): holds EVERY matching payload for the run's lifetime —
+unbounded for a high-volume kind — and `value()` returns an O(history) copy, so a Predicate
+that scans it each event is O(history)/event (→ quadratic over the run). For a long,
+high-volume kind use KindCount / PerKindLatest, or a bounded/windowed View, not a growing
+buffer. Negligible at small scale (tens–hundreds of items); a real cost only in the thousands.
 
 ### `KindBuffer(kind: 'str') -> 'None'`
 
 Accumulated payloads of one event KIND (a kind-subscribed sibling of BufferView, which
 subscribes by Producer kind). Useful when several Producer kinds emit the same event kind
 and a Predicate gates on the aggregate (e.g. R-1's "≥K Candidate answers" Bus-view).
+
+MEMORY: same unbounded-growth + O(history) `value()` caveat as BufferView (above) — use
+KindCount / PerKindLatest or a bounded View for a long, high-volume kind.
 
 ### `KindCount(kind: 'str') -> 'None'`
 
@@ -230,10 +265,11 @@ authoring surface.
 - `baseline(self, **metadata: 'Any') -> 'None'` — Attach run metadata (fixtures, seeds, environment identifiers) recorded in the RunStarted manifest, so every record is interpretable from a known baseline.
 - `build(self) -> 'Registration'` — Freeze and statically validate (design §5.5).
 - `initial(self, kind: 'str', *, input: 'Any' = None) -> 'None'` — Declare an initial Producer started at run open (seq 0), with `input`.
-- `producer_kind(self, kind: 'str', *, schemas: 'Sequence[type]', schema_version: 'int', factory: 'Callable[[], Producer]', deterministic: 'bool' = False, author_version: 'str | None' = None) -> 'None'` — Register a Producer kind: its name, the frozen msgspec Struct event schemas it may emit (+ schema_version), and a `factory()` returning the Producer callable.
+- `instrument(self, name: 'str', *, on: 'str', schemas: 'Sequence[type]', input_builder: 'Callable[[TriggerContext], Any]', factory: 'Callable[[], Producer] | None' = None, start: 'Producer | None' = None, schema_version: 'int' = 1, deterministic: 'bool' = False, into: 'str | None' = None, via: 'Callable[[Any], Any] | None' = None) -> 'None'` — Wire a side-Producer INSTRUMENT in one call — the common observe-(and-stage) pattern.
+- `producer_kind(self, kind: 'str', *, schemas: 'Sequence[type]', schema_version: 'int', factory: 'Callable[[], Producer] | None' = None, start: 'Producer | None' = None, deterministic: 'bool' = False, author_version: 'str | None' = None) -> 'None'` — Register a Producer kind: its name, the frozen msgspec Struct event schemas it may emit (+ schema_version), and the Producer to run.
 - `route(self, id: 'str', *, subscription: 'Subscription', slot: 'str', transform: 'Callable[[Any], Any]') -> 'None'` — Register a Route: on an event matching `subscription`, stage `transform(event)` into the named `slot` so a later Trigger's input_builder can read it (carrying context — e.g. a failure reason — forward into the Producer it starts).
 - `termination(self, policy: 'TerminationPolicy', *, scope: 'str' = 'run') -> 'None'` — Set the TerminationPolicy that decides when the run ends (see the termination recipes: quiescence_with_watchdog, threshold_count, all_completed, pause_await_input, ...). v0.1 ships run-scoped termination; per-Producer scoping is a documented extension.
-- `trigger(self, id: 'str', *, subscription: 'Subscription', predicate: 'Callable[..., bool]', starts: 'str', input_builder: 'Callable[..., Any]', policy: 'FiringPolicy | None' = None, cooldown: 'Cooldown | None' = None) -> 'None'` — Register a Trigger: when an event matching `subscription` is appended and `predicate` (over the Views) holds, start a `starts` Producer with the input from `input_builder`. `policy` (default PerEvent) controls how often it fires — Once, PerEvent, PerKey, WhileTrue; `cooldown` throttles it.
+- `trigger(self, id: 'str', *, subscription: 'Subscription', predicate: 'Callable[[TriggerContext], bool]', starts: 'str', input_builder: 'Callable[[TriggerContext], Any]', policy: 'FiringPolicy | None' = None, cooldown: 'Cooldown | None' = None) -> 'None'` — Register a Trigger: when an event matching `subscription` is appended and `predicate` (over the Views) holds, start a `starts` Producer with the input from `input_builder`. `policy` (default PerEvent) controls how often it fires — Once, PerEvent, PerKey, WhileTrue; `cooldown` throttles it.
 - `view(self, name: 'str', view: 'View') -> 'None'` — Register a named View — a deterministic incremental projection over the bus (e.g. KindBuffer, KindCount) that Predicates read.
 
 ### `register_topology(name: 'str', factory: 'Callable[[TopologyBuilder], None]') -> 'None'`
@@ -403,6 +439,11 @@ replay_ceiling=="3a"); this returns the gate result (preconditions_ok / refusal_
 rather than re-running — re-execution is the Runtime's job. Level 3b: DEFERRED, raises
 NotImplementedError (needs a t-replay decision; not faked).
 
+SIZE NOTE: this MATERIALIZES the whole record into memory (unlike `read_record`, which
+streams). Fine for normal records (a few-thousand-frame record replays in tens of ms); for a
+very large (multi-GB) record, stream over `read_record` / `LiveRecord.follow` instead, or
+treat the record size as bounded for the analysis tools.
+
 ### `assert_replayable(record: 'Any', level: 'ReplayLevel') -> 'ReplayResult'`
 
 Run the replay and raise if it is not honestly supported at `level`: a Level-2
@@ -479,6 +520,110 @@ seq of the diverging frame in record A (or the shorter record's end). `kind_a` /
 `kind_b` and `hash_a` / `hash_b` are the (kind, canonical payload hash) pair that
 differs. When one record is a strict prefix of the other, the longer record's extra
 frame is the divergence and the shorter side's fields are None.
+
+## Narration — the legible prose projection (Wave 14)
+
+### `narrate(record: 'Any', *, lifecycle: 'bool' = False) -> 'Iterator[NarrationLine]'`
+
+Narrate a run record beat by beat. By default suppresses the lifecycle bracketing
+(ProducerStarted / ProducerCompleted / InjectionApplied); `lifecycle=True` includes it.
+Yields a NarrationLine per narrated event, in seq order (the log's total order).
+
+### `narration_summary(record: 'Any') -> 'NarrationSummary'`
+
+A one-glance digest of a run record: did it finalise, how many producers ran, how many
+failed, and what application events it produced. A finalised run with a nonzero failure
+tally is a finalised-but-broken run — the count makes that legible.
+
+### `NarrationLine(seq: int, kind: str, text: str)`
+
+One narrated beat. `seq` cites the event, `kind` is its raw event kind (so a consumer
+can filter or style by kind), `text` is the rendered prose.
+
+### `NarrationSummary(finalised: bool, final_reason: str | None, total_events: int, producers_started: int, producers_completed: int, producers_cancelled: int, producers_failed: int, input_build_failures: int, predicate_quarantines: int, invalid_emissions: int, application_events: dict[str, int])`
+
+A one-glance digest of a run record. `finalised` is whether the run reached a terminal
+substrate.RunFinalised; `final_reason` is its reason (None for an ordinary finalise, e.g.
+"view_failure" for a failed one). The failure counts are the authoring-failure tally a
+finalised-but-broken run hides behind a clean status line. `application_events` maps each
+non-substrate.* kind to its count — the work the topology actually produced.
+
+## Graph projections — structure + run-as-graph (Wave 12 prep)
+
+### `topology_graph(record: 'Any') -> 'TopologyGraph'`
+
+The STATIC topology structure, from the RunStarted manifest (the only place a run records
+its topology). Producer kinds are nodes (with what they emit and whether any Trigger starts
+them — `is_root`); Triggers and Routes are the edges. Raises ValueError if the record has no
+RunStarted manifest (an empty or truncated record has no topology to project).
+
+### `run_graph(record: 'Any') -> 'RunGraph'`
+
+The DYNAMIC run-as-graph: every Producer instance with its spawn link, lifecycle span,
+status, and emitted events — the concurrent, causal shape of how the run grew. Built from the
+TriggerFired / ProducerStarted-Completed-Failed-Cancelled lifecycle events (the same instance/
+parent links the inspect provenance surface uses). Instances are returned in spawn order
+(by started_seq).
+
+### `TopologyGraph(producers: tuple[substrate.graph.ProducerNode, ...], triggers: tuple[substrate.graph.TriggerEdge, ...], routes: tuple[substrate.graph.RouteEdge, ...], views: tuple[str, ...], termination: tuple[str, ...])`
+
+The static structure of a run's topology, read from its RunStarted manifest: Producer-kind
+nodes, Trigger spawn-edges, Route staging-edges, the View names, and the TerminationPolicy
+descriptor(s).
+
+### `ProducerNode(kind: str, emits: tuple[str, ...], deterministic: bool, is_initial: bool)`
+
+A Producer KIND in the topology. `emits` are the event kinds it may emit (its declared
+schemas); `is_initial` is True when the run starts this kind at open (an entry point).
+
+`is_initial` is NOT "no Trigger starts it": in a cyclic topology (e.g. a round-robin where
+`after-N` wraps to start speaker-1), an entry Producer is also a Trigger's target, so the
+only reliable signal is whether it actually fired at run open — recorded as a TriggerFired
+with trigger_id `__initial__`. The manifest does not record initials; this is read from
+those firings.
+
+### `TriggerEdge(id: str, policy: str, on: tuple[str, ...], starts: str)`
+
+A Trigger: when an event matching `on` (its subscription) lands and its predicate holds,
+start the `starts` Producer. `policy` is the firing policy (Once / PerEvent / PerKey /
+WhileTrue). The predicate itself is code, not recorded — only its effect (a firing) is.
+
+### `RouteEdge(id: str, slot: str)`
+
+A Route: stages data forward into `slot` for a later Trigger's input. The manifest records
+the route's id and target slot (the citable identity); the source subscription and transform
+are code, surfaced at runtime as the InjectionApplied events in the run-as-graph.
+
+### `RunGraph(instances: tuple[substrate.graph.ProducerInstance, ...], status: str, final_reason: str | None, paused_on: str | None)`
+
+The dynamic run-as-graph: every Producer instance (the spawn forest, in spawn-seq order)
+with its span and emitted events, plus the run-level outcome the handoff's outcome surface
+needs. `status` matches RunResult.status: "running" | "paused" | "finalised" | "failed".
+**"failed"** is a RUN-level failure (the run itself died: view_failure / kernel_error /
+stuck_quiescent) — distinct from a clean "finalised" run that had Producer-level failures
+inside it (that finished-!=-worked case is the per-instance statuses, not the run status).
+"paused" (awaiting external input) is distinct from still-"running". `final_reason` is the
+RunFinalised reason (None for an ordinary finalise; the failure reason for a "failed" run).
+`paused_on` is the resume_condition when status == "paused" (what input the run awaits).
+
+### `ProducerInstance(kind: str, instance: str, parent: str | None, trigger_id: str | None, firing_key: str | None, input_sha256: str | None, fired_seq: int | None, started_seq: int | None, ended_seq: int | None, status: str, emitted: tuple[str, ...])`
+
+One Producer INSTANCE in a run: its kind, its spawn link (`parent` instance + the
+`trigger_id` that started it — `__initial__` for an initial Producer), its lifecycle SPAN
+(`fired_seq` when its Trigger SCHEDULED it; `started_seq` .. `ended_seq` when it actually ran,
+`ended_seq` None while still running) and end `status` (completed / failed / cancelled /
+running), the resolved-input hash it ran on, and the application event kinds it `emitted`
+(in seq order).
+
+RENDERING CONCURRENCY — read this before drawing a run-as-graph. The seq-span faithfully
+encodes bus-timeline concurrency (a Producer is running at seq N iff started_seq <= N <
+ended_seq), BUT in fast or deterministic runs the single writer serializes near-instant
+Producers, so the spans can look SEQUENTIAL even for genuinely concurrent Producers (in the
+CI demo fixtures, the fast reviewers have disjoint spans). Derive "ran concurrently" from the
+SPAWN STRUCTURE — Producers spawned by one firing / at adjacent seqs (e.g. all sharing a
+trigger_id and spawning at adjacent `fired_seq`) are concurrent siblings — NOT from
+span-overlap alone, or a fast run will flatten the parallelism the UI must show. Anchor each
+lifespan at `fired_seq` (when it was scheduled), the t-free firing anchor the design uses.
 
 ## Test helpers (technical §15)
 

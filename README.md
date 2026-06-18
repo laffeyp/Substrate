@@ -41,8 +41,9 @@ exactly what happened and why, replay it, or inspect any point in it. Nothing
 important is stranded in memory or hidden in control flow.
 
 That combination — concurrent computations, one shared log, conditions that create
-new work as the run goes, and a complete replayable record of it — is what makes a
-lot of things straightforward to build.
+new work as the run goes, and a complete replayable record of it — is what makes
+ensembles-with-adjudication and retry-with-context straightforward to build (see the
+next section).
 
 ## The pieces
 
@@ -83,11 +84,11 @@ Each of these is a topology — a short Python program against the runtime:
   subtasks — recursive decomposition to arbitrary depth.
 - An adversarial pair — one Producer writes, another attacks — streaming at each
   other from the start.
-- A simulation: many agent Producers acting each tick against a shared world-state
+- A simulation: many Producers acting each tick against a shared world-state
   Producer, the whole run replayable from the log.
 - A conversation between models as alternating Producers, ended on a convergence
   condition.
-- A tool-using agent loop as a chain of model → tool → model Producers, each call
+- A tool-using loop as a chain of model → tool → model Producers, each call
   independently replayable.
 
 Runnable versions of the first three ship with the runtime (the reference
@@ -96,6 +97,12 @@ the same shape. See Docs.
 
 ## Docs
 
+- **Run a bundled demo** — `substrate topology list` to see them, then
+  `substrate demo replay code_review` (tail a committed record, no run) or
+  `substrate demo run debate` (live). Runnable demonstration topologies, no network, each
+  producing a replayable record; the `natural_conversation` ablation (vs
+  `natural_conversation_bare`) shows what the instruments buy, and `substrate score <root>`
+  surfaces the calibration payoff. See `src/substrate/topologies/README.md`.
 - **See it run** — `docs/demo.md` (or `bash demo.sh`): a guided read of the
   runtime working — three reference topologies, their logs annotated line by line,
   replay and provenance queries, and the conformance gate. All against committed

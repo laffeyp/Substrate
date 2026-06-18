@@ -3,8 +3,11 @@
 This is a guided read of Substrate working. Every block below is genuine output
 from the committed reference records, reproducible with `bash demo.sh` (or the
 individual commands shown). The Producers in these records are deterministic
-stand-ins — no LLM, no network — so the runs come out byte-for-byte identical on
-any machine. That is the point: the record *is* the run, and you can read it back.
+stand-ins — no LLM, no network. Every block here is the committed record read back,
+so it is identical for everyone; and re-running the topology produces the same events
+in the same order on any machine — equivalent modulo run ids and timestamps (the D-8
+relation), not byte-for-byte. That is the point: the record *is* the run, and you can
+read it back.
 
 A reminder of the vocabulary, since every line of output uses it:
 
