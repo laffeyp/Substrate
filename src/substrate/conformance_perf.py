@@ -79,9 +79,9 @@ def _reference_topology(burst: int) -> object:
                 b.trigger(  # type: ignore[attr-defined]
                     f"t{i}_{j}",
                     subscription=api.Subscription(kinds=frozenset({kind})),
-                    predicate=lambda event, views: False,
+                    predicate=lambda ctx: False,
                     starts="beater",
-                    input_builder=lambda views, staged, event: None,
+                    input_builder=lambda ctx: None,
                     policy=api.PerEvent(),
                 )
         b.initial("beater", input=None)  # type: ignore[attr-defined]

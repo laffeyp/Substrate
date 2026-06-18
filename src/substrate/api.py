@@ -41,6 +41,17 @@ from .inspect import (
     trace_ancestry,
     view_at,
 )
+from .graph import (
+    ProducerInstance,
+    ProducerNode,
+    RouteEdge,
+    RunGraph,
+    TopologyGraph,
+    TriggerEdge,
+    run_graph,
+    topology_graph,
+)
+from .narrate import NarrationLine, NarrationSummary, narrate, narration_summary
 from .policies import (
     Decision,
     TerminationPolicy,
@@ -52,7 +63,7 @@ from .policies import (
     quiescence_with_watchdog,
     threshold_count,
 )
-from .protocols import Producer, View
+from .protocols import Producer, ProducerFactory, Responder, TriggerContext, View
 from .record import Always, Interval, NoFsync, read_record, recover_open_segment
 from .replay import HashMismatch, ReplayError, ReplayResult, assert_replayable, replay
 from .runtime import Runtime, RunResult
@@ -71,7 +82,10 @@ __all__ = [
     "Subscription",
     # primitives / protocols
     "Producer",
+    "ProducerFactory",
+    "Responder",
     "View",
+    "TriggerContext",
     "BufferView",
     "KindBuffer",
     "KindCount",
@@ -144,6 +158,20 @@ __all__ = [
     "first_divergence",
     "Explanation",
     "Divergence",
+    # narration — the legible prose projection (Wave 14)
+    "narrate",
+    "narration_summary",
+    "NarrationLine",
+    "NarrationSummary",
+    # graph projections — the structure + run-as-graph the UI renders (Wave 12 prep)
+    "topology_graph",
+    "run_graph",
+    "TopologyGraph",
+    "ProducerNode",
+    "TriggerEdge",
+    "RouteEdge",
+    "RunGraph",
+    "ProducerInstance",
     # test helpers
     "assert_event",
     "assert_no_event",

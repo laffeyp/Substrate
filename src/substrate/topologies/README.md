@@ -1,0 +1,45 @@
+# Bundled topologies
+
+Runnable demonstration topologies, built only on the public `substrate.api` surface (the same
+surface a third-party author has). Each runs with no network and no config — deterministic
+stand-in Producers — and produces a replayable run record.
+
+## Run one
+
+    substrate topology list                        # the bundled topologies
+    substrate demo replay code_review              # tail the committed CI record (no run)
+    substrate demo run    debate                   # run it live, streamed to stderr
+    substrate run --topology natural_conversation --root /tmp/nc
+    substrate score  /tmp/nc                        # the calibration payoff (scoring-on demos)
+    substrate replay /tmp/nc --level 2              # verify every recorded decision by hash
+
+The `natural_conversation` vs `natural_conversation_bare` pair is the emergence ablation: run
+both and compare — same prompts, but the instrumented arm accretes common ground, fires a
+repair detector, and grades each turn; the bare arm is parallel monologues.
+
+## Read a committed record without running anything
+
+Every topology ships a committed CI-mode record you can tail / replay / inspect directly:
+
+    src/substrate/topologies/<name>/records/ci_mode.record/
+
+e.g. `substrate tail src/substrate/topologies/code_review/records/ci_mode.record`.
+
+## What each demonstrates
+
+| Topology | Shows |
+|---|---|
+| `code_review` | N role-distinct reviewers → a quorum predicate fires a judge (Once) → cancel-all-others on adjudication |
+| `pair_coding` | driver streams chunks; a navigator's suggestion is Routed into the driver's next instantiation |
+| `recursive_decomposition` | one recursive Trigger spawns solvers at any depth, bounded by a depth-budget guard |
+| `debate` / `prisoners_dilemma` / `intel_asymmetry` | the conversation substrate under positional / payoff / information asymmetry |
+| `natural_conversation` | the emergence ablation — common-ground + repair instruments toggled; the delta is the demo |
+
+## Walkthrough mode (real local LLMs)
+
+The conversation demos and the Wave-11 topologies accept `walkthrough=True`, which swaps a real
+local LLM (Ollama, `OllamaResponder`) for the deterministic stand-in:
+
+    python -c "import asyncio; from substrate.api import Runtime; \
+      from substrate.topologies.conversation_demos import debate_topology; \
+      asyncio.run(Runtime('/tmp/debate').run(debate_topology(walkthrough=True)))"

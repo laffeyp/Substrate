@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from msgspec import Struct
@@ -24,6 +25,7 @@ from ulid import ULID
 
 from .constants import BLOB_THRESHOLD_BYTES, is_reserved
 from .encoding import SafeCanonical, content_hash, safe_raw, try_canonical
+from .protocols import TriggerContext
 from .runstate import RunPhase, RunState
 from .sealing import seal
 from .sidecar import DiagnosticSidecar
@@ -292,6 +294,17 @@ class AppendCycle:
 
     def _eval_triggers(self, event: Event, append_index: int) -> None:
         st = self._st
+        # ONE TriggerContext per appended event, shared by every Trigger's predicate +
+        # input_builder (event/views/staged do not vary per Trigger) — allocates once per event.
+        # views/staged are wrapped read-only (MappingProxyType): TriggerContext is public and
+        # frozen, and a predicate/input_builder must not mutate the live run state — predicates in
+        # particular now reach `staged` and are supposed to be pure reads (review #25). The proxy
+        # is a view (no copy) and matches the documented `Mapping` type of the ctx fields.
+        ctx = TriggerContext(
+            event=event,
+            views=MappingProxyType(self._reg.views),
+            staged=MappingProxyType(st.staged),
+        )
         for idx, t in enumerate(self._reg.triggers):
             if idx in st.quarantined or not subscribed(t.subscription, event):
                 continue
@@ -300,7 +313,7 @@ class AppendCycle:
             st.trigger_match_count[idx] = st.trigger_match_count.get(idx, 0) + 1
             t0 = time.perf_counter()
             try:
-                fired = t.predicate(event, self._reg.views)
+                fired = t.predicate(ctx)
             except Exception as exc:  # design §6.3: predicate raises -> immediate quarantine
                 self._quarantine(idx, t.id, reason="exception", error=repr(exc))
                 continue
@@ -360,7 +373,7 @@ class AppendCycle:
             # MappingProxyType/tuple, which msgspec cannot encode; the canonical bytes of the
             # pre-seal value are identical to what the sealed value represents — D-5).
             try:
-                resolved = t.input_builder(self._reg.views, st.staged, event)
+                resolved = t.input_builder(ctx)
                 sealed = seal(resolved)  # immutability by construction (§8.3)
                 input_fields = self._resolved_input_fields(resolved)
                 input_hash = content_hash(resolved)

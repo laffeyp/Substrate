@@ -134,11 +134,9 @@ def ensemble_topology(
         b.trigger(
             "adjudicate",
             subscription=api.Subscription(kinds=frozenset({"Candidate"})),
-            predicate=lambda event, views: len(views["candidates"].value()) >= quorum,
+            predicate=lambda ctx: len(ctx.views["candidates"].value()) >= quorum,
             starts="adjudicator",
-            input_builder=lambda views, staged, event: {
-                "candidates": list(views["candidates"].value())
-            },
+            input_builder=lambda ctx: {"candidates": list(ctx.views["candidates"].value())},
             policy=api.Once(),  # exactly one adjudication
         )
         # cancel the still-running candidates when the adjudicator completes; then

@@ -42,10 +42,10 @@ def _route_topo(b):
     b.trigger(
         "echo-it",
         subscription=Subscription(kinds=frozenset({"CountReached"})),
-        predicate=lambda event, views: True,
+        predicate=lambda ctx: True,
         starts="echo",
         # reads the message the Route staged from the SAME event (step 4 before step 5)
-        input_builder=lambda views, staged, event: {"last_n": staged["last_n"]},
+        input_builder=lambda ctx: {"last_n": ctx.staged["last_n"]},
         policy=PerEvent(),
     )
     b.termination(quiescence_with_watchdog(seconds=1))
@@ -68,9 +68,9 @@ def _unsealable_topo(b):
     b.trigger(
         "bad-build",
         subscription=Subscription(kinds=frozenset({"CountReached"})),
-        predicate=lambda event, views: True,
+        predicate=lambda ctx: True,
         starts="echo",
-        input_builder=lambda views, staged, event: object(),  # not sealable (§8.3)
+        input_builder=lambda ctx: object(),  # not sealable (§8.3)
         policy=PerEvent(),
     )
     b.termination(quiescence_with_watchdog(seconds=1))

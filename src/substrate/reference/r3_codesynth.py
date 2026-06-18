@@ -176,11 +176,11 @@ def codesynth_inner_topology(
         b.trigger(
             "on-declaration",
             subscription=api.Subscription(kinds=frozenset({"CodeChunk"})),
-            predicate=lambda event, views: len(_complete_defs(views["code"].value())) > 0,
+            predicate=lambda ctx: len(_complete_defs(ctx.views["code"].value())) > 0,
             starts="ast",
-            input_builder=lambda views, staged, event: {
-                "index": len(_complete_defs(views["code"].value())) - 1,
-                "source": _complete_defs(views["code"].value())[-1],
+            input_builder=lambda ctx: {
+                "index": len(_complete_defs(ctx.views["code"].value())) - 1,
+                "source": _complete_defs(ctx.views["code"].value())[-1],
             },
             # key on the running complete-declaration count: one firing per distinct count,
             # i.e. once per newly-completed declaration regardless of chunk boundaries.
@@ -190,11 +190,11 @@ def codesynth_inner_topology(
         b.trigger(
             "to-typecheck",
             subscription=api.Subscription(kinds=frozenset({"Declaration"})),
-            predicate=lambda event, views: True,
+            predicate=lambda ctx: True,
             starts="typecheck",
-            input_builder=lambda views, staged, event: {
-                "index": event.payload["index"],
-                "source": event.payload["source"],
+            input_builder=lambda ctx: {
+                "index": ctx.event.payload["index"],
+                "source": ctx.event.payload["source"],
             },
             policy=api.PerEvent(),
         )
@@ -202,9 +202,9 @@ def codesynth_inner_topology(
         b.trigger(
             "to-artifact",
             subscription=api.Subscription(kinds=frozenset({"TypecheckOk"})),
-            predicate=lambda event, views: bool(event.payload.get("ok")),
+            predicate=lambda ctx: bool(ctx.event.payload.get("ok")),
             starts="artifact",
-            input_builder=lambda views, staged, event: {"declarations": event.payload["index"] + 1},
+            input_builder=lambda ctx: {"declarations": ctx.event.payload["index"] + 1},
             policy=api.Once(),
         )
         b.termination(api.all_completed())

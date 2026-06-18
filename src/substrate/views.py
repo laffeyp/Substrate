@@ -14,7 +14,14 @@ from .types import Event, Subscription
 
 
 class BufferView:
-    """Accumulated payloads from one Producer kind (kernel §4 — the most common View)."""
+    """Accumulated payloads from one Producer kind (kernel §4 — the most common View).
+
+    MEMORY (same class as PerKey's N-MEM-1): holds EVERY matching payload for the run's lifetime —
+    unbounded for a high-volume kind — and `value()` returns an O(history) copy, so a Predicate
+    that scans it each event is O(history)/event (→ quadratic over the run). For a long,
+    high-volume kind use KindCount / PerKindLatest, or a bounded/windowed View, not a growing
+    buffer. Negligible at small scale (tens–hundreds of items); a real cost only in the thousands.
+    """
 
     deterministic = True
 
@@ -32,7 +39,10 @@ class BufferView:
 class KindBuffer:
     """Accumulated payloads of one event KIND (a kind-subscribed sibling of BufferView, which
     subscribes by Producer kind). Useful when several Producer kinds emit the same event kind
-    and a Predicate gates on the aggregate (e.g. R-1's "≥K Candidate answers" Bus-view)."""
+    and a Predicate gates on the aggregate (e.g. R-1's "≥K Candidate answers" Bus-view).
+
+    MEMORY: same unbounded-growth + O(history) `value()` caveat as BufferView (above) — use
+    KindCount / PerKindLatest or a bounded View for a long, high-volume kind."""
 
     deterministic = True
 

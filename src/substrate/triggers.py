@@ -101,4 +101,9 @@ class WhileTrue:
         return True, None
 
 
+# CLOSED kernel set (review #23): firing policies — and Cooldowns above — are kernel-defined
+# semantics, NOT an open extension point. A topology author SELECTS one of these; they cannot add
+# a custom firing policy (the union is closed; mypy rejects anything outside it). This is by design
+# (firing semantics are part of the replay contract) and is stated here so an author doesn't try —
+# unlike Views and TerminationPolicies, which ARE open (constructible Protocols / callbacks).
 FiringPolicy = Once | PerEvent | PerKey | WhileTrue

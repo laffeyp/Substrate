@@ -57,9 +57,9 @@ def _ensemble_topo(b):
     b.trigger(
         "adjudicate",
         subscription=Subscription(kinds=frozenset({"Candidate"})),
-        predicate=lambda event, views: True,
+        predicate=lambda ctx: True,
         starts="adj",
-        input_builder=lambda views, staged, event: None,
+        input_builder=lambda ctx: None,
         policy=Once(),  # adjudicate once
     )
     # cancel the other (candidate) Producers when the adjudicator completes; then all-completed

@@ -183,35 +183,35 @@ def pipeline_topology(
     input_builder raises (-> InputBuildFailed, mechanism 4). `deterministic` flags kinds for
     Level-3(a) replay (True in CI)."""
 
-    def _to_transform_input(views: Any, staged: Any, event: Any) -> Any:
-        row = event.payload["row"]
+    def _to_transform_input(ctx: Any) -> Any:
+        row = ctx.event.payload["row"]
         # the deliberate input_builder-raise demonstration (mechanism 4): a malformed row makes
         # the builder raise -> the kernel records InputBuildFailed (no transform starts).
         if malformed_row is not None and row == malformed_row:
             raise ValueError(f"malformed row {row}: cannot build transform input")
-        return {"row": row, "raw": event.payload["raw"], "attempt": 1}
+        return {"row": row, "raw": ctx.event.payload["raw"], "attempt": 1}
 
-    def _retry_input(views: Any, staged: Any, event: Any) -> Any:
+    def _retry_input(ctx: Any) -> Any:
         # mechanism 2: enrichment via a Route. The failure reason was staged into "failure" by
         # the failure-context Route from the SAME ProducerEmittedInvalidEvent; the retry input
         # carries it (citable in the firing's recorded resolved input — the check-1 pattern).
-        ctx = staged.get("failure", {})
-        raw = event.payload.get("raw_payload", {})
+        failure = ctx.staged.get("failure", {})
+        raw = ctx.event.payload.get("raw_payload", {})
         row = raw.get("row") if isinstance(raw, dict) else None
         return {
             "row": row,
-            "raw": ctx.get("raw", ""),
+            "raw": failure.get("raw", ""),
             "attempt": 2,
-            "prior_reason": ctx.get("reason", ""),
+            "prior_reason": failure.get("reason", ""),
         }
 
-    def _escalate_input(views: Any, staged: Any, event: Any) -> Any:
-        ctx = staged.get("failure", {})
-        raw = event.payload.get("raw_payload", {})
+    def _escalate_input(ctx: Any) -> Any:
+        failure = ctx.staged.get("failure", {})
+        raw = ctx.event.payload.get("raw_payload", {})
         row = raw.get("row") if isinstance(raw, dict) else None
         return {
             "row": row,
-            "reason": ctx.get("reason", "invalid emission"),
+            "reason": failure.get("reason", "invalid emission"),
             "attempts": MAX_RETRIES + 1,
         }
 
@@ -252,7 +252,7 @@ def pipeline_topology(
         b.trigger(
             "to-transform",
             subscription=api.Subscription(kinds=frozenset({"Row"})),
-            predicate=lambda event, views: True,
+            predicate=lambda ctx: True,
             starts="transform",
             input_builder=_to_transform_input,
             policy=api.PerEvent(),
@@ -278,7 +278,7 @@ def pipeline_topology(
             subscription=api.Subscription(
                 kinds=frozenset({"substrate.ProducerEmittedInvalidEvent"})
             ),
-            predicate=lambda event, views: _under_cap(event, views),
+            predicate=lambda ctx: _under_cap(ctx.event, ctx.views),
             starts="transform",
             input_builder=_retry_input,
             policy=api.PerEvent(),
@@ -290,7 +290,7 @@ def pipeline_topology(
             subscription=api.Subscription(
                 kinds=frozenset({"substrate.ProducerEmittedInvalidEvent"})
             ),
-            predicate=lambda event, views: not _under_cap(event, views),
+            predicate=lambda ctx: not _under_cap(ctx.event, ctx.views),
             starts="escalator",
             input_builder=_escalate_input,
             policy=api.PerEvent(),
@@ -300,10 +300,10 @@ def pipeline_topology(
         b.trigger(
             "on-override",
             subscription=api.Subscription(kinds=frozenset({"OperatorOverride"})),
-            predicate=lambda event, views: True,
+            predicate=lambda ctx: True,
             starts="recovery",
-            input_builder=lambda views, staged, event: {
-                "row": event.payload["row"],
+            input_builder=lambda ctx: {
+                "row": ctx.event.payload["row"],
                 "by": "operator",
             },
             policy=api.PerEvent(),

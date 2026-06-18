@@ -43,9 +43,9 @@ def _self_feed_once_topo(b):
     b.trigger(
         "feedback",
         subscription=Subscription(kinds=frozenset({"Tick"})),
-        predicate=lambda event, views: True,
+        predicate=lambda ctx: True,
         starts="echo",
-        input_builder=lambda views, staged, event: None,
+        input_builder=lambda ctx: None,
         policy=Once(),
     )
     b.termination(quiescence_with_watchdog(seconds=1))
@@ -80,9 +80,9 @@ def _self_feed_cooldown_topo(b):
     b.trigger(
         "feedback",
         subscription=Subscription(kinds=frozenset({"Tick"})),
-        predicate=lambda event, views: True,
+        predicate=lambda ctx: True,
         starts="echo",
-        input_builder=lambda views, staged, event: None,
+        input_builder=lambda ctx: None,
         policy=PerEvent(),
         cooldown=Logical(10_000),  # suppresses every refire within the window
     )
@@ -112,9 +112,9 @@ def _self_feed_perkey_topo(b):
     b.trigger(
         "feedback",
         subscription=Subscription(kinds=frozenset({"Tick"})),
-        predicate=lambda event, views: True,
+        predicate=lambda ctx: True,
         starts="echo",
-        input_builder=lambda views, staged, event: None,
+        input_builder=lambda ctx: None,
         policy=PerKey(lambda event: event.payload["n"]),
     )
     b.termination(quiescence_with_watchdog(seconds=1))

@@ -17,7 +17,7 @@ from msgspec import Struct
 from .constants import is_reserved
 from .errors import SubstrateError
 from .policies import TerminationPolicy
-from .protocols import Producer, View
+from .protocols import Producer, TriggerContext, View
 from .triggers import Cooldown, FiringPolicy, Logical, PerEvent, WallClock, WhileTrue
 from .types import Subscription
 
@@ -43,9 +43,9 @@ class ProducerKindReg:
 class TriggerReg:
     id: str
     subscription: Subscription
-    predicate: Callable[..., bool]
+    predicate: Callable[[TriggerContext], bool]
     starts: str
-    input_builder: Callable[..., Any]
+    input_builder: Callable[[TriggerContext], Any]
     policy: FiringPolicy
     cooldown: Cooldown
 
@@ -91,14 +91,35 @@ class TopologyBuilder:
         *,
         schemas: Sequence[type],
         schema_version: int,
-        factory: Callable[[], Producer],
+        factory: Callable[[], Producer] | None = None,
+        start: Producer | None = None,
         deterministic: bool = False,
         author_version: str | None = None,
     ) -> None:
         """Register a Producer kind: its name, the frozen msgspec Struct event schemas it may
-        emit (+ schema_version), and a `factory()` returning the Producer callable. Set
-        `deterministic=True` if the same input always yields the same events (it gates Level-3a
-        replay). Names using the reserved `substrate.` prefix are rejected."""
+        emit (+ schema_version), and the Producer to run. Give EITHER `start=` — the Producer
+        callable itself, for the stateless case (sugar for `factory=lambda: start`) — OR
+        `factory=` — a zero-arg callable returning a fresh Producer per instantiation, for the
+        stateful/configured case. Exactly one is required. Set `deterministic=True` if the same
+        input always yields the same events (it gates Level-3a replay). Names using the reserved
+        `substrate.` prefix are rejected."""
+        if (factory is None) == (start is None):
+            raise RegistrationError(
+                f'producer_kind "{kind}": provide exactly one of start= (the Producer) or '
+                f"factory= (a zero-arg callable returning one)."
+            )
+        if start is not None:
+            captured = start  # bind for the closure; `start` is Optional at the type level
+
+            def _factory() -> Producer:
+                return captured
+
+            # carry the Producer's identity onto the synthesized factory, so the RunStarted
+            # manifest names the actual producer (e.g. `reviewer`) rather than an opaque
+            # wrapper — better provenance than `factory=lambda: fn` (which records `<lambda>`).
+            _factory.__qualname__ = getattr(start, "__qualname__", _factory.__qualname__)
+            _factory.__name__ = getattr(start, "__name__", _factory.__name__)
+            factory = _factory
         if is_reserved(kind):
             raise RegistrationError(
                 f'producer_kind "{kind}": Producer kinds MUST NOT use the reserved '
@@ -122,14 +143,15 @@ class TopologyBuilder:
                     f"reserved namespace."
                 )
             schema_map[s.__name__] = (s, schema_version)
+        assert factory is not None  # the exactly-one check above guarantees this
         # Derive the composition export map from the embedded substrate's OWN map (single
         # source of truth): an embedded_substrate `start` callable carries
         # __substrate_export_map__; build the factory once (cheap — just constructs the
         # closure, runs nothing) to read it. Non-embedded factories carry no such attribute.
         export_map: dict[str, str] | None = None
         try:
-            start = factory()
-            raw = getattr(start, "__substrate_export_map__", None)
+            built = factory()  # the start callable carries __substrate_export_map__ if embedded
+            raw = getattr(built, "__substrate_export_map__", None)
             if isinstance(raw, dict):
                 export_map = dict(raw)
         except Exception:
@@ -154,9 +176,9 @@ class TopologyBuilder:
         id: str,
         *,
         subscription: Subscription,
-        predicate: Callable[..., bool],
+        predicate: Callable[[TriggerContext], bool],
         starts: str,
-        input_builder: Callable[..., Any],
+        input_builder: Callable[[TriggerContext], Any],
         policy: FiringPolicy | None = None,
         cooldown: Cooldown | None = None,
     ) -> None:
@@ -192,6 +214,66 @@ class TopologyBuilder:
         if subscription.is_empty():
             raise RegistrationError(f'route "{id}": subscription is empty.')
         self._reg.routes.append(RouteReg(id, subscription, slot, transform))
+
+    def instrument(
+        self,
+        name: str,
+        *,
+        on: str,
+        schemas: Sequence[type],
+        input_builder: Callable[[TriggerContext], Any],
+        factory: Callable[[], Producer] | None = None,
+        start: Producer | None = None,
+        schema_version: int = 1,
+        deterministic: bool = False,
+        into: str | None = None,
+        via: Callable[[Any], Any] | None = None,
+    ) -> None:
+        """Wire a side-Producer INSTRUMENT in one call — the common observe-(and-stage) pattern.
+
+        Collapses the identical `producer_kind` + `trigger` + (optional) `route` triple the
+        emergence instruments repeat: a Producer `name` started once per `on` event (predicate
+        always-true, PerEvent), built from `input_builder`; if `into` is given, a Route stages
+        the instrument's emitted output into that slot for a later Trigger to read.
+
+        Give `start=` (the Producer) or `factory=` (a zero-arg callable returning one), exactly
+        as `producer_kind`. To stage the output: `into` is the slot and `via` transforms the
+        event (defaults to its payload). The Route is scoped to THIS instrument's own producer
+        (not the emitted kind), so a second producer emitting the same kind never cross-stages.
+        Omit `into` for an observation-only instrument (no Route — e.g. a grader, whose Grades
+        are scored off the bus, not fed forward).
+
+        For a non-trivial predicate or firing policy — or to stage only ONE of a multi-schema
+        instrument's kinds — use the explicit `producer_kind` + `trigger` + `route`; this helper
+        deliberately covers the always-fire, stage-everything-it-emits common case.
+        """
+        self.producer_kind(
+            name,
+            schemas=schemas,
+            schema_version=schema_version,
+            factory=factory,
+            start=start,
+            deterministic=deterministic,
+        )
+        self.trigger(
+            name,
+            subscription=Subscription(kinds=frozenset({on})),
+            predicate=lambda ctx: True,
+            starts=name,
+            input_builder=input_builder,
+            policy=PerEvent(),
+        )
+        if into is not None:
+            # scope the stage Route to the instrument's OWN producer (review #27): subscription
+            # matching is OR over kinds/producers, so a kind-scoped route would also stage a
+            # DIFFERENT producer's same-kind event. `producers={name}` stages only what THIS
+            # instrument emits (its producer only emits its declared schemas).
+            self.route(
+                f"{name}-stage",
+                subscription=Subscription(producers=frozenset({name})),
+                slot=into,
+                transform=via or (lambda event: event.payload),
+            )
 
     def initial(self, kind: str, *, input: Any = None) -> None:
         """Declare an initial Producer started at run open (seq 0), with `input`. A topology

@@ -131,9 +131,9 @@ async def _check_1_retry_enrichment(root: Path) -> CheckResult:
         b.trigger(
             "on-fail",
             subscription=Subscription(kinds=frozenset({"substrate.ProducerFailed"})),
-            predicate=lambda event, views: True,
+            predicate=lambda ctx: True,
             starts="retry",
-            input_builder=lambda views, staged, event: {"reason": event.payload.get("error", "")},
+            input_builder=lambda ctx: {"reason": ctx.event.payload.get("error", "")},
             policy=PerEvent(),
         )
         b.termination(quiescence_with_watchdog(seconds=2))
@@ -185,9 +185,9 @@ async def _check_2_single_cascade(root: Path) -> CheckResult:
         b.trigger(
             "double",
             subscription=Subscription(kinds=frozenset({"CountReached"})),
-            predicate=lambda event, views: event.payload["n"] == 1,
+            predicate=lambda ctx: ctx.event.payload["n"] == 1,
             starts="doubler",
-            input_builder=lambda views, staged, event: {"n": event.payload["n"]},
+            input_builder=lambda ctx: {"n": ctx.event.payload["n"]},
             policy=Once(),
         )
         b.termination(quiescence_with_watchdog(seconds=2))
@@ -323,7 +323,7 @@ async def _check_7_export_boundary(root: Path) -> CheckResult:
 
 
 async def _check_8_quarantine(root: Path) -> CheckResult:
-    def slow_pred(event: Any, views: Any) -> bool:
+    def slow_pred(ctx: Any) -> bool:
         time.sleep(0.0005)  # ~500us, over the 100us budget
         return False
 
@@ -338,7 +338,7 @@ async def _check_8_quarantine(root: Path) -> CheckResult:
             subscription=Subscription(kinds=frozenset({"CountReached"})),
             predicate=slow_pred,
             starts="noop",
-            input_builder=lambda views, staged, event: None,
+            input_builder=lambda ctx: None,
             policy=PerEvent(),
         )
         # §7 check 8 requires "a TerminationPolicy that ESCALATES on it" — finalise the run
@@ -429,9 +429,9 @@ async def _check_11_provenance(root: Path) -> CheckResult:
         b.trigger(
             "d",
             subscription=Subscription(kinds=frozenset({"CountReached"})),
-            predicate=lambda event, views: True,
+            predicate=lambda ctx: True,
             starts="doubler",
-            input_builder=lambda views, staged, event: {"n": event.payload["n"]},
+            input_builder=lambda ctx: {"n": ctx.event.payload["n"]},
             policy=PerEvent(),
         )
         b.termination(quiescence_with_watchdog(seconds=2))
@@ -580,13 +580,13 @@ async def _check_17_input_build_failed(root: Path) -> CheckResult:
         b.producer_kind("c", schemas=[CountReached], schema_version=1, factory=lambda: producer_ok)
         b.initial("a", input=None)
 
-        def _raise(views: Any, staged: Any, event: Any) -> Any:
+        def _raise(ctx: Any) -> Any:
             raise ValueError("input builder boom")
 
         b.trigger(
             "t",
             subscription=Subscription(kinds=frozenset({"CountReached"})),
-            predicate=lambda event, views: True,
+            predicate=lambda ctx: True,
             starts="c",
             input_builder=_raise,
             policy=PerEvent(),

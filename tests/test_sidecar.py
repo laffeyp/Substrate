@@ -38,9 +38,9 @@ def _topo(b):
     b.trigger(
         "never",
         subscription=Subscription(kinds=frozenset({"CountReached"})),
-        predicate=lambda event, views: False,  # never fires
+        predicate=lambda ctx: False,  # never fires
         starts="noop",
-        input_builder=lambda views, staged, event: None,
+        input_builder=lambda ctx: None,
         policy=PerEvent(),
     )
     b.termination(threshold_count("substrate.ProducerCompleted", 1))

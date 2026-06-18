@@ -4,4 +4,12 @@ Dual-mode: CI mode (deterministic stand-in Producers, gated every commit) proves
 walkthrough mode (real local LLMs via the openai-compat adapter) proves the claim each
 topology exists to demonstrate. These are topology-layer code — they import only
 `substrate.api` (like the CLI), never kernel internals.
+
+The model-adapter seam is re-exported here (review #23): a topology that wants a custom LLM
+backend implements `Responder` (`respond(prompt: str) -> str`) and hands it to the topology —
+import it from `substrate.reference`, not the underscore `_models` module.
 """
+
+from ._models import DeterministicResponder, OllamaResponder, Responder
+
+__all__ = ["Responder", "DeterministicResponder", "OllamaResponder"]

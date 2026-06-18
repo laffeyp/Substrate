@@ -32,6 +32,7 @@ from typing import Any, Literal
 
 from msgspec import Struct
 
+from .blobstore import is_blob_hex
 from .encoding import content_hash, sha256_hex
 from .errors import RecordIncompleteError, SubstrateError
 from .record import read_record
@@ -113,7 +114,15 @@ def _resolved_input_hash(payload: dict[str, Any], root: Path | None) -> str | No
         if root is None:
             return _UNRESOLVABLE  # can't resolve a blob from a bare envelope iterable
         hex_digest = str(blob.get("$blob", "")).removeprefix("sha256:")
+        # SECURITY (review #20): $blob comes from the (attacker-controllable) record. A sha256 is
+        # ALWAYS 64 lowercase hex chars; reject anything else BEFORE it becomes a path component, so
+        # a crafted "../../etc/passwd" digest cannot path-traverse to an arbitrary file read.
+        if not is_blob_hex(hex_digest):
+            return _UNRESOLVABLE
         blob_path = root / "blobs" / "sha256" / hex_digest[:2] / hex_digest
+        # defense-in-depth: even with the hex guard, never read outside the record root.
+        if not blob_path.resolve().is_relative_to(root.resolve()):
+            return _UNRESOLVABLE
         if not blob_path.exists():
             return _UNRESOLVABLE
         return sha256_hex(blob_path.read_bytes())
@@ -198,7 +207,12 @@ def replay(record: Any, level: ReplayLevel = "1") -> ReplayResult:
     Level 3a: + the native-re-execution PRECONDITION gate (all kinds deterministic AND
     replay_ceiling=="3a"); this returns the gate result (preconditions_ok / refusal_reason)
     rather than re-running — re-execution is the Runtime's job. Level 3b: DEFERRED, raises
-    NotImplementedError (needs a t-replay decision; not faked)."""
+    NotImplementedError (needs a t-replay decision; not faked).
+
+    SIZE NOTE: this MATERIALIZES the whole record into memory (unlike `read_record`, which
+    streams). Fine for normal records (a few-thousand-frame record replays in tens of ms); for a
+    very large (multi-GB) record, stream over `read_record` / `LiveRecord.follow` instead, or
+    treat the record size as bounded for the analysis tools."""
     envelopes, root = _load(record)
     counts, complete = _level1(envelopes)
     frame_count = len(envelopes)

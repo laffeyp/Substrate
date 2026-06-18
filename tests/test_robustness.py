@@ -102,9 +102,9 @@ def _bad_resolved_input_topo(b):
     b.trigger(
         "t",
         subscription=Subscription(kinds=frozenset({"Ok"})),
-        predicate=lambda event, views: True,
+        predicate=lambda ctx: True,
         starts="c",
-        input_builder=lambda views, staged, event: {"big": 2**60},
+        input_builder=lambda ctx: {"big": 2**60},
         policy=PerEvent(),
     )
     b.termination(quiescence_with_watchdog(seconds=1))
@@ -144,9 +144,9 @@ def _bad_perkey_topo(b):
     b.trigger(
         "t",
         subscription=Subscription(kinds=frozenset({"Ok"})),
-        predicate=lambda event, views: True,
+        predicate=lambda ctx: True,
         starts="c",
-        input_builder=lambda views, staged, event: None,
+        input_builder=lambda ctx: None,
         policy=PerKey(lambda event: 2**60),
     )
     b.termination(quiescence_with_watchdog(seconds=1))
@@ -236,9 +236,9 @@ def _cooldown_topo(b):
     b.trigger(
         "t",
         subscription=Subscription(kinds=frozenset({"Ok"})),
-        predicate=lambda event, views: True,
+        predicate=lambda ctx: True,
         starts="c",
-        input_builder=lambda views, staged, event: None,
+        input_builder=lambda ctx: None,
         policy=PerEvent(),
         cooldown=Logical(100),
     )
@@ -278,9 +278,9 @@ def _cooldown_two_topo(b):
     b.trigger(
         "t",
         subscription=Subscription(kinds=frozenset({"Ok"})),
-        predicate=lambda event, views: True,
+        predicate=lambda ctx: True,
         starts="c",
-        input_builder=lambda views, staged, event: None,
+        input_builder=lambda ctx: None,
         policy=PerEvent(),
         cooldown=Logical(2),
     )
@@ -318,9 +318,9 @@ def _perkey_cooldown_topo(b):
     b.trigger(
         "t",
         subscription=Subscription(kinds=frozenset({"Ok"})),
-        predicate=lambda event, views: True,
+        predicate=lambda ctx: True,
         starts="c",
-        input_builder=lambda views, staged, event: None,
+        input_builder=lambda ctx: None,
         policy=PerKey(lambda event: event.payload["n"]),
         cooldown=Logical(2),
     )
@@ -350,9 +350,9 @@ def _big_resolved_topo(b):
     b.trigger(
         "t",
         subscription=Subscription(kinds=frozenset({"Ok"})),
-        predicate=lambda event, views: True,
+        predicate=lambda ctx: True,
         starts="c",
-        input_builder=lambda views, staged, event: {"big": "y" * (20 * 1024)},
+        input_builder=lambda ctx: {"big": "y" * (20 * 1024)},
         policy=PerEvent(),
     )
     b.termination(quiescence_with_watchdog(seconds=1))

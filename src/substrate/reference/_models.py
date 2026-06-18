@@ -21,14 +21,13 @@ avoided (the demonstration runs on the Architect's machine).
 from __future__ import annotations
 
 import hashlib
-from typing import Protocol
 
+# The Responder Protocol now lives among the structural protocols (substrate.protocols) and is
+# public as substrate.api.Responder; re-exported here so `from substrate.reference import
+# Responder` and the topologies' `from ..reference._models import Responder` keep working.
+from ..protocols import Responder
 
-class Responder(Protocol):
-    """The model seam: turn a prompt into a text response. CI uses a deterministic stand-in;
-    the walkthrough uses a real local LLM. Topologies depend on this, not on a model."""
-
-    def respond(self, prompt: str) -> str: ...
+__all__ = ["Responder", "DeterministicResponder", "OllamaResponder"]
 
 
 class DeterministicResponder:

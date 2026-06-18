@@ -55,9 +55,9 @@ def _det_topo(b):
     b.trigger(
         "double-each",
         subscription=Subscription(kinds=frozenset({"CountReached"})),
-        predicate=lambda event, views: True,
+        predicate=lambda ctx: True,
         starts="doubler",
-        input_builder=lambda views, staged, event: {"n": event.payload["n"]},
+        input_builder=lambda ctx: {"n": ctx.event.payload["n"]},
         policy=PerEvent(),
     )
     b.termination(quiescence_with_watchdog(seconds=1))
@@ -145,9 +145,9 @@ async def test_level2_handles_blob_offloaded_input(tmp_path):
         b.trigger(
             "big",
             subscription=Subscription(kinds=frozenset({"CountReached"})),
-            predicate=lambda event, views: True,
+            predicate=lambda ctx: True,
             starts="doubler",
-            input_builder=lambda views, staged, event: {"n": 1, "pad": "z" * (20 * 1024)},
+            input_builder=lambda ctx: {"n": 1, "pad": "z" * (20 * 1024)},
             policy=PerEvent(),
         )
         b.termination(quiescence_with_watchdog(seconds=1))

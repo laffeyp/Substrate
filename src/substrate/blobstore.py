@@ -12,9 +12,19 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from pathlib import Path
 
 from .types import BlobRef
+
+_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+
+
+def is_blob_hex(hex_digest: str) -> bool:
+    """A sha256 digest is always exactly 64 lowercase hex chars. A record's `$blob` field is
+    attacker-controllable, so any value that is NOT 64-hex is malformed or hostile and must never
+    become a filesystem path component (review #20 — path-traversal → arbitrary file read)."""
+    return bool(_SHA256_HEX.match(hex_digest))
 
 
 class BlobStore:
@@ -25,7 +35,12 @@ class BlobStore:
         self._dir.mkdir(parents=True, exist_ok=True)
 
     def _path_for(self, hex_digest: str) -> Path:
-        # hex_digest is derived from content only; never from user input (§17).
+        # On the WRITE path hex_digest is content-derived; on the READ path (`get`) it comes from a
+        # BlobRef that may originate in an ATTACKER-CONTROLLED record. Validate as 64-hex BEFORE it
+        # becomes a path component, so a crafted "../" digest cannot traverse out of the blob tree
+        # (review #20: the read path re-derived a path from a record field with no validation).
+        if not is_blob_hex(hex_digest):
+            raise ValueError(f"invalid blob digest (must be 64 lowercase hex): {hex_digest[:80]!r}")
         return self._dir / hex_digest[:2] / hex_digest
 
     def put(self, data: bytes) -> BlobRef:

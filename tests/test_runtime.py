@@ -75,9 +75,9 @@ def _doubler_topo(b):
     b.trigger(
         "double-each",
         subscription=Subscription(kinds=frozenset({"CountReached"})),
-        predicate=lambda event, views: True,
+        predicate=lambda ctx: True,
         starts="doubler",
-        input_builder=lambda views, staged, event: {"n": event.payload["n"]},
+        input_builder=lambda ctx: {"n": ctx.event.payload["n"]},
         policy=PerEvent(),
     )
     b.termination(quiescence_with_watchdog(seconds=1))

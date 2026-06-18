@@ -61,9 +61,9 @@ def topo(b):
     b.trigger(
         "on-approve",
         subscription=Subscription(kinds=frozenset({"Approve"})),
-        predicate=lambda event, views: bool(event.payload.get("ok")),
+        predicate=lambda ctx: bool(ctx.event.payload.get("ok")),
         starts="s2",
-        input_builder=lambda views, staged, event: None,
+        input_builder=lambda ctx: None,
         policy=PerEvent(),
     )
     b.termination(

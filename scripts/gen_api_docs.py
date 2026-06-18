@@ -20,7 +20,10 @@ GROUPS: dict[str, list[str]] = {
     "Data types": ["Event", "BlobRef", "ProducerRef", "Subscription"],
     "Primitives & protocols": [
         "Producer",
+        "ProducerFactory",
+        "Responder",
         "View",
+        "TriggerContext",
         "BufferView",
         "KindBuffer",
         "KindCount",
@@ -78,6 +81,22 @@ GROUPS: dict[str, list[str]] = {
         "first_divergence",
         "Explanation",
         "Divergence",
+    ],
+    "Narration — the legible prose projection (Wave 14)": [
+        "narrate",
+        "narration_summary",
+        "NarrationLine",
+        "NarrationSummary",
+    ],
+    "Graph projections — structure + run-as-graph (Wave 12 prep)": [
+        "topology_graph",
+        "run_graph",
+        "TopologyGraph",
+        "ProducerNode",
+        "TriggerEdge",
+        "RouteEdge",
+        "RunGraph",
+        "ProducerInstance",
     ],
     "Test helpers (technical §15)": ["assert_event", "assert_no_event", "assert_sequence"],
     "Exceptions (design §6.3)": [

@@ -45,7 +45,14 @@ def _load_topology(spec: str) -> Callable[[Any], None]:
     privileges — no sandbox (technical §17); this is documented, not silent."""
     if ":" in spec and spec.split(":", 1)[0].endswith(".py"):
         return _load_attr(spec)
-    # bundled registry name
+    # bundled registry name. Populate the bundled registry on demand via a DYNAMIC import, so the
+    # CLI's STATIC import surface stays substrate.api-only (F-API-6; import-linter checks static
+    # imports, not a runtime importlib call). If the bundled package is unavailable, fall through
+    # to whatever is already registered.
+    try:
+        importlib.import_module("substrate.topologies.bundled").register_all()
+    except Exception:  # noqa: BLE001 - bundled topologies are optional; never block a real run
+        pass
     try:
         return api.get_topology(spec)
     except KeyError as exc:
@@ -74,6 +81,26 @@ def _load_attr(spec: str) -> Callable[..., Any]:
     if not hasattr(module, attr_name):
         raise click.ClickException(f"module {path} has no attribute {attr_name!r}")
     return getattr(module, attr_name)  # type: ignore[no-any-return]
+
+
+_FAILURE_KINDS = (
+    "substrate.ProducerFailed",
+    "substrate.InputBuildFailed",
+    "substrate.PredicateQuarantined",
+    "substrate.ProducerEmittedInvalidEvent",
+)
+
+
+def _failure_summary(root: Path) -> tuple[dict[str, int], int]:
+    """Count the authoring-failure events on a record, so a run that finalised but silently did
+    nothing is surfaced to the AUTHOR (not merely honest on the record). Returns (counts, total)."""
+    counts: dict[str, int] = {}
+    for env in api.read_record(root):
+        kind = str(env.get("kind", ""))
+        if kind in _FAILURE_KINDS:
+            short = kind.removeprefix("substrate.")
+            counts[short] = counts.get(short, 0) + 1
+    return counts, sum(counts.values())
 
 
 def _producer_label(ref: dict[str, Any] | None) -> str:
@@ -161,7 +188,12 @@ def main() -> None:
 
 @main.command()
 @click.option("--topology", "topology_name", help="bundled topology name")
-@click.option("--topology-module", "topology_module", help="path/to/module.py:func")
+@click.option(
+    "--topology-module",
+    "topology_module",
+    help="path/to/module.py:func — EXECUTES that module as code with your privileges "
+    "(no sandbox); only point it at code you trust",
+)
 @click.option("--root", "root", default=None, help="record root (default: ./runs/<run-id>)")
 @click.option("--persistent", is_flag=True, help="persistent-bus mode (exclusive lock)")
 @click.option("--writer-stats", is_flag=True, help="emit the off-bus writer_stats sidecar")
@@ -172,6 +204,9 @@ def main() -> None:
 @click.option(
     "--verbose", is_flag=True, help="with --tail, also stream substrate.* lifecycle events"
 )
+@click.option(
+    "--strict", is_flag=True, help="exit nonzero if any Producer/input/predicate failure occurred"
+)
 def run(
     topology_name: str | None,
     topology_module: str | None,
@@ -181,6 +216,7 @@ def run(
     diagnostics: bool,
     tail_live: bool,
     verbose: bool,
+    strict: bool,
 ) -> None:
     """Run a topology to a run record (F-CLI-1). Prints the record root to stdout on every
     exit. Exit: 0 finalised, 1 failed, 2 paused, 64 config, 65 lock contention, 130 SIGINT.
@@ -224,7 +260,17 @@ def run(
     # the record root is the load-bearing stdout line (shell-pipeable)
     click.echo(result.record_root)
     code = {"finalised": EXIT_OK, "failed": EXIT_FAILED, "paused": EXIT_PAUSED}[result.status]
-    _err.print(f"[{result.status}] {result.record_root}")
+    # Surface authoring failures: a run can finalise while Producers/inputs/predicates FAILED (the
+    # failures are honestly on the record, but a newcomer's eye is on this status line — make a
+    # broken run LOOK broken). --strict turns any such failure into a nonzero exit.
+    fail_counts, fail_total = _failure_summary(record_root)
+    if fail_total:
+        summary = ", ".join(f"{n} {k}" for k, n in sorted(fail_counts.items()))
+        _err.print(f"[{result.status}] {result.record_root}  WARNING: {summary} (read the record)")
+        if strict and code == EXIT_OK:
+            code = EXIT_FAILED
+    else:
+        _err.print(f"[{result.status}] {result.record_root}")
     sys.exit(code)
 
 
@@ -314,14 +360,23 @@ def inspect(
             click.echo(f"  b: kind={div.kind_b} hash={div.hash_b}")
         return
     if producer is not None and ancestry:
-        for exp in api.trace_ancestry(root, producer):
+        try:
+            chain = list(api.trace_ancestry(root, producer))
+        except (api.ProducerNotFound, api.SequenceOutOfRange) as exc:
+            _err.print(f"[config] {exc}")  # a bad producer ref is a config error, not a traceback
+            sys.exit(EXIT_CONFIG)
+        for exp in chain:
             click.echo(
                 f"{exp.kind}[{exp.instance}]  caused_by {exp.cause} at seq={exp.at_seq}"
                 + (f" (trigger={exp.trigger_id})" if exp.trigger_id else "")
             )
         return
     if producer is not None and why:
-        exp = api.explain_producer(root, producer)
+        try:
+            exp = api.explain_producer(root, producer)
+        except (api.ProducerNotFound, api.SequenceOutOfRange) as exc:
+            _err.print(f"[config] {exc}")  # clean error, consistent with run's [config] shape
+            sys.exit(EXIT_CONFIG)
         click.echo(f"producer={exp.kind}[{exp.instance}]")
         click.echo(f"parent={exp.parent}")
         click.echo("caused_by:")
@@ -341,6 +396,76 @@ def inspect(
                 return
         raise click.ClickException(f"no event at seq {seq}")
     raise click.ClickException("inspect needs one of --why/--ancestry/--seq/--between/--diff")
+
+
+@main.command()
+@click.argument("root", type=click.Path(exists=True))
+@click.option(
+    "--lifecycle",
+    is_flag=True,
+    help="include the producer-lifecycle bracketing (Started/Completed/Injection) beats",
+)
+@click.option(
+    "--summary",
+    is_flag=True,
+    help="emit a one-paragraph digest (counts + finalisation) instead of per-event prose",
+)
+def narrate(root: str, lifecycle: bool, summary: bool) -> None:
+    """Narrate a record as a legible prose account — the plot of the run (Wave 14).
+
+    A read-only projection over the log (no run, no network): the substrate.* causal beats
+    in prose (a TriggerFired as "starts X", terminations, finalisation, and every authoring
+    failure) interleaved with the application events (the work). Lifecycle bracketing is
+    suppressed by default; --lifecycle restores the every-frame account. Every line cites a
+    seq. --summary prints a digest instead."""
+    if summary:
+        s = api.narration_summary(api.read_record(root))
+        fails = (
+            s.producers_failed
+            + s.input_build_failures
+            + s.predicate_quarantines
+            + s.invalid_emissions
+        )
+        # The HEADER must answer "did my run work?" at a glance (review #26): a finalised run
+        # with failures is NOT a green run — say so on line 1, not line 3 ("finalised" alone
+        # reads green and buries the alarm). This closes the #19 "finalised != worked" thread
+        # in the layer best positioned to answer it.
+        if not s.finalised:
+            head = "Run NOT finalised (incomplete record)"
+        elif fails:
+            head = f"Run finalised WITH {fails} FAILURE{'S' if fails != 1 else ''}"
+        elif s.final_reason:
+            head = f"Run finalised ({s.final_reason})"
+        else:
+            head = "Run finalised"
+        click.echo(f"{head}: {s.total_events} events.")
+        click.echo(
+            f"  producers: {s.producers_started} started, {s.producers_completed} completed, "
+            f"{s.producers_cancelled} cancelled, {s.producers_failed} failed"
+        )
+        if fails:
+            click.echo(
+                f"  failures: {s.producers_failed} ProducerFailed, "
+                f"{s.input_build_failures} InputBuildFailed, "
+                f"{s.predicate_quarantines} PredicateQuarantined, "
+                f"{s.invalid_emissions} ProducerEmittedInvalidEvent (read the record)"
+            )
+        if s.application_events:
+            work = ", ".join(f"{k}={n}" for k, n in sorted(s.application_events.items()))
+            click.echo(f"  work: {work}")
+        return
+    # Default mode: stream the plot, tallying authoring-failure beats so a long run's failures
+    # (which can scroll past inline) get a footer pointing at the digest (review #26, optional).
+    fail_lines = 0
+    for line in api.narrate(api.read_record(root), lifecycle=lifecycle):
+        click.echo(f"seq {line.seq:>5}  {line.text}")
+        if line.kind in _FAILURE_KINDS:
+            fail_lines += 1
+    if fail_lines:
+        _err.print(
+            f"[warning] {fail_lines} authoring failure(s) above "
+            f"-- run `substrate narrate {root} --summary` for the tally"
+        )
 
 
 @main.command()
@@ -469,7 +594,12 @@ def conformance(no_perf: bool) -> None:
 @main.command()
 @click.argument("root", type=click.Path(exists=True))
 @click.option("--topology", "topology_name", help="bundled topology name")
-@click.option("--topology-module", "topology_module", help="path/to/module.py:func")
+@click.option(
+    "--topology-module",
+    "topology_module",
+    help="path/to/module.py:func — EXECUTES that module as code with your privileges "
+    "(no sandbox); only point it at code you trust",
+)
 @click.option(
     "--input",
     "input_spec",
@@ -541,6 +671,101 @@ def resume(
     code = {"finalised": EXIT_OK, "failed": EXIT_FAILED, "paused": EXIT_PAUSED}[result.status]
     _err.print(f"[{result.status}] {result.record_root}")
     sys.exit(code)
+
+
+@main.group()
+def topology() -> None:
+    """The bundled topology registry (runnable via `substrate run --topology <name>`)."""
+
+
+@topology.command("list")
+def topology_list() -> None:
+    """List bundled topology names, one per line. Discoverability for the --topology flag."""
+    names: list[str]
+    try:
+        # dynamic import keeps the CLI's static surface substrate.api-only (F-API-6).
+        names = importlib.import_module("substrate.topologies.bundled").names()
+    except Exception:  # noqa: BLE001 - bundled topologies are optional
+        names = []
+    for name in names:
+        click.echo(name)
+
+
+@main.group()
+def demo() -> None:
+    """Run or replay a bundled demonstration topology (the one-command on-ramp)."""
+
+
+@demo.command("replay")
+@click.argument("name")
+@click.pass_context
+def demo_replay(ctx: click.Context, name: str) -> None:
+    """Replay a bundled topology's committed CI record — tail it (no run, no network)."""
+    record = importlib.import_module("substrate.topologies.bundled").record_path(name)
+    if not record.exists():
+        _err.print(
+            f"[config] no committed record for {name!r}. Try `substrate topology list`, "
+            f"or `substrate demo run {name}` to run it live."
+        )
+        sys.exit(EXIT_CONFIG)
+    ctx.invoke(
+        tail, root=str(record), kinds=None, producer=None, since=None, fmt="aligned", follow=False
+    )
+
+
+@demo.command("run")
+@click.argument("name")
+@click.option("--root", "root", default=None, help="record root (default: ./runs/<run-id>)")
+@click.pass_context
+def demo_run(ctx: click.Context, name: str, root: str | None) -> None:
+    """Run a bundled topology live (CI-default, deterministic) and stream it to stderr."""
+    ctx.invoke(
+        run,
+        topology_name=name,
+        topology_module=None,
+        root=root,
+        persistent=False,
+        writer_stats=False,
+        diagnostics=False,
+        tail_live=True,
+        verbose=False,
+        strict=False,
+    )
+
+
+@main.command()
+@click.argument("root", type=click.Path(exists=True))
+@click.option("--rule", "rule_name", default="brier", help="brier | log_loss | spherical")
+def score(root: str, rule_name: str) -> None:
+    """Score a record's Grade events under a proper rule — the calibration PAYOFF (lower is
+    better). Turns 'calibration pays, confident-sounding doesn't' from raw Grade rows into a
+    per-speaker result. Closes the cheap-talk loop the grader instrument opens."""
+    grades = [e["payload"] for e in api.read_record(Path(root)) if e.get("kind") == "Grade"]
+    if not grades:
+        _err.print("[config] no Grade events here; run a topology with scoring on first")
+        sys.exit(EXIT_CONFIG)
+    # dynamic import keeps the CLI's static surface substrate.api-only (F-API-6).
+    scoring = importlib.import_module("substrate.topologies.instruments.scoring")
+    grader = importlib.import_module("substrate.topologies.instruments.grader")
+    try:
+        rule = scoring.select_scoring_rule(rule_name)
+    except Exception as exc:  # noqa: BLE001 - unknown rule -> clean config error
+        _err.print(f"[config] {exc}")
+        sys.exit(EXIT_CONFIG)
+    try:
+        # record payload fields are attacker-controllable; a malformed Grade (non-numeric /
+        # out-of-range confidence) is a clean config error, not an uncaught traceback (review #20).
+        losses = grader.score_grades(grades, rule)
+    except Exception as exc:  # noqa: BLE001 - any malformed Grade payload -> clean [config]
+        _err.print(f"[config] malformed Grade payload in record: {exc}")
+        sys.exit(EXIT_CONFIG)
+    by_speaker: dict[str, list[float]] = {}
+    for claim, loss in losses.items():
+        by_speaker.setdefault(str(claim).split("-", 1)[0], []).append(float(loss))
+    click.echo(f"calibration loss ({rule_name}, lower is better):")
+    for spk in sorted(by_speaker):
+        vals = by_speaker[spk]
+        click.echo(f"  {spk}: mean={sum(vals) / len(vals):.4f}  n={len(vals)}")
 
 
 if __name__ == "__main__":

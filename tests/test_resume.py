@@ -65,9 +65,9 @@ def pause_resume_topology(b):
     b.trigger(
         "on-approval",
         subscription=Subscription(kinds=frozenset({"ApprovalGranted"})),
-        predicate=lambda event, views: bool(event.payload.get("approved")),
+        predicate=lambda ctx: bool(ctx.event.payload.get("approved")),
         starts="stage2",
-        input_builder=lambda views, staged, event: {"value": 1},
+        input_builder=lambda ctx: {"value": 1},
         policy=PerEvent(),
     )
     b.termination(
@@ -219,9 +219,9 @@ def _all_completed_pause_topology(b):
     b.trigger(
         "on-approval",
         subscription=Subscription(kinds=frozenset({"ApprovalGranted"})),
-        predicate=lambda event, views: bool(event.payload.get("approved")),
+        predicate=lambda ctx: bool(ctx.event.payload.get("approved")),
         starts="stage2",
-        input_builder=lambda views, staged, event: {"value": 1},
+        input_builder=lambda ctx: {"value": 1},
         policy=PerEvent(),
     )
     # WRONG terminal for a resumable run: all_completed compares restored started/ended counts.

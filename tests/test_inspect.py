@@ -47,9 +47,9 @@ def _doubler_topo(b):
     b.trigger(
         "double-each",
         subscription=Subscription(kinds=frozenset({"CountReached"})),
-        predicate=lambda event, views: True,
+        predicate=lambda ctx: True,
         starts="doubler",
-        input_builder=lambda views, staged, event: {"n": event.payload["n"]},
+        input_builder=lambda ctx: {"n": ctx.event.payload["n"]},
         policy=PerEvent(),
     )
     b.termination(quiescence_with_watchdog(seconds=1))
@@ -265,7 +265,7 @@ import time as _time  # noqa: E402
 import uuid  # noqa: E402
 
 
-def _slow_predicate(event, views):
+def _slow_predicate(ctx):
     # deliberately over the default 100us budget so it accrues budget violations and the
     # runtime quarantines it after k=3 hysteresis -> a PredicateQuarantined{reason:"budget",
     # measured_us:<wall-clock us>} on the log. measured_us VARIES run to run (it's a timing
@@ -283,7 +283,7 @@ def _quarantine_topo(b):
         subscription=Subscription(kinds=frozenset({"CountReached"})),
         predicate=_slow_predicate,
         starts="noop",
-        input_builder=lambda views, staged, event: None,
+        input_builder=lambda ctx: None,
         policy=PerEvent(),
     )
     b.termination(quiescence_with_watchdog(seconds=1))
