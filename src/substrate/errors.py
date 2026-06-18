@@ -29,6 +29,12 @@ class RecordIncompleteError(SubstrateError):
     """A record has no terminal substrate.RunFinalised (e.g. torn at seq N, §5.2)."""
 
 
+class RecordGapError(SubstrateError):
+    """The read path found a hole in the seq sequence — a sealed segment lost (deleted, truncated
+    mid-frame, or corrupted) so the yielded stream is non-contiguous. Per technical §3.5/§3.6 a gap
+    proves data loss and the reader MUST report it rather than silently fold it away."""
+
+
 class FsyncError(SubstrateError):
     """fsync failed; the medium is untrustworthy. The writer must NOT write
     RunFinalised on it — close, crash, let recovery report the truncated tail

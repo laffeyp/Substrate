@@ -3,7 +3,10 @@
 Covers conformance check 16 (torn-tail recovery) in miniature and the
 manifest-is-advisory / segments-are-authoritative invariant (§3.5)."""
 
+import pytest
+
 import substrate.record as record
+from substrate.errors import RecordGapError
 from substrate.record import Always, RecordWriter, read_record, recover_open_segment
 
 
@@ -66,3 +69,37 @@ def test_torn_tail_recovery_is_exact(tmp_path):
     assert [e["seq"] for e in read_record(tmp_path)] == [0, 1, 2, 3]
     # the torn bytes are physically gone, not merely ignored
     assert hot.read_bytes().endswith(b"\n")
+
+
+def _sealed(tmp_path):
+    return sorted(p for p in tmp_path.glob("events-*.jsonl") if not p.name.endswith(".open.jsonl"))
+
+
+def test_truncated_sealed_segment_is_detected(tmp_path, monkeypatch):
+    # §3.5/§3.6: a SEALED segment must be complete. If it loses its tail (corruption, a partial copy),
+    # that is data loss — the read path reports it, it does NOT silently drop the tail line.
+    monkeypatch.setattr(record, "SEGMENT_MAX_BYTES", 150)  # force seals
+    w = RecordWriter(tmp_path, fsync=Always())
+    for i in range(6):
+        w.append(_env(i))
+    w.close()
+    sealed = _sealed(tmp_path)
+    assert sealed, "expected a sealed segment"
+    sealed[0].write_bytes(sealed[0].read_bytes()[:-5])  # lop the trailing newline + part of the frame
+    with pytest.raises(RecordGapError):
+        list(read_record(tmp_path))
+
+
+def test_lost_sealed_segment_is_detected(tmp_path, monkeypatch):
+    # a whole deleted/lost sealed segment yields a non-contiguous stream — caught by the seq check
+    # (was silently folded as if the missing events never existed).
+    monkeypatch.setattr(record, "SEGMENT_MAX_BYTES", 150)
+    w = RecordWriter(tmp_path, fsync=Always())
+    for i in range(8):
+        w.append(_env(i))
+    w.close()
+    sealed = _sealed(tmp_path)
+    assert len(sealed) >= 2, "expected multiple sealed segments"
+    sealed[0].unlink()  # lose an entire sealed segment
+    with pytest.raises(RecordGapError):
+        list(read_record(tmp_path))

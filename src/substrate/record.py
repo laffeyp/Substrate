@@ -35,7 +35,7 @@ from msgspec import Struct
 
 from .blobstore import BlobStore, _fsync_dir
 from .constants import SEGMENT_MAX_BYTES
-from .errors import FsyncError
+from .errors import FsyncError, RecordGapError
 from .types import BlobRef
 from . import framing
 
@@ -251,16 +251,42 @@ def read_record(root: Path | str) -> Iterator[dict[str, Any]]:
     """Yield every recoverable envelope in seq order: sealed segments (by filename),
     then the recoverable prefix of the hot segment. Does not depend on the manifest
     (segments are authoritative, §3.5). Read-only, symlink-not-followed (§17); does not
-    modify anything."""
+    modify anything.
+
+    Validates seq contiguity on the read path (§3.5/§3.6): seqs are dense from 0, so a hole — a
+    deleted sealed segment, a mid-frame-truncated one, or a sealed segment that lost its tail —
+    raises RecordGapError instead of silently folding the loss away. The hot segment's torn tail is
+    the one legitimate truncation (framing.recover trims it to the last good frame); a SEALED
+    segment must be complete, so a non-newline-terminated sealed segment is data loss, not a tail."""
     root = Path(root)
+    expected = 0
+
+    def _checked(env: dict[str, Any]) -> dict[str, Any]:
+        nonlocal expected
+        seq = int(env.get("seq", -1))
+        if seq != expected:
+            raise RecordGapError(
+                f"seq gap: expected {expected}, got {seq} — a sealed segment was lost or truncated "
+                f"(data loss; per §3.6 a gap proves it)"
+            )
+        expected += 1
+        return env
+
     for seg in _sealed_segments(root):
-        for line in _read_bytes_nofollow(seg).splitlines(keepends=True):
+        data = _read_bytes_nofollow(seg)
+        if data and not data.endswith(b"\n"):
+            raise RecordGapError(
+                f"sealed segment {seg.name} has a torn tail — its last frame was truncated (data "
+                f"loss). A sealed segment must be complete; only the hot segment may have a torn tail."
+            )
+        for line in data.splitlines(keepends=True):
             if line.endswith(b"\n"):
-                yield framing.verify_line(line[:-1])
+                yield _checked(framing.verify_line(line[:-1]))
     hot = _hot_segment(root)
     if hot is not None:
         frames, _cut = framing.recover(_read_bytes_nofollow(hot))
-        yield from frames
+        for env in frames:
+            yield _checked(env)
 
 
 def recover_open_segment(root: Path | str) -> int:

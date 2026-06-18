@@ -27,6 +27,7 @@ from .errors import (
     FsyncError,
     InputTypeError,
     ProducerNotFound,
+    RecordGapError,
     RecordIncompleteError,
     SequenceOutOfRange,
     SubstrateError,
@@ -145,6 +146,7 @@ __all__ = [
     "InputTypeError",
     "ReplayError",
     "RecordIncompleteError",
+    "RecordGapError",
     # replay (technical §12)
     "replay",
     "assert_replayable",
