@@ -109,6 +109,10 @@ the same shape. See Docs.
   records, no LLM or network. The fastest way to see what the thing actually does.
 - **Write your first topology** — `docs/tutorial.md`: from install to a running
   two-Producer topology, step by step. Start here.
+- **Add a topology** — `docs/adding-a-topology.md`: the next step after the
+  tutorial — package a topology as a factory, run it from the CLI, make it
+  dual-mode (deterministic in CI, real models in a walkthrough), and register it
+  in the bundled catalogue. The contributor on-ramp.
 - **Worked example topologies** — `docs/walkthroughs/README.md`: three complete
   topologies that ship with the runtime — an ensemble-and-adjudicator, an
   error-cascade pipeline, and code-synthesis with concurrent checking. Each ships
