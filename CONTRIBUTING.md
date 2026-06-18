@@ -25,12 +25,12 @@ the base draft (the base stays as the audit trail):
 ## Signal-Driven Development
 
 Built under Signal-Driven Development (`../sdd-kit-2/`). The locked signal
-vocabulary is `signals/0.2.json` — an additive successor to `signals/0.1.json`,
+vocabulary is `process/signals/0.2.json` — an additive successor to `process/signals/0.1.json`,
 which is retained as the v0.1 audit trail. The rationale for the 0.1 → 0.2
-evolution is `signals/0.2-rationale.md`.
+evolution is `process/signals/0.2-rationale.md`.
 
-Implementation roadmap: `sprints/PHASE1_PLAN.md`. Working notes and per-wave
-records live in `BLACKBOARD.md`.
+Implementation roadmap: `process/sprints/PHASE1_PLAN.md`. Working notes and per-wave
+records live in `process/BLACKBOARD.md`.
 
 ## Gates
 

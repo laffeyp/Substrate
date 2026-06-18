@@ -1,8 +1,8 @@
 # Phase 1 — Implementation roadmap (PROPOSED)
 
-*Build-organizer planning artifact. Status: PROPOSED, pending (a) Sprint-0 vocabulary lock and (b) Architect go. Not a dispatch. Each wave below becomes a chain of sprint cards authored with the locked `signals/0.1.json` in hand — this document fixes the wave structure, the dependency order, the ≤2-file decomposition, and the conformance-check mapping so the chains can be authored fast and in the right sequence.*
+*Build-organizer planning artifact. Status: PROPOSED, pending (a) Sprint-0 vocabulary lock and (b) Architect go. Not a dispatch. Each wave below becomes a chain of sprint cards authored with the locked `process/signals/0.1.json` in hand — this document fixes the wave structure, the dependency order, the ≤2-file decomposition, and the conformance-check mapping so the chains can be authored fast and in the right sequence.*
 
-*Grounded in: docs/specs/technical_spec/draft5.md (module decomposition, §-refs), docs/specs/product_spec/draft7.md §7 (the 17 conformance checks = the acceptance spine, technique CT-5) and §8 (R-1..R-3), and the canonical home registry in WORKING_AGREEMENT.md.*
+*Grounded in: docs/specs/technical_spec/draft5.md (module decomposition, §-refs), docs/specs/product_spec/draft7.md §7 (the 17 conformance checks = the acceptance spine, technique CT-5) and §8 (R-1..R-3), and the canonical home registry in process/WORKING_AGREEMENT.md.*
 
 ---
 
@@ -24,7 +24,7 @@ Pre-fills the canonical shapes every later subsystem consumes (technique 15). Re
 - **S-0.1** `pyproject.toml` + package skeleton + `uv` lockfile + CI matrix scaffold (ruff, mypy --strict, pytest, pytest-benchmark) + `py.typed`. *(architecture)* — resolves B-Q-1 import root.
 - **S-0.2** `types.py` — `Event`, `BlobRef`, `ProducerRef`, `Subscription` as frozen msgspec Structs; the on-disk envelope fields (tech §3.4). *(architecture)*
 - **S-0.3** `protocols.py` (`Producer`, `View` Protocols) + `constants.py` (tech §19 named defaults). *(architecture)*
-- **S-0.bridge** `WORKING_AGREEMENT.md` SDK bridge mappings for **msgspec** and **rfc8785** — reverse-engineer the real API surface (technique 46 / hard rule on `bridge_mapping_required`). *(bridge)* — MUST land before Wave 1.
+- **S-0.bridge** `process/WORKING_AGREEMENT.md` SDK bridge mappings for **msgspec** and **rfc8785** — reverse-engineer the real API surface (technique 46 / hard rule on `bridge_mapping_required`). *(bridge)* — MUST land before Wave 1.
 - **S-0.INT** Import-lint rule (`substrate.cli` → `substrate.api` only, F-API-6) wired in CI; skeleton imports clean; `mypy --strict` green on the empty public surface.
 
 ---

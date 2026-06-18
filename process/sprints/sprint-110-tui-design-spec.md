@@ -80,7 +80,7 @@ None at runtime — this is an architecture/design sprint. The Signal Report nar
 
 ### Files modified
 
-- `BLACKBOARD.md` — append the Sprint-110 close; surface Q-2.4 (replay --diff in v1.1 or v1.2?) for ratification.
+- `process/BLACKBOARD.md` — append the Sprint-110 close; surface Q-2.4 (replay --diff in v1.1 or v1.2?) for ratification.
 
 ### Content assertions
 

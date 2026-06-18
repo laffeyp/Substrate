@@ -1,5 +1,5 @@
 {
-  "_note": "Substrate locked vocabulary v0.2. ADDITIVE successor to v0.1 (signals/0.1.json retained as the locked-v0.1 audit trail; no deletions). v0.2 ratifies three TriggerFired payload proposals \u2014 P-TRIGGERFIRED-INSTANCE (the spawned Producer's instance id, closing provenance/check 11 under strict extras), P-TRIGGERFIRED-FACTORY (the spawned kind, reconciling the kernel-vs-tech drift), and P-TRIGGERFIRED-INPUT-BLOB (rename $blob -> input_blob to de-overload the BlobRef sentinel). Validator-extras: STRICT. See signals/0.2-rationale.md. Changes go through the eight-proposal taxonomy and bump the version.",
+  "_note": "Substrate locked vocabulary v0.2. ADDITIVE successor to v0.1 (process/signals/0.1.json retained as the locked-v0.1 audit trail; no deletions). v0.2 ratifies three TriggerFired payload proposals \u2014 P-TRIGGERFIRED-INSTANCE (the spawned Producer's instance id, closing provenance/check 11 under strict extras), P-TRIGGERFIRED-FACTORY (the spawned kind, reconciling the kernel-vs-tech drift), and P-TRIGGERFIRED-INPUT-BLOB (rename $blob -> input_blob to de-overload the BlobRef sentinel). Validator-extras: STRICT. See process/signals/0.2-rationale.md. Changes go through the eight-proposal taxonomy and bump the version.",
   "version": "0.2",
   "project": "Substrate",
   "locked": true,
@@ -344,7 +344,7 @@
           "ratified_into": "0.2"
         }
       ],
-      "note": "A Trigger's predicate was satisfied; input_builder ran; the Producer task is scheduled. Enqueued on the control queue at end of step 5; appended in step 6 with its own full cycle. EVENT stratum (per-firing decision frame). Resolved inputs carried here are what make Level-2 replay reconstruct exact inputs. Payload shape verbatim from tech \u00a76.2 step 5.  [v0.2: factory + instance ratified (P-TRIGGERFIRED-FACTORY / -INSTANCE); $blob renamed input_blob (P-TRIGGERFIRED-INPUT-BLOB). See signals/0.2-rationale.md.]"
+      "note": "A Trigger's predicate was satisfied; input_builder ran; the Producer task is scheduled. Enqueued on the control queue at end of step 5; appended in step 6 with its own full cycle. EVENT stratum (per-firing decision frame). Resolved inputs carried here are what make Level-2 replay reconstruct exact inputs. Payload shape verbatim from tech \u00a76.2 step 5.  [v0.2: factory + instance ratified (P-TRIGGERFIRED-FACTORY / -INSTANCE); $blob renamed input_blob (P-TRIGGERFIRED-INPUT-BLOB). See process/signals/0.2-rationale.md.]"
     },
     {
       "name": "substrate.InputBuildFailed",
@@ -892,7 +892,7 @@
       {
         "target": "all user-facing string fields (CLI run/replay/inspect/validate/tail/conformance/stats output; registration/error strings)",
         "constraint": "TONE CANON + CLI EXIT CODES: structured output only, never natural language from the runtime; typed fields (error_kind, at_path, sequence); cite sequence numbers ('at seq 1247', never 'around the third trigger'); the eight-word vocabulary only (Producer/Bus/View/Predicate/Trigger/Route/TerminationPolicy/Topology), no anthropomorphic synonyms (agent/actor/speaker), no marketing reframes (workflow/step/task), no emoji; registration errors follow design \u00a76.1 shape (where -> summary -> what's wrong -> upstream constraint -> inline fix). Exit codes are a stable contract; the record root path is printed on every exit.",
-        "source": "WORKING_AGREEMENT.md Tone canon; docs/specs/design_spec/draft1.md \u00a75.1, \u00a76.1",
+        "source": "process/WORKING_AGREEMENT.md Tone canon; docs/specs/design_spec/draft1.md \u00a75.1, \u00a76.1",
         "enforceability": "llm_check"
       }
     ]

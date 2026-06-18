@@ -28,7 +28,7 @@ Note the tension this exposes (resolved by A1.2 below): D-8 log-equivalence **ex
 
 ### Re-visit condition
 
-Implement Level 3(b) + the t-replay writer in a later wave (the conformance/topologies wave or a dedicated replay wave). On ship, reinstate F-RPLY-1 3(b) as MUST and flip check 6 from `deferred` to a live gate. Tracked in `BLACKBOARD.md ## Deferred`.
+Implement Level 3(b) + the t-replay writer in a later wave (the conformance/topologies wave or a dedicated replay wave). On ship, reinstate F-RPLY-1 3(b) as MUST and flip check 6 from `deferred` to a live gate. Tracked in `process/BLACKBOARD.md ## Deferred`.
 
 ---
 
@@ -53,7 +53,7 @@ The D-8 comparison (`first_divergence`, conformance check 13) builds, per frame,
 
 ### Why
 
-Without enumerating and excluding `measured_us` and `error`, two runs of the same deterministic topology that both (e.g.) budget-quarantine the same predicate would carry different `measured_us` / `error` reprs and hash differently, producing a **spurious `first_divergence`** — a false conformance-check-13 positive. "Supplementary metadata excluded" is only honest if the set is enumerated; A1.2 enumerates it. This is the same exclusion documented in `signals/0.2-rationale.md`.
+Without enumerating and excluding `measured_us` and `error`, two runs of the same deterministic topology that both (e.g.) budget-quarantine the same predicate would carry different `measured_us` / `error` reprs and hash differently, producing a **spurious `first_divergence`** — a false conformance-check-13 positive. "Supplementary metadata excluded" is only honest if the set is enumerated; A1.2 enumerates it. This is the same exclusion documented in `process/signals/0.2-rationale.md`.
 
 ### Flow-back
 

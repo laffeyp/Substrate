@@ -154,9 +154,9 @@ The runtime implements a four-document spec corpus. The **canonical** drafts are
 
 Everything else under `docs/specs/` is history, not load-bearing: superseded drafts
 are relocated into each spec dir's `history/` (kept, not deleted — the audit trail).
-And `docs/proof/`, plus the top-level `signals/`, `sprints/`, `archive/`,
-`BLACKBOARD.md`, and `KIT_DIARY.md`, are the Signal-Driven Development record of how
-it was built — read them for the *why*, skip them to use or contribute.
-`CONTRIBUTING.md` has the full layout + the SDD notes.
+And `docs/proof/`, plus everything under `process/` (`BLACKBOARD.md`, `KIT_DIARY.md`,
+`sprints/`, `signals/`, `archive/`, `WORKING_AGREEMENT.md`, `PHASE2.md`), is the
+Signal-Driven Development record of how it was built — read it for the *why*, skip it
+to use or contribute. `CONTRIBUTING.md` has the full layout + the SDD notes.
 
 Working name "substrate" (official package name deferred). Apache-2.0.

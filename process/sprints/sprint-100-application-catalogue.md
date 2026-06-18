@@ -23,7 +23,7 @@ Read every §What this enables and §Where this points section across the spec c
 ## prerequisites
 
 - Phase 1 closed (runtime ships v1.0; conformance gate green).
-- Architect ratifies the Phase 2 scope Decision (PHASE2_PLAN.md → BLACKBOARD.md `## Surfaced for review` → `## Decisions`).
+- Architect ratifies the Phase 2 scope Decision (PHASE2_PLAN.md → process/BLACKBOARD.md `## Surfaced for review` → `## Decisions`).
 
 ---
 
@@ -33,8 +33,8 @@ Read every §What this enables and §Where this points section across the spec c
 - `docs/specs/product_spec/draft7.md` §8 — the three reference topologies already shipped (R-1 ensemble, R-2 error cascade, R-3 code synthesis).
 - `docs/specs/design_spec/draft1.md` §7 (user journeys) and §8 (future UI sketches that name what topologies would benefit from each visualization).
 - `precursors/horizon_multi_agent.md`, `horizon_compositional_grammar.md`, `orchestrating_conversation.md` — the precursor thinking that fed into the substrate.
-- `WORKING_AGREEMENT.md` — tone canon for the survey doc (concise, honest, no overclaim).
-- `BLACKBOARD.md` — current `## Open questions` and `## Drift watchlist` for any topology candidates surfaced previously.
+- `process/WORKING_AGREEMENT.md` — tone canon for the survey doc (concise, honest, no overclaim).
+- `process/BLACKBOARD.md` — current `## Open questions` and `## Drift watchlist` for any topology candidates surfaced previously.
 
 ---
 
@@ -50,7 +50,7 @@ None at runtime — this is a research/architecture sprint. The Signal Report na
 
 ### Invariants
 
-- Every candidate is sourced from the spec corpus, not invented. New ideas (not in the specs) are surfaced as proposals in `signals/proposals.json` per the vocabulary-evolution discipline.
+- Every candidate is sourced from the spec corpus, not invented. New ideas (not in the specs) are surfaced as proposals in `process/signals/proposals.json` per the vocabulary-evolution discipline.
 - Each candidate has all three scores (cost / coverage / shock-and-awe) with one-paragraph rationale, not a hand-wave.
 - Local-model feasibility is assessed honestly — claims like "50 agents at 1B model concurrent" must reference batching (Ollama `OLLAMA_NUM_PARALLEL` or vLLM continuous batching) explicitly.
 - "Shock-and-awe" is judged against a non-expert who has used LangChain or LangGraph but not the substrate. Score the moment they see it, not the value after they've used it for a month.
@@ -66,7 +66,7 @@ None at runtime — this is a research/architecture sprint. The Signal Report na
 
 ### Files modified
 
-- `BLACKBOARD.md` — append survey close to `## Built` + `## Sprint tail`; resolve/append `## Open questions` related to the catalogue.
+- `process/BLACKBOARD.md` — append survey close to `## Built` + `## Sprint tail`; resolve/append `## Open questions` related to the catalogue.
 
 ### Content assertions
 

@@ -245,7 +245,7 @@
       "element": "substrate.TriggerFired: does the frame carry `factory`?",
       "rationale": "Kernel v15 lifecycle table names `factory` among TriggerFired\u2019s identified elements; tech \u00a76.2 step 5 omits it. The spawned kind is recoverable via the trigger\u2019s `starts` in the RunStarted manifest, arguing factory is redundant on the frame. Reconcile or accept the omission explicitly.",
       "source": "docs/specs/kernel_spec/v15.md lifecycle table line 479; docs/specs/technical_spec/draft5.md \u00a76.2 step 5 line 501",
-      "disposition": "RATIFIED into v0.2 (Architect ruling 2026-06-13); signals/0.2.json + 0.2-rationale.md",
+      "disposition": "RATIFIED into v0.2 (Architect ruling 2026-06-13); process/signals/0.2.json + 0.2-rationale.md",
       "ratified": true,
       "ratified_into": "0.2"
     },
@@ -255,7 +255,7 @@
       "element": "substrate.TriggerFired.instance (str): the ULID instance_id of the Producer the firing schedules.",
       "rationale": "Closes provenance F-OBS-2 / conformance check 11 (provenance closure): every spawned Producer must trace to its TriggerFired, and ProducerStarted carries {kind,instance,parent} (P-SUBJECT-ID) but TriggerFired carried no instance, so explain_producer/trace_ancestry could not link a ProducerStarted back to the exact firing without re-deriving it. Symmetric with P-SUBJECT-ID (ratified into v0.1 for the Producer* tags). The runtime emits this field on every TriggerFired (initial + trigger-fired paths). Under strict validator-extras it is an uncatalogued field until ratified. Architect-directed (Wave-6-prep) \u2014 surfaced here for the version bump rather than silently invented.",
       "source": "docs/specs/product_spec/draft7.md F-OBS-2; product \u00a77 check 11; docs/specs/technical_spec/draft5.md \u00a714 (explain_producer/trace_ancestry); locked vocabulary P-SUBJECT-ID precedent",
-      "disposition": "RATIFIED into v0.2 (Architect ruling 2026-06-13); signals/0.2.json + 0.2-rationale.md",
+      "disposition": "RATIFIED into v0.2 (Architect ruling 2026-06-13); process/signals/0.2.json + 0.2-rationale.md",
       "ratified": true,
       "ratified_into": "0.2"
     },
@@ -265,7 +265,7 @@
       "element": "Rename substrate.TriggerFired blob field `$blob` -> `input_blob` (carrying the BlobRef object).",
       "rationale": "The locked v0.1 schema names the oversized-input field `$blob` of type BlobRef; but a BlobRef serializes to {\"$blob\":\"sha256:..\",\"bytes\":n}, so the on-disk frame becomes {\"$blob\":{\"$blob\":..}} \u2014 the field key and the BlobRef's own key are textually identical, a footgun for any reader/CLI author distinguishing 'the field' from 'the ref'. The emission-payload blob case has no such collision (there the payload IS a bare BlobRef). Rename the TriggerFired field to `input_blob` so the two cases are unambiguous; still mutually exclusive with resolved_input (D-5). Architect-directed (review pass 2). Carried implemented-ahead-of-ratification, like P-TRIGGERFIRED-INSTANCE.",
       "source": "design review pass 2; docs/specs/technical_spec/draft5.md \u00a76.2 step 5 / \u00a73.7; locked TriggerFired schema $blob field",
-      "disposition": "RATIFIED into v0.2 (Architect ruling 2026-06-13); signals/0.2.json + 0.2-rationale.md",
+      "disposition": "RATIFIED into v0.2 (Architect ruling 2026-06-13); process/signals/0.2.json + 0.2-rationale.md",
       "ratified": true,
       "ratified_into": "0.2"
     },
@@ -274,7 +274,7 @@
       "kind": "PAYLOAD_FIELD_PROPOSED",
       "element": "Carry {inner_run_id, inner_seq} on events a boundary translator exports from an embedded substrate (technical \u00a720).",
       "rationale": "\u00a720 says the boundary translator 'stamps {inner_run_id, inner_seq} into producer metadata' on each translated outer event, so a reader can trace an outer event back to the exact inner frame. But the LOCKED wire ProducerRef is exactly {kind, instance, parent} (0.2.json) \u2014 it has no metadata slot, and an outer Producer kind may not emit a substrate.* kind, so there is nowhere on the current envelope to put inner provenance per-frame. The inner-RUN link IS preserved (the inner record root is recorded in the outer TriggerFired.resolved_input, and inner failures carry inner_run_id on ProducerFailed), so provenance closure holds at the run granularity; only the per-FRAME inner_seq stamp is unmet. Options to resolve: (a) add an optional `metadata: dict` to ProducerRef (ENTITY/PAYLOAD change, the ProducerId\u2194ProducerRef ENTITY_MERGE already notes ProducerId has metadata); (b) a dedicated composition envelope field; (c) rule the run-granularity link sufficient for v1.0 and make \u00a720's per-frame stamp a SHOULD. Needs an Architect ruling + likely a vocab bump; do NOT invent a wire field unilaterally.",
-      "source": "docs/specs/technical_spec/draft5.md \u00a720 (lines 957-961); product F-COMP; locked ProducerRef (signals/0.2.json)",
+      "source": "docs/specs/technical_spec/draft5.md \u00a720 (lines 957-961); product F-COMP; locked ProducerRef (process/signals/0.2.json)",
       "disposition": "RESOLVED-AS-SUFFICIENT-FOR-v1.0 (Agent judgment 2026-06-13, recorded for Architect handshake): run-granularity inner provenance is SUFFICIENT for v1.0. With inner_root now REQUIRED on the embedded input, every embedded run is fully citable from the outer record \u2014 the inner root is unconditionally in the outer TriggerFired.resolved_input, leading to the complete inner record (its own RunStarted.run_id + all frames), and an inner-run failure carries inner_run_id on the outer ProducerFailed. Provenance CLOSURE holds at run granularity. The \u00a720 per-frame {inner_run_id, inner_seq} stamp would only add mapping a specific OUTER translated frame to the specific INNER seq it came from \u2014 a finer-grained nicety, not a closure requirement \u2014 and it cannot ride the locked wire ProducerRef {kind,instance,parent} without a vocab change. DEFERRED to post-1.0 as an enhancement (NOT a v1.0 blocker, NOT a unilateral vocab bump). If the Architect wants the per-frame stamp in 1.0, this becomes a v0.3 ProducerRef.metadata field proposal.",
       "ratified": false
     }

@@ -15,7 +15,7 @@ pass_kind: architecture
 
 ## scope
 
-Run the 12-step Vocabulary Session (`sdd-kit-2/grammar/BOOTSTRAP.md`) for Substrate and produce the locked vocabulary `signals/0.1.json` (eleven layers populated to the extent the specs support) plus the rationale document `signals/0.1-rationale.md` (per-layer decisions, dual-contract audit table, open proposals for v0.2, Architect signature). Open proposals that the specs force but v0.1 does not adopt land in `signals/proposals.json`. No implementation sprint dispatches until both core files exist and the Architect signs off (hard rule 12).
+Run the 12-step Vocabulary Session (`sdd-kit-2/grammar/BOOTSTRAP.md`) for Substrate and produce the locked vocabulary `process/signals/0.1.json` (eleven layers populated to the extent the specs support) plus the rationale document `process/signals/0.1-rationale.md` (per-layer decisions, dual-contract audit table, open proposals for v0.2, Architect signature). Open proposals that the specs force but v0.1 does not adopt land in `process/signals/proposals.json`. No implementation sprint dispatches until both core files exist and the Architect signs off (hard rule 12).
 
 This sprint is preceded by a **research + re-grounding pass** (Architect directive): an academic/best-practices literature pass on signal/event vocabulary and grammar design, plus a faithful re-read of the canonical specs and the kit grammar, so the eleven layers are grounded in the originals and in current best practice rather than first-pass intuition. Drafting mode: **draft-all-then-review** (all eleven layers in one candidate, ratified in a single Architect pass), with the research pass front-loaded.
 
@@ -23,8 +23,8 @@ This sprint is preceded by a **research + re-grounding pass** (Architect directi
 
 ## prerequisites
 
-- Bootstrap complete: `BLACKBOARD.md`, `WORKING_AGREEMENT.md`, `KIT_DIARY.md`, `signals/`, `sprints/`. (done)
-- Architect ratifies the proposed scope Decision (`BLACKBOARD.md ## Surfaced for review` → `## Decisions`).
+- Bootstrap complete: `process/BLACKBOARD.md`, `process/WORKING_AGREEMENT.md`, `process/KIT_DIARY.md`, `process/signals/`, `process/sprints/`. (done)
+- Architect ratifies the proposed scope Decision (`process/BLACKBOARD.md ## Surfaced for review` → `## Decisions`).
 
 ---
 
@@ -42,7 +42,7 @@ This sprint is preceded by a **research + re-grounding pass** (Architect directi
 - `docs/specs/product_spec/draft7.md` (F-* / N-* requirements, §7 conformance, §8 reference topologies, D-1..D-9)
 - `docs/specs/technical_spec/draft5.md` (§3 envelope/record, §4 encoding, §6 writer cycle, §16 public API)
 - `docs/specs/design_spec/draft1.md` (vocabulary discipline, error UX, CLI output shapes)
-- `WORKING_AGREEMENT.md` (strict posture; record-as-view-side override; tone canon; CT-1..CT-5)
+- `process/WORKING_AGREEMENT.md` (strict posture; record-as-view-side override; tone canon; CT-1..CT-5)
 
 ---
 
@@ -58,9 +58,9 @@ None at runtime — this is a content/architecture sprint (the founding act). Th
 
 ### Invariants
 
-- `signals/0.1.json` validates as JSON.
+- `process/signals/0.1.json` validates as JSON.
 - Every tag references a declared category; every category aligns with an architectural boundary, not a class/file name.
-- No vocabulary is invented beyond what the specs support; gaps are surfaced as typed proposals in `signals/proposals.json`, not silently filled (BOOTSTRAP anti-pattern: fabricating to avoid halting).
+- No vocabulary is invented beyond what the specs support; gaps are surfaced as typed proposals in `process/signals/proposals.json`, not silently filled (BOOTSTRAP anti-pattern: fabricating to avoid halting).
 - Lifecycle/control-plane kinds use the reserved `substrate.` prefix and match the spec names exactly (e.g., `ProducerEmittedInvalidEvent`, not a paraphrase).
 - Strict validator-extras posture recorded in the rationale doc.
 
@@ -70,23 +70,23 @@ None at runtime — this is a content/architecture sprint (the founding act). Th
 
 ### Files created
 
-- `signals/0.1.json` — the locked vocabulary (Layers 0–10).
-- `signals/0.1-rationale.md` — per-layer rationale, dual-contract audit table, open proposals, signatures.
-- `signals/proposals.json` — typed open proposals for v0.2 (eight evolution kinds).
-- `signals/research-pass.md` — the academic/best-practices + prior-art findings with citations that informed the grammar (Architect directive).
+- `process/signals/0.1.json` — the locked vocabulary (Layers 0–10).
+- `process/signals/0.1-rationale.md` — per-layer rationale, dual-contract audit table, open proposals, signatures.
+- `process/signals/proposals.json` — typed open proposals for v0.2 (eight evolution kinds).
+- `process/signals/research-pass.md` — the academic/best-practices + prior-art findings with citations that informed the grammar (Architect directive).
 
 ### Files modified
 
-- `BLACKBOARD.md` — append the Sprint-0 close to `## Built` + `## Sprint tail`; resolve/append open questions.
-- `KIT_DIARY.md` — Sprint-0 / Phase-0 synthesis entry.
+- `process/BLACKBOARD.md` — append the Sprint-0 close to `## Built` + `## Sprint tail`; resolve/append open questions.
+- `process/KIT_DIARY.md` — Sprint-0 / Phase-0 synthesis entry.
 
 ### Content assertions
 
-- `signals/0.1.json` validates as JSON; contains an `ontology.entities` array, a `categories` array, a `tags` array, and the Layer 3–10 sections per `templates/VOCABULARY.json`.
-- `signals/0.1.json` contains all thirteen `substrate.` lifecycle kinds from kernel v15 / product F-LIFE-1 (`RunStarted`, `TriggerFired`, `InputBuildFailed`, `ProducerStarted`, `ProducerEmittedInvalidEvent`, `ProducerCompleted`, `ProducerFailed`, `ProducerCancelled`, `InjectionApplied`, `PredicateQuarantined`, `TerminationMatched`, `RunFinalised`).
+- `process/signals/0.1.json` validates as JSON; contains an `ontology.entities` array, a `categories` array, a `tags` array, and the Layer 3–10 sections per `templates/VOCABULARY.json`.
+- `process/signals/0.1.json` contains all thirteen `substrate.` lifecycle kinds from kernel v15 / product F-LIFE-1 (`RunStarted`, `TriggerFired`, `InputBuildFailed`, `ProducerStarted`, `ProducerEmittedInvalidEvent`, `ProducerCompleted`, `ProducerFailed`, `ProducerCancelled`, `InjectionApplied`, `PredicateQuarantined`, `TerminationMatched`, `RunFinalised`).
 - Layer 0 entities include at least: Producer, Event, Bus, View, Predicate, Trigger, Route, TerminationPolicy, Topology, RunRecord, Segment, Blob, AdmissionQueue, ControlQueue (the spec's nouns).
-- `signals/0.1-rationale.md` contains a "Dual-contract audit" section pairing every behavior tag with a record-observable counterpart (replay Level 1/2 reconstruction), per the WORKING_AGREEMENT override.
-- `signals/0.1-rationale.md` ends with an Architect signature line.
+- `process/signals/0.1-rationale.md` contains a "Dual-contract audit" section pairing every behavior tag with a record-observable counterpart (replay Level 1/2 reconstruction), per the WORKING_AGREEMENT override.
+- `process/signals/0.1-rationale.md` ends with an Architect signature line.
 
 ### Command exit codes
 
@@ -103,7 +103,7 @@ Not applicable — content/architecture sprint, no runtime behavior. The verific
 
 ## done criteria
 
-`signals/0.1.json` is locked at v0.1 and signed off by the Architect; the rationale doc is defensible; open proposals are filed. The eight primitives, thirteen lifecycle kinds, append-cycle decision points, and replay/record vocabulary are all named with typed payloads, categories aligned to architectural boundaries, strata assigned, and the conformance checks (§7) cross-checked for vocabulary coverage. Phase 1 (implementation) may then begin.
+`process/signals/0.1.json` is locked at v0.1 and signed off by the Architect; the rationale doc is defensible; open proposals are filed. The eight primitives, thirteen lifecycle kinds, append-cycle decision points, and replay/record vocabulary are all named with typed payloads, categories aligned to architectural boundaries, strata assigned, and the conformance checks (§7) cross-checked for vocabulary coverage. Phase 1 (implementation) may then begin.
 
 ---
 
@@ -119,7 +119,7 @@ Not applicable — content/architecture sprint, no runtime behavior. The verific
 
 ## plan-mode review checklist
 
-- [ ] Scope concrete and bounded (produce + lock `signals/0.1.json` + rationale; research pass front-loaded).
+- [ ] Scope concrete and bounded (produce + lock `process/signals/0.1.json` + rationale; research pass front-loaded).
 - [ ] `context_files` covers the kit grammar + all four canonical specs + the worked example.
 - [ ] Signal contract: vacuous-at-runtime acknowledged (content sprint).
 - [ ] Artifact contract gradable: JSON validates; thirteen lifecycle kinds present; dual-contract audit present; signature present.

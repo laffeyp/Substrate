@@ -265,7 +265,7 @@ def first_divergence(rec_a: Any, rec_b: Any) -> Divergence | None:
 
 # ── helpers ──────────────────────────────────────────────────────────────────--
 # The D-8 supplementary-metadata exclusion set (the equivalence relation's exact shape;
-# documented in signals/0.2-rationale.md and technical_spec D-8). D-8 is "(event-kind
+# documented in process/signals/0.2-rationale.md and technical_spec D-8). D-8 is "(event-kind
 # sequence, DECISION-IDENTITY sequence, canonical payload hashes), supplementary metadata
 # excluded" (product §D-8). On `substrate.*` lifecycle frames, the following are
 # run-varying SUPPLEMENTARY noise, NOT decision identity, and are excluded from the

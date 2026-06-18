@@ -1,6 +1,6 @@
 # Phase 2 — Applications + visibility (summary)
 
-*Two-minute overview of what's next. Detailed plan: `sprints/PHASE2_PLAN.md`. Sprint cards: `sprints/sprint-100..1xx-*.md`.*
+*Two-minute overview of what's next. Detailed plan: `process/sprints/PHASE2_PLAN.md`. Sprint cards: `process/sprints/sprint-100..1xx-*.md`.*
 
 ---
 
@@ -77,7 +77,7 @@ None of these are closed. Each is parked with explicit reasons. Each becomes a P
 
 Q-2.1 Remote topology installation via `pip` from the gallery? · Q-2.2 Tutorial in v1.1 or v1.2? · Q-2.3 Default `population_simulation` agents — 25 or 50? · Q-2.4 TUI `replay --diff` in v1.1 or v1.2? · Q-2.5 Bundled-topology naming (`substrate.topologies.bundled.X` or `substrate.topologies.X`)?
 
-See `sprints/PHASE2_PLAN.md` §"Open questions" for full text.
+See `process/sprints/PHASE2_PLAN.md` §"Open questions" for full text.
 
 ---
 

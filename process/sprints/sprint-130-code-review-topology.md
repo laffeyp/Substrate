@@ -92,7 +92,7 @@ Plus the standard substrate.* lifecycle events (TriggerFired, ProducerStarted, P
 ### Files modified
 
 - `src/substrate/topologies/__init__.py` — register `code_review` in the bundled topology registry (Sprint 140 will formalize this; for now, register following the existing pattern in `r1_ensemble`).
-- `BLACKBOARD.md` — append Sprint-130 close; surface any vocabulary additions for ratification (e.g. if `CritiquePosted.role` becomes a typed enum at the vocabulary layer).
+- `process/BLACKBOARD.md` — append Sprint-130 close; surface any vocabulary additions for ratification (e.g. if `CritiquePosted.role` becomes a typed enum at the vocabulary layer).
 
 ### Content assertions
 

@@ -2,8 +2,8 @@
 
 Defaults are the technical spec §19 table; all are configurable at `Runtime(...)`
 construction. The reserved-namespace rule and the twelve lifecycle kinds are from
-kernel v15 / product F-LIFE-1 / the locked vocabulary signals/0.2.json (additive
-successor to signals/0.1.json; see signals/0.2-rationale.md).
+kernel v15 / product F-LIFE-1 / the locked vocabulary process/signals/0.2.json (additive
+successor to process/signals/0.1.json; see process/signals/0.2-rationale.md).
 """
 
 from __future__ import annotations
@@ -26,10 +26,10 @@ WRITER_STATS_INTERVAL_MS = 1000  # writer-observability cadence (§6.4)
 JSON_SAFE_INT_MAX = 2**53 - 1
 JSON_SAFE_INT_MIN = -(2**53 - 1)
 
-# ── the active locked vocabulary version (signals/0.2.json) ───────────────────
+# ── the active locked vocabulary version (process/signals/0.2.json) ───────────────────
 # Distinct from a per-kind wire schema `<kind>@N`: this is the SIGNAL VOCABULARY version.
 # v0.2 ratified the TriggerFired instance/factory fields + the $blob->input_blob rename
-# (signals/0.2-rationale.md). Recorded in RunStarted.config.vocab_version so a record
+# (process/signals/0.2-rationale.md). Recorded in RunStarted.config.vocab_version so a record
 # self-describes the vocabulary it was written against, for replay/inspection.
 VOCAB_VERSION = "0.2"
 

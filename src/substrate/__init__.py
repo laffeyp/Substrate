@@ -8,7 +8,7 @@ on the log; the persisted run record is the canonical account of what happened.
 
 Working name "substrate" (B-Q-1 deferred). Public API is re-exported from
 `substrate.api`; see the kernel spec (v15), product spec (DRAFT 7), technical
-spec (DRAFT 5), and the locked vocabulary at signals/0.1.json.
+spec (DRAFT 5), and the locked vocabulary at process/signals/0.1.json.
 """
 
 __version__ = "0.0.0"

@@ -90,7 +90,7 @@ Plus substrate.* lifecycle.
 ### Files modified
 
 - `src/substrate/topologies/__init__.py` — register `recursive_decomposition`.
-- `BLACKBOARD.md` — append Sprint-132 close; surface the depth-budget UX (should `DepthBudgetExceeded` be a `substrate.*` reserved kind or an application-level one?) for ratification.
+- `process/BLACKBOARD.md` — append Sprint-132 close; surface the depth-budget UX (should `DepthBudgetExceeded` be a `substrate.*` reserved kind or an application-level one?) for ratification.
 
 ### Content assertions
 

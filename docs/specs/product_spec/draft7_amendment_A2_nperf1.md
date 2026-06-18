@@ -31,7 +31,7 @@ If a high-throughput **deterministic-firehose** topology (not an LLM/agent workl
 
 ### Re-visit condition
 
-Re-visit if (a) a real workload is throughput-bound below this floor (then evaluate the compiled-encoder lever), or (b) the reference hardware for the release-gate run is fixed and measures materially differently. Tracked in `BLACKBOARD.md`.
+Re-visit if (a) a real workload is throughput-bound below this floor (then evaluate the compiled-encoder lever), or (b) the reference hardware for the release-gate run is fixed and measures materially differently. Tracked in `process/BLACKBOARD.md`.
 
 ---
 

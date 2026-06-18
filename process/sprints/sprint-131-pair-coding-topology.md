@@ -90,7 +90,7 @@ Plus the substrate.* lifecycle events.
 ### Files modified
 
 - `src/substrate/topologies/__init__.py` — register `pair_coding`.
-- `BLACKBOARD.md` — append Sprint-131 close; surface the honesty-of-chunking point for documentation review.
+- `process/BLACKBOARD.md` — append Sprint-131 close; surface the honesty-of-chunking point for documentation review.
 
 ### Content assertions
 

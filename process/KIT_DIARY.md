@@ -1,4 +1,4 @@
-# KIT_DIARY.md — Substrate
+# process/KIT_DIARY.md — Substrate
 
 *Per-sprint or per-phase: what worked, what got in the way, what this says about the next kit version. The diary is this project's accumulating memory about how sdd-kit-2 serves the work. Maintained with the discipline that produced soundfield's ~130 numbered findings.*
 
@@ -24,7 +24,7 @@
 **What happened:** First session on a greenfield Substrate project that already had a mature four-document spec corpus (kernel v15, product DRAFT 7, technical DRAFT 5, design DRAFT 1) but zero kit scaffolding. Read the full sdd-kit-2 (AGENTS/CLAUDE, foundations 01–04, grammar PRINCIPLES + BOOTSTRAP, TECHNIQUES, all six templates, lib/sdd.py, process-not-prompt research, the full `example/`) and the four canonical specs in full. Bootstrapped BLACKBOARD (with COMPREHENSION_AFFIRMATION + proposed scope Decision), WORKING_AGREEMENT, this diary, and the Sprint-0 card. Architect directed: bootstrap + start the session; maximize parallel agent teams + worktrees; brief every agent on the actual techniques (originals, not summaries); do a real academic/best-practices research pass and re-ground in the originals before settling the grammar; strict validator-extras.
 
 **What worked:**
-- The kit's first-session ritual (read AGENTS → read BLACKBOARD → foundations → vocabulary → working agreement → sprint card) mapped cleanly onto a fresh project: the absence of `signals/0.1.json` plus the absence of a `COMPREHENSION_AFFIRMATION` bullet correctly identified this as a first session and routed straight to hard rule 12 (Sprint-0 gates implementation).
+- The kit's first-session ritual (read AGENTS → read BLACKBOARD → foundations → vocabulary → working agreement → sprint card) mapped cleanly onto a fresh project: the absence of `process/signals/0.1.json` plus the absence of a `COMPREHENSION_AFFIRMATION` bullet correctly identified this as a first session and routed straight to hard rule 12 (Sprint-0 gates implementation).
 - The substrate's specs are unusually rigorous and internally cross-referenced (requirement IDs, decision IDs, conformance checks) — the kind of input BOOTSTRAP Step 0 wants and rarely gets. Thin-docs compensation (the anti-pattern of inventing entities) is not a risk here; the opposite (faithful transcription) is the discipline.
 
 **What got in the way:**
@@ -40,7 +40,7 @@
 
 ### 2026-06-12 (round 0) — Sprint 0 candidate produced (Vocabulary Session)
 
-**What happened:** Ran the Vocabulary Session as a 15-agent parallel workflow (CT-1): 4 research strands → 6 per-subsystem drafters (each reading originals, CT-2) → 1 synthesizer → 4 adversarial verifiers. First launch aborted mid-synthesis; resumed from the journal (9 cached agents replayed instantly, tail re-ran). Produced the candidate `signals/0.1.json` + rationale + proposals + research-pass.
+**What happened:** Ran the Vocabulary Session as a 15-agent parallel workflow (CT-1): 4 research strands → 6 per-subsystem drafters (each reading originals, CT-2) → 1 synthesizer → 4 adversarial verifiers. First launch aborted mid-synthesis; resumed from the journal (9 cached agents replayed instantly, tail re-ran). Produced the candidate `process/signals/0.1.json` + rationale + proposals + research-pass.
 
 **What worked:**
 - The adversarial-verify phase earned its cost immediately: it caught the synthesizer asserting two inferences as spec fact (a fabricated `vocab_version` attribute; a contested `ProducerEmittedInvalidEvent` producer-field claim) and over-claiming reconstructability in the dual-contract audit. Exactly the intrinsic-self-critique-is-weak / needs-external-check-surface lesson (TECHNIQUES #0.5): the verifiers were grounded against the specs + the 17 conformance checks, not opinion.
@@ -112,7 +112,7 @@
 
 ### 2026-06-13 (round 8) — the first vocabulary evolution, done by the book
 
-**What happened:** The Architect ratified the three carry-ahead TriggerFired proposals and ruled the bump be ADDITIVE: new `signals/0.2.json` (`prior_version:"0.1"`), v0.1 retained as audit trail, `0.2-rationale.md` recording the changes, proposals marked ratified. Built it by copying v0.1 → mutating exactly the metadata + the TriggerFired tag, and diff-verified nothing else changed. Folded external-review #1's D-8 honesty findings in at the same time (equivalence-relation concerns = vocabulary territory).
+**What happened:** The Architect ratified the three carry-ahead TriggerFired proposals and ruled the bump be ADDITIVE: new `process/signals/0.2.json` (`prior_version:"0.1"`), v0.1 retained as audit trail, `0.2-rationale.md` recording the changes, proposals marked ratified. Built it by copying v0.1 → mutating exactly the metadata + the TriggerFired tag, and diff-verified nothing else changed. Folded external-review #1's D-8 honesty findings in at the same time (equivalence-relation concerns = vocabulary territory).
 
 **What worked:**
 - **The carry-ahead → ratify → additive-bump loop closed exactly as the methodology predicts.** Fields were implemented-ahead-of-ratification with typed proposals (Waves 5–6), surfaced for a ruling, and the ruling produced a real version bump with a rationale — not a silent edit to a locked file. v0.1 is untouched; a future session can diff 0.1→0.2 and read the why. The compounding-stability claim made concrete.
@@ -297,4 +297,4 @@ The Substrate build is the first project of its class (a runtime / event-sourcin
 
 ---
 
-*KIT_DIARY.md for Substrate. Rounds 0–15 logged; Phase 1 (Implementation) closed 2026-06-13. H1/H2/H3 confirmed, H4 partially. Eight structural findings filed for upstream propagation by the kit maintainer — the headline being that the kit defends trace-truth and contract-truth but had no native defense for claim-truth (an honest kernel shipped a dishonest surface, caught only by an external audit + clean-room CI).*
+*process/KIT_DIARY.md for Substrate. Rounds 0–15 logged; Phase 1 (Implementation) closed 2026-06-13. H1/H2/H3 confirmed, H4 partially. Eight structural findings filed for upstream propagation by the kit maintainer — the headline being that the kit defends trace-truth and contract-truth but had no native defense for claim-truth (an honest kernel shipped a dishonest surface, caught only by an external audit + clean-room CI).*
