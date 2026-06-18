@@ -9,9 +9,11 @@ model; the mode is chosen by which Responder the run is handed.
   - DeterministicResponder — canned, seed-derived answers; pure, no I/O. The CI mode. The
     spec is explicit that CI mode alone "sanitizes away the thing each topology exists to
     demonstrate", so CI mode proves WIRING only and never masquerades as the demonstration.
-  - OllamaResponder — a real call to an OpenAI-compatible chat endpoint (Ollama at
-    http://localhost:11434/v1 by default) over httpx (the `openai-compat` optional extra;
-    the kernel imports none of it — httpx is imported lazily here). The WALKTHROUGH mode.
+  - OllamaResponder — a real call to Ollama's native /api/chat (http://localhost:11434 by
+    default) over httpx (the `openai-compat` optional extra; the kernel imports none of it —
+    httpx is imported lazily here). Sets think=False + num_ctx + retry, the things a real model
+    actually needs to work (a naive single-shot call silently breaks reasoning models and
+    long transcripts). The WALKTHROUGH mode.
 
 Local models only: the walkthrough uses llama3.2:1b (weak ensemble members / quick runs)
 and huihui_ai/qwen2.5-coder-abliterate:7b (R-1 adjudicator / R-3 writer); cloud models are
@@ -49,50 +51,89 @@ class DeterministicResponder:
 
 
 class OllamaResponder:
-    """A real local-LLM responder over an OpenAI-compatible chat endpoint (walkthrough mode).
+    """A real local-LLM responder over Ollama's native `/api/chat` (walkthrough mode).
 
-    Defaults to Ollama at http://localhost:11434/v1 with the api key "ollama". httpx is
-    imported lazily (the `openai-compat` extra), so importing this module never requires httpx
-    in CI. temperature defaults to 0 for as-reproducible-as-a-real-model-gets walkthroughs;
-    max_tokens is kept small (demonstration on the Architect's machine, not a benchmark)."""
+    Rebuilt to the standard a precursor orchestrator proved is REQUIRED to make open-source models
+    actually work — a naive single-shot OpenAI-compat call is a toy that fails on real models:
+
+      - `think=False`: thinking-capable models (deepseek-r1, qwen3, kimi, gpt-oss, most cloud
+        reasoning models) otherwise route their whole output budget into a hidden `thinking` field
+        and return EMPTY `content`. Without this every reasoning model is silently broken.
+      - explicit `num_ctx`: Ollama defaults the context window to **2048** regardless of the model's
+        real capacity, so a long input (a growing conversation transcript) is truncated to its tail
+        and the model parrots the last turn. Set it to the model's actual window.
+      - retry with backoff: a daemon hiccup or a cloud-tier 503 must not crash a whole run.
+
+    Native `/api/chat` (not the OpenAI-compat `/v1`) because that endpoint is where `num_ctx` and
+    `think` live. httpx is imported lazily (the `openai-compat` extra), so importing this module
+    never requires httpx in CI. temperature defaults to 0 for as-reproducible-as-a-real-model-gets
+    walkthroughs. Local Ollama needs no auth; set `api_key` for direct api.ollama.com cloud access
+    (local `:cloud` tags route through the daemon with no key once `ollama signin` has run)."""
 
     def __init__(
         self,
         model: str,
         *,
-        base_url: str = "http://localhost:11434/v1",
-        api_key: str = "ollama",
+        base_url: str = "http://localhost:11434",
+        api_key: str | None = None,
         temperature: float = 0.0,
-        max_tokens: int = 256,
+        max_tokens: int = 512,
+        num_ctx: int = 32768,
+        think: bool = False,
         timeout: float = 120.0,
+        max_retries: int = 3,
         system: str | None = None,
     ) -> None:
+        # tolerate a trailing `/v1` from the old OpenAI-compat default so existing call sites keep
+        # working; the native chat route is `<base>/api/chat`.
+        base = base_url.rstrip("/")
+        if base.endswith("/v1"):
+            base = base[:-3]
+        self._endpoint = f"{base}/api/chat"
         self._model = model
-        self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._temperature = temperature
         self._max_tokens = max_tokens
+        self._num_ctx = num_ctx
+        self._think = think
         self._timeout = timeout
+        self._max_retries = max_retries
         self._system = system
 
     def respond(self, prompt: str) -> str:
+        import time
+
         import httpx  # lazy: the openai-compat optional extra; kernel/CI need not have it
 
-        messages = []
+        messages: list[dict[str, str]] = []
         if self._system:
             messages.append({"role": "system", "content": self._system})
         messages.append({"role": "user", "content": prompt})
-        resp = httpx.post(
-            f"{self._base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {self._api_key}"},
-            json={
-                "model": self._model,
-                "messages": messages,
-                "temperature": self._temperature,
-                "max_tokens": self._max_tokens,
-            },
-            timeout=self._timeout,
+        options: dict[str, object] = {"num_ctx": self._num_ctx, "temperature": self._temperature}
+        if self._max_tokens > 0:
+            options["num_predict"] = self._max_tokens
+        payload = {
+            "model": self._model,
+            "messages": messages,
+            "stream": False,
+            "think": self._think,  # force useful output into `content`, not a hidden thinking field
+            "options": options,
+        }
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+
+        last_exc: Exception | None = None
+        for attempt in range(self._max_retries):
+            try:
+                resp = httpx.post(self._endpoint, headers=headers, json=payload, timeout=self._timeout)
+                resp.raise_for_status()
+                data = resp.json()
+                return str((data.get("message") or {}).get("content", "")).strip()
+            except httpx.HTTPError as exc:  # transport OR 4xx/5xx: retry with backoff, then fail loud
+                last_exc = exc
+                if attempt < self._max_retries - 1:
+                    time.sleep(1.0 * (2**attempt))
+        raise RuntimeError(
+            f"OllamaResponder({self._model}) failed after {self._max_retries} attempts: {last_exc!r}"
         )
-        resp.raise_for_status()
-        data = resp.json()
-        return str(data["choices"][0]["message"]["content"]).strip()

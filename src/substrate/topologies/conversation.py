@@ -19,8 +19,9 @@ turn-based keeps the CI record deterministic for Level-2 replay.
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator, Callable, Sequence
-from typing import Any
+from typing import Any, NamedTuple
 
 from msgspec import Struct
 
@@ -41,6 +42,20 @@ class Turn(Struct, frozen=True):
 
 class Converged(Struct, frozen=True):
     by: int  # the speaker who declared convergence (CONVERGED early-stop)
+
+
+class Detector(NamedTuple):
+    """A per-game OUTCOME detector: a side Producer fired on each Turn that emits a typed outcome
+    event (the game's claim as a record assertion, not prose). Deterministic — a pure parse of the
+    turn, no model. Installed observation-only (no Route), exactly like the grader instrument. The
+    game (debate / PD / intel) supplies the kind + the factory that reads a Turn and emits it; the
+    CI stub text has no decision token, so a detector emits a deterministic stand-in there (the
+    wiring is what CI proves) and parses the real choice in walkthrough mode."""
+
+    name: str
+    schemas: list[type]
+    factory: _Factory
+    input_builder: Callable[[api.TriggerContext], Any]
 
 
 def _next_round(turn: dict[str, Any], n: int) -> int:
@@ -84,14 +99,32 @@ def _speaker_factory(
             extra += f"\nCOMMON GROUND SO FAR: {cg}"
         if rep and rep.get("status") != REPAIR_OK:
             extra += f"\nREQUIRES REPAIR: {rep.get('note', '')}"
-        text = responder.respond(f"[speaker {speaker_id} round {rnd}]\n{transcript}{extra}")
+        # The user message must INSTRUCT the turn, not just dump the transcript: a real model handed
+        # a bare transcript "completes" it by echoing the last line (the round-2 echo bug). In CI the
+        # deterministic stub hashes the whole prompt, so any wording yields a unique stub — the bug is
+        # invisible there and only a real model exposes it. Frame the speaker's task explicitly.
+        if prior:
+            user_msg = (
+                f"You are speaker {speaker_id}. The conversation so far:\n\n{transcript}\n\n"
+                f"Write speaker {speaker_id}'s NEXT turn now — advance your own position and respond "
+                f"to what was just said. Do not repeat or copy an earlier turn.{extra}"
+            )
+        else:
+            user_msg = f"You are speaker {speaker_id}. Open the conversation.{extra}"
+        text = responder.respond(user_msg)
+        # strip any leaked transcript label ("S2:", even doubled "S2: S2:") the model copied from the
+        # transcript format into its own output — cosmetic, keeps the recorded turn clean.
+        text = re.sub(r"^\s*(S\d+:\s*)+", "", text)
         # A deterministic convergence hook for CI (in walkthrough, a speaker converges by the
         # responder emitting the CONVERGED sentinel; that path is a demo concern). converge_at
         # names the (speaker, round) that declares convergence, so tests can exercise early-stop.
         if converge_at is not None and converge_at == (speaker_id, rnd):
             yield Converged(by=speaker_id)
         else:
-            yield Turn(speaker=speaker_id, text=text[:200], round=rnd)
+            # cap the recorded turn — generous enough to retain a trailing decision line (PD's
+            # "STAY SILENT / TALK", intel's calibrated %), which a per-game detector parses. CI stub
+            # text is ~20 chars, so this cap only bounds verbose real-model turns.
+            yield Turn(speaker=speaker_id, text=text[:700], round=rnd)
 
     return lambda: speaker
 
@@ -109,6 +142,7 @@ def conversation_topology(
     instrument_responder: Responder | None = None,
     ci_repair_status: str = REPAIR_OK,
     ci_repair_alternate: bool = False,
+    detectors: Sequence[Detector] = (),
 ) -> Callable[[api.TopologyBuilder], None]:
     """Build an N-speaker turn-based conversation. `responders` is one Responder per speaker
     (N = len). Speaker 1 opens; a round-robin Trigger fires the next speaker on each Turn until
@@ -187,6 +221,19 @@ def conversation_topology(
                     "round": int(ctx.event.payload["round"]),
                     "prior_turns": list(ctx.views["transcript"].value()),
                 },
+            )
+        # per-game OUTCOME detectors: a side Producer fired on each Turn that emits the game's typed
+        # outcome (Decision / JointCall) — the claim as a record assertion. Observation-only (no
+        # Route), deterministic (a pure parse of the Turn). The natural-conversation `score` grader
+        # is the same shape; this generalizes it to the game claims.
+        for det in detectors:
+            b.instrument(
+                det.name,
+                on="Turn",
+                schemas=det.schemas,
+                factory=det.factory,
+                deterministic=True,
+                input_builder=det.input_builder,
             )
         # one round-robin Trigger per speaker: after speaker k's Turn, fire speaker k+1 (wrapping
         # N→1), carrying the next round and the transcript-so-far, while within the round budget.

@@ -64,8 +64,15 @@ def _reviewer_factory(
         # completion, which is the cancellation this topology demonstrates on its own record.
         if linger_seconds > 0:
             await asyncio.sleep(linger_seconds)
-        text = responder.respond(f"[{role}] review this code and report the worst issue:\n{code}")
-        yield CritiquePosted(role=role, severity=_severity_of(text), summary=text[:80])
+        # role-SPECIFIC steering: "report the worst issue" made every reviewer latch onto the single
+        # most glaring bug (SQLi, a div-by-zero) regardless of role — no divergence, the whole point
+        # of a multi-role panel lost. Constrain each reviewer to its OWN lens so the panel genuinely
+        # diverges (security finds the injection, performance the O(n²), style the naming, ...).
+        text = responder.respond(
+            f"You are the {role.upper()} reviewer. Review this code for {role} problems ONLY and name "
+            f"the single most important {role} issue in one sentence; ignore issues outside {role}.\n{code}"
+        )
+        yield CritiquePosted(role=role, severity=_severity_of(text), summary=text[:200])
 
     return lambda: reviewer
 
@@ -79,7 +86,11 @@ def _judge_factory(responder: Responder) -> _Factory:
         # the judge adjudicates: in CI the decision is a deterministic function of the critiques'
         # severities; in the walkthrough the real model reasons over the critique summaries.
         if responder is not None and roles:
-            _ = responder.respond("adjudicate critiques: " + "; ".join(roles))
+            # the judge must see the critique CONTENT to adjudicate, not just the role names.
+            _ = responder.respond(
+                "Adjudicate these code-review critiques; name the most serious and the verdict:\n"
+                + "\n".join(f"- {c['role']}: {c.get('summary', '')}" for c in crits)
+            )
         decision = "block" if max_sev >= 4 else "request-changes" if max_sev >= 2 else "approve"
         yield VerdictRendered(decision=decision, cited_roles=roles, n_critiques=len(crits))
 

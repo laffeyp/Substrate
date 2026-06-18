@@ -14,11 +14,97 @@ walkthrough mode hands each speaker an OllamaResponder carrying its system promp
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
+from typing import Any
+
+from msgspec import Struct
 
 from .. import api
 from ..reference._models import DeterministicResponder, OllamaResponder, Responder
-from .conversation import conversation_topology
+from .conversation import Detector, conversation_topology
+
+
+# ── per-game OUTCOME detectors (the claim as a record assertion, not prose) ─────
+# A detector is a side Producer fired on each Turn that emits a typed outcome event, deterministically
+# parsed from the (prompt-constrained) turn text. In CI the stub text carries no decision token, so the
+# detector emits a deterministic stand-in (CI proves the WIRING); in walkthrough it parses the real
+# model's choice (the real model proves the CLAIM). NOT an LLM judge — a pure string parse.
+
+
+class Decision(Struct, frozen=True):
+    """A prisoner's one-shot choice — PD's claim ('defection emerged from the incentives') made
+    record-assertable. choice ∈ {silent, talk}; talk = defect."""
+
+    prisoner: int
+    choice: str
+
+
+class JointCall(Struct, frozen=True):
+    """An analyst's calibrated assessment — intel_asymmetry's claim ('they reached a calibrated
+    joint call') made record-assertable. assessment ∈ {offensive, routine, uncertain}; confidence 0..100."""
+
+    analyst: int
+    assessment: str
+    confidence: int
+
+
+_TALK = re.compile(r"\bTALK\b", re.IGNORECASE)
+_SILENT = re.compile(r"STAY\s+SILENT|\bSILENT\b", re.IGNORECASE)
+# prefer the structured ending lines the prompts mandate ("ASSESSMENT: x CONFIDENCE: n%"); fall back
+# to looser keyword/percent matching only when the model didn't emit the structured form.
+_ASSESS_LINE = re.compile(r"ASSESSMENT:\s*(offensive|routine)", re.IGNORECASE)
+_CONF_LINE = re.compile(r"CONFIDENCE:\s*(\d{1,3})\s*%", re.IGNORECASE)
+_CONF = re.compile(r"(\d{1,3})\s*%")
+_OFFENSIVE = re.compile(r"offensive|pre-?position|attack|hostile", re.IGNORECASE)
+_ROUTINE = re.compile(r"routine|logistic|exercise|readiness|benign", re.IGNORECASE)
+
+
+def _decision_detector() -> Detector:
+    async def detect(inp: Any) -> Any:
+        text = inp.get("text", "") if hasattr(inp, "get") else ""
+        speaker = int(inp.get("speaker", 0)) if hasattr(inp, "get") else 0
+        if _TALK.search(text):
+            choice = "talk"
+        elif _SILENT.search(text):
+            choice = "silent"
+        else:  # CI stub text (no token) -> a deterministic stand-in (CI proves the wiring)
+            choice = "talk" if speaker % 2 == 0 else "silent"
+        yield Decision(prisoner=speaker, choice=choice)
+
+    return Detector(
+        name="decision", schemas=[Decision], factory=lambda: detect,
+        input_builder=lambda ctx: {"text": ctx.event.payload["text"], "speaker": ctx.event.payload["speaker"]},
+    )
+
+
+def _jointcall_detector() -> Detector:
+    async def detect(inp: Any) -> Any:
+        text = inp.get("text", "") if hasattr(inp, "get") else ""
+        speaker = int(inp.get("speaker", 0)) if hasattr(inp, "get") else 0
+        rnd = int(inp.get("round", 1)) if hasattr(inp, "get") else 1
+        # the structured "CONFIDENCE: n%" line is the model's actual call; take the LAST one. Fall
+        # back to any percent, then to a deterministic CI stand-in (no token in the stub text).
+        cm = _CONF_LINE.findall(text) or _CONF.findall(text)
+        conf = max(0, min(100, int(cm[-1]))) if cm else min(100, 50 + rnd * 10)
+        am = _ASSESS_LINE.search(text)
+        if am:
+            assess = am.group(1).lower()
+        elif _OFFENSIVE.search(text):
+            assess = "offensive"
+        elif _ROUTINE.search(text):
+            assess = "routine"
+        else:
+            assess = "uncertain" if cm else "routine"
+        yield JointCall(analyst=speaker, assessment=assess, confidence=conf)
+
+    return Detector(
+        name="joint-call", schemas=[JointCall], factory=lambda: detect,
+        input_builder=lambda ctx: {
+            "text": ctx.event.payload["text"], "speaker": ctx.event.payload["speaker"],
+            "round": ctx.event.payload["round"],
+        },
+    )
 
 # ── debate (positional asymmetry) ──────────────────────────────────────────────
 _DEBATE_CLAIM = "Open-source AI development is, on net, safer than closed development."
@@ -85,7 +171,10 @@ def prisoners_dilemma_topology(
     ALPHA's reasoning visible. Defect/cooperate dynamics emerge from the incentives, not a
     script. Default one round (ALPHA then BRAVO)."""
     speakers = _speakers([_PD_ALPHA_SYS, _PD_BRAVO_SYS], walkthrough=walkthrough, model=model)
-    return conversation_topology(speakers, max_rounds=max_rounds, deterministic=not walkthrough)
+    return conversation_topology(
+        speakers, max_rounds=max_rounds, deterministic=not walkthrough,
+        detectors=[_decision_detector()],  # Decision{prisoner, choice} — PD's claim, record-assertable
+    )
 
 
 # ── intel asymmetry (information asymmetry) ─────────────────────────────────────
@@ -96,9 +185,9 @@ _INTEL_Q = (
 _INTEL_RULES = """\
 First person, analyst voice, sourcing-aware. You hold a private slice of the picture the other
 analyst cannot see; you CANNOT quote raw collection but CAN describe its character, ask what the
-other is seeing, and tell them what would tip you. Drive toward a JOINT assessment with a
-calibrated CONFIDENCE percentage. Keep turns under ~100 words. Do not narrate that you are an
-LLM."""
+other is seeing, and tell them what would tip you. Keep turns under ~100 words. Do not narrate
+that you are an LLM. END EVERY TURN with a line in EXACTLY this format (your current best
+calibrated call): ASSESSMENT: <offensive|routine> CONFIDENCE: <0-100>%"""
 
 _INTEL_HUMINT_SYS = f"""You are HUMINT 4 (field-observation stream) in a joint fusion cell.
 QUESTION: {_INTEL_Q}
@@ -125,7 +214,10 @@ def intel_asymmetry_topology(
     speakers = _speakers(
         [_INTEL_HUMINT_SYS, _INTEL_SIGINT_SYS], walkthrough=walkthrough, model=model
     )
-    return conversation_topology(speakers, max_rounds=max_rounds, deterministic=not walkthrough)
+    return conversation_topology(
+        speakers, max_rounds=max_rounds, deterministic=not walkthrough,
+        detectors=[_jointcall_detector()],  # JointCall{analyst, assessment, confidence} — intel's claim
+    )
 
 
 # ── natural conversation (the emergence ablation — the flagship composition demo) ──
