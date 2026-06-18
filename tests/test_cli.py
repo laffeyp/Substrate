@@ -372,3 +372,37 @@ def test_stats_reads_writer_stats_sidecar(tmp_path):
     res = runner.invoke(main, ["stats", str(root), "--sidecar", "writer_stats"])
     assert res.exit_code == 0
     assert "writer_stats:" in res.stdout
+
+
+_VALIDATE_MODULE = '''
+from msgspec import Struct
+from substrate import api
+class Note(Struct, frozen=True):
+    text: str
+async def _p(inp):
+    yield Note(text="x")
+def _common(b, kind):
+    b.producer_kind("w", schemas=[Note], schema_version=1, factory=lambda: _p)
+    b.initial("w", input=None)
+    b.trigger("t", subscription=api.Subscription(kinds=frozenset({kind})),
+              predicate=lambda ctx: True, starts="w", input_builder=lambda ctx: None, policy=api.Once())
+    b.termination(api.all_completed())
+def good(b): _common(b, "Note")
+def bad(b): _common(b, "FailEvent")  # no Producer declares FailEvent
+'''
+
+
+def test_cli_validate_clean_topology_reports_counts(tmp_path):
+    mod = tmp_path / "vt.py"
+    mod.write_text(_VALIDATE_MODULE)
+    res = CliRunner().invoke(main, ["validate", "--topology-module", f"{mod}:good"])
+    assert res.exit_code == EXIT_OK, res.output
+    assert "Producer kinds" in res.stdout and "[OK]" in res.stdout
+
+
+def test_cli_validate_flags_undeclared_kind(tmp_path):
+    # F-CLI-3: a Trigger subscribing to a kind no Producer declares is a dead reference -> FAIL.
+    mod = tmp_path / "vt.py"
+    mod.write_text(_VALIDATE_MODULE)
+    res = CliRunner().invoke(main, ["validate", "--topology-module", f"{mod}:bad"])
+    assert res.exit_code == EXIT_CONFIG, res.output

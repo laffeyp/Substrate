@@ -513,17 +513,48 @@ def replay(root: str, level: str, diff_root: str | None) -> None:
 @main.command()
 @click.option("--topology-module", "topology_module", required=True, help="path/to/module.py:func")
 def validate(topology_module: str) -> None:
-    """Static topology lint (F-CLI-3). Exercises registration; runs nothing. Exit 0/64."""
+    """Static topology lint (F-CLI-3): registration, plus undeclared event-kind references, a
+    missing TerminationPolicy, wall-clock cooldown flags, and a counts summary. Runs nothing.
+    Exit 0 (clean) / 64 (registration error or a lint failure)."""
     try:
         topology = _load_topology(topology_module)
         builder = api.TopologyBuilder()
         topology(builder)
-        builder.build()
+        reg = builder.build()
     except click.ClickException as exc:
         _err.print(f"[FAIL] {exc.message}")
         sys.exit(EXIT_CONFIG)
     except Exception as exc:
         _err.print(f"[FAIL] {type(exc).__name__}: {exc}")
+        sys.exit(EXIT_CONFIG)
+
+    # the set of every event kind some Producer can emit; a Predicate/Route subscribing to a kind
+    # outside this set (and outside the reserved substrate.* lifecycle namespace) is a dead reference.
+    declared = {kind for pk in reg.producer_kinds.values() for kind in pk.schemas}
+    failures: list[str] = []
+    for t in reg.triggers:
+        for kind in sorted(t.subscription.kinds):
+            if not kind.startswith("substrate.") and kind not in declared:
+                failures.append(f"trigger {t.id!r} subscribes to kind {kind!r}, which no Producer declares")
+    for r in reg.routes:
+        for kind in sorted(r.subscription.kinds):
+            if not kind.startswith("substrate.") and kind not in declared:
+                failures.append(f"route {r.id!r} subscribes to kind {kind!r}, which no Producer declares")
+
+    click.echo(
+        f"{len(reg.producer_kinds)} Producer kinds, {len(reg.triggers)} Triggers, "
+        f"{len(reg.routes)} Routes, {len(reg.views)} Views, "
+        f"{1 if reg.termination is not None else 0} TerminationPolicy."
+    )
+    if reg.has_wall_clock_cooldown:
+        click.echo('1+ WallClock cooldown registered -> replay ceiling = "3b".')
+    if reg.termination is None:
+        click.echo("note: no TerminationPolicy registered -> the run defaults to quiescence-with-watchdog.")
+
+    if failures:
+        _err.print(f"[FAIL] {len(failures)} issue(s):")
+        for f in failures:
+            _err.print(f"  - {f}")
         sys.exit(EXIT_CONFIG)
     click.echo("[OK] Topology validates.")
 
