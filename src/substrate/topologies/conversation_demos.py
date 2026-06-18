@@ -21,7 +21,10 @@ from msgspec import Struct
 
 from .. import api
 from ..reference._models import DeterministicResponder, OllamaResponder, Responder
-from .conversation import conversation_topology
+from .conversation import Instrument, conversation_topology
+from .instruments.common_ground import CommonGround, common_ground_factory
+from .instruments.grader import Grade, grader_factory
+from .instruments.repair import REPAIR_OK, Repair, repair_factory
 
 
 # ── per-game OUTCOME events, emitted by the DECIDING speaker at its own mouth ───
@@ -227,6 +230,39 @@ _NC_THIN = (
 )
 
 
+def _emergence_instruments(*, deterministic: bool, responder: Responder | None = None) -> list[Instrument]:
+    """The three side-Producers whose WITH-vs-WITHOUT delta IS the natural-conversation ablation:
+    common-ground accretion + a repair detector (both Routed back into the next speaker via `into`)
+    + a grader (observation-only — its Grades are scored off the bus). The demo composes them and
+    hands them to the engine; the engine knows nothing about them. CI uses a seeded stand-in."""
+    r = responder or DeterministicResponder(seed=999)
+    return [
+        Instrument(
+            "common-ground", [CommonGround], common_ground_factory(r),
+            lambda ctx: {
+                "transcript": list(ctx.views["transcript"].value()),
+                "round": int(ctx.event.payload["round"]),
+            },
+            into="cg", via=lambda event: list(event.payload["facts"]),
+        ),
+        Instrument(
+            # in CI, alternate the repair status by round so the record shows the detector both
+            # firing and staying quiet (it discriminates, not just fires); walkthrough judges for real.
+            "repair", [Repair], repair_factory(r, ci_status=REPAIR_OK, alternate=True),
+            lambda ctx: {"round": int(ctx.event.payload["round"])},
+            into="repair",
+            via=lambda event: {"status": event.payload["status"], "note": event.payload["note"]},
+        ),
+        Instrument(
+            "grader", [Grade], grader_factory(r),
+            lambda ctx: {
+                "round": int(ctx.event.payload["round"]),
+                "prior_turns": list(ctx.views["transcript"].value()),
+            },
+        ),
+    ]
+
+
 def natural_conversation_topology(
     *,
     instruments: bool = False,
@@ -241,14 +277,7 @@ def natural_conversation_topology(
     DELTA is the demonstration of composition (the precursor's headline emergence demo)."""
     systems = [_NC_THIN.format(n=i + 1, topic=_NC_TOPIC) for i in range(2)]
     speakers = _speakers(systems, walkthrough=walkthrough, model=model)
+    insts = _emergence_instruments(deterministic=not walkthrough) if instruments else ()
     return conversation_topology(
-        speakers,
-        max_rounds=max_rounds,
-        deterministic=not walkthrough,
-        common_ground=instruments,
-        repair=instruments,
-        scoring=instruments,
-        # in CI, alternate the repair status by round so the record shows the detector both firing
-        # and staying quiet (it discriminates, not just fires); the walkthrough judges for real.
-        ci_repair_alternate=instruments,
+        speakers, max_rounds=max_rounds, deterministic=not walkthrough, instruments=insts
     )

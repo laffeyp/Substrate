@@ -4,9 +4,22 @@ import pytest
 
 from substrate.api import Runtime, read_record
 from substrate.reference._models import DeterministicResponder
-from substrate.topologies.conversation import conversation_topology
-from substrate.topologies.instruments.grader import score_grades
+from substrate.topologies.conversation import Instrument, conversation_topology
+from substrate.topologies.instruments.grader import Grade, grader_factory, score_grades
 from substrate.topologies.instruments.scoring import select_scoring_rule
+
+
+def _grader_instrument() -> Instrument:
+    # the grader composed as an instrument (the caller-side composition the engine now expects).
+    return Instrument(
+        "grader",
+        [Grade],
+        grader_factory(DeterministicResponder(seed=999)),
+        lambda ctx: {
+            "round": int(ctx.event.payload["round"]),
+            "prior_turns": list(ctx.views["transcript"].value()),
+        },
+    )
 
 
 @pytest.mark.timeout(15)
@@ -14,7 +27,7 @@ async def test_grader_emits_grades_and_they_score(tmp_path):
     topo = conversation_topology(
         [DeterministicResponder(seed=0), DeterministicResponder(seed=1)],
         max_rounds=3,
-        scoring=True,
+        instruments=[_grader_instrument()],
     )
     await Runtime(tmp_path / "run").run(topo)
     envs = list(read_record(tmp_path / "run"))

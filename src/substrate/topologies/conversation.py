@@ -21,15 +21,13 @@ from __future__ import annotations
 
 import re
 from collections.abc import AsyncIterator, Callable, Sequence
-from typing import Any
+from typing import Any, NamedTuple
 
 from msgspec import Struct
 
 from .. import api
-from ..reference._models import DeterministicResponder, Responder, call_responder
-from .instruments.common_ground import CommonGround, common_ground_factory
-from .instruments.grader import Grade, grader_factory
-from .instruments.repair import REPAIR_OK, Repair, repair_factory
+from ..reference._models import Responder, call_responder
+from .instruments.repair import REPAIR_OK  # the cue sentinel a speaker reads; instruments live demo-side
 
 _Factory = Callable[[], Any]
 
@@ -49,6 +47,25 @@ class Converged(Struct, frozen=True):
 # detector parsing another Producer's prose — the player structures its own output into a typed
 # event before the bus validates it (F-OBS-2: the decision is attributed to the player, not a parser).
 _OutcomeFn = Callable[[str, int, int], Any]
+
+
+class Instrument(NamedTuple):
+    """A side-Producer the conversation engine installs, fired once per Turn. The CALLER composes
+    the instruments it wants (each `factory` pre-bound with its responder + config) and hands the
+    engine a list; the engine just installs them. This keeps the engine a turn-taking core that
+    knows nothing about common-ground / repair / grading — those are the natural-conversation demo's
+    concern, composed in (see `_emergence_instruments`), not flags on this function.
+
+    Shape mirrors `b.instrument` minus the fixed `on="Turn"` and the engine-supplied `deterministic`.
+    `into` (+ `via`) stages the instrument's output into a Route slot the next speaker reads; omit
+    both for an observation-only instrument (a grader, whose output is scored off the bus)."""
+
+    name: str
+    schemas: list[type]
+    factory: _Factory
+    input_builder: Callable[[api.TriggerContext], Any]
+    into: str | None = None
+    via: Callable[[Any], Any] | None = None
 
 
 def _next_round(turn: dict[str, Any], n: int) -> int:
@@ -142,12 +159,7 @@ def conversation_topology(
     converge_at: tuple[int, int] | None = None,
     deterministic: bool = True,
     watchdog_seconds: float = 60.0,
-    common_ground: bool = False,
-    repair: bool = False,
-    scoring: bool = False,
-    instrument_responder: Responder | None = None,
-    ci_repair_status: str = REPAIR_OK,
-    ci_repair_alternate: bool = False,
+    instruments: Sequence[Instrument] = (),
     outcome: tuple[type[Struct], _OutcomeFn] | None = None,
 ) -> Callable[[api.TopologyBuilder], None]:
     """Build an N-speaker turn-based conversation. `responders` is one Responder per speaker
@@ -155,10 +167,13 @@ def conversation_topology(
     `max_rounds` rounds complete; any speaker emitting Converged ends the run early. `converge_at`
     (speaker, round) makes that speaker declare convergence (deterministic early-stop for CI).
 
-    The instrument cues (common_ground / repair) a speaker sees reflect the PREVIOUS turn's
-    instrument output — the same stage-then-read lag as pair_coding (a side Producer for turn T
-    stages AFTER the next-speaker Trigger for turn T reads the slot). Deterministic, and
-    semantically right (you react to what was just said); not same-turn coupling."""
+    `outcome=(Kind, fn)` lets the deciding speaker emit a typed outcome at its own mouth (PD's
+    Decision, intel's JointCall). `instruments` are caller-composed side-Producers fired per Turn
+    (common-ground / repair / grader for the natural-conversation ablation); an instrument that
+    declares `into` stages its output into a Route slot the next speaker reads on its following turn
+    — the same stage-then-read lag as pair_coding (a side Producer for turn T stages AFTER the
+    next-speaker Trigger for turn T reads the slot; you react to what was just said, deterministic).
+    The engine knows nothing about which instruments exist — the demo composes them."""
 
     n = len(responders)
     if n < 2:
@@ -180,57 +195,18 @@ def conversation_topology(
         b.initial("speaker-1", input={"round": 1, "prior_turns": []})
         # the transcript every speaker reads (Turn events only — not Converged).
         b.view("transcript", api.KindBuffer("Turn"))
-        # optional emergence instruments: side Producers fired on each Turn that emit a typed
-        # event Routed into the next speaker's input. Toggling these on/off over the SAME prompts
-        # is the natural-conversation ablation (the delta is the demo). Non-load-bearing.
-        inst_responder = instrument_responder or DeterministicResponder(seed=999)
-        # each instrument is a side Producer fired once per Turn (the identical
-        # producer_kind+trigger+route triple) — `b.instrument` collapses it to one call.
-        if common_ground:
+        # install whatever instruments the caller composed — one side Producer per Turn. The engine
+        # is agnostic about what they are; the demo (natural_conversation) decides.
+        for inst in instruments:
             b.instrument(
-                "common-ground",
+                inst.name,
                 on="Turn",
-                schemas=[CommonGround],
-                factory=common_ground_factory(inst_responder),
+                schemas=inst.schemas,
+                factory=inst.factory,
                 deterministic=deterministic,
-                input_builder=lambda ctx: {
-                    "transcript": list(ctx.views["transcript"].value()),
-                    "round": int(ctx.event.payload["round"]),
-                },
-                into="cg",
-                via=lambda event: list(event.payload["facts"]),
-            )
-        if repair:
-            b.instrument(
-                "repair",
-                on="Turn",
-                schemas=[Repair],
-                factory=repair_factory(
-                    inst_responder, ci_status=ci_repair_status, alternate=ci_repair_alternate
-                ),
-                deterministic=deterministic,
-                input_builder=lambda ctx: {"round": int(ctx.event.payload["round"])},
-                into="repair",
-                via=lambda event: {
-                    "status": event.payload["status"],
-                    "note": event.payload["note"],
-                },
-            )
-        if scoring:
-            # the grader scores the prior speaker's confidence claims against the turn that
-            # follows; the Grade events on the bus are scored by a proper rule post-run — an
-            # observation-only instrument (no `into=`/Route), the payoff that closes the
-            # cheap-talk loop.
-            b.instrument(
-                "grader",
-                on="Turn",
-                schemas=[Grade],
-                factory=grader_factory(inst_responder),
-                deterministic=deterministic,
-                input_builder=lambda ctx: {
-                    "round": int(ctx.event.payload["round"]),
-                    "prior_turns": list(ctx.views["transcript"].value()),
-                },
+                input_builder=inst.input_builder,
+                into=inst.into,
+                via=inst.via,
             )
         # one round-robin Trigger per speaker: after speaker k's Turn, fire speaker k+1 (wrapping
         # N→1), carrying the next round and the transcript-so-far, while within the round budget.
