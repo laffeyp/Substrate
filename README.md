@@ -148,7 +148,7 @@ The runtime implements a four-document spec corpus. The **canonical** drafts are
 | Spec | Canonical |
 |---|---|
 | Kernel semantics | `docs/specs/kernel_spec/v15.md` |
-| Product (requirements, conformance, reference topologies) | `docs/specs/product_spec/draft7.md` + amendments `A1`, `A2` |
+| Product (requirements, conformance, reference topologies) | `docs/specs/product_spec/draft7.md` + amendments `A1`, `A2`, `A3` |
 | Technical (byte layout, writer cycle, public API) | `docs/specs/technical_spec/draft5.md` + amendment `A1` |
 | Design (API ergonomics, CLI/error UX) | `docs/specs/design_spec/draft1.md` |
 
