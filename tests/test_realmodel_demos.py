@@ -32,12 +32,10 @@ from substrate.reference.r2_pipeline import operator_override, pipeline_topology
 from substrate.reference.r3_codesynth import codesynth_composed_topology
 from substrate.topologies.adversarial_pair import adversarial_pair_topology
 from substrate.topologies.code_review import DEFAULT_ROLES, code_review_topology
-from substrate.topologies.conversation_demos import (
-    debate_topology,
-    intel_asymmetry_topology,
-    natural_conversation_topology,
-    prisoners_dilemma_topology,
-)
+from substrate.topologies.debate import debate_topology
+from substrate.topologies.intel_asymmetry import intel_asymmetry_topology
+from substrate.topologies.natural_conversation import natural_conversation_topology
+from substrate.topologies.prisoners_dilemma import prisoners_dilemma_topology
 from substrate.topologies.pair_coding import pair_coding_topology
 from substrate.topologies.recursive_decomposition import recursive_decomposition_topology
 

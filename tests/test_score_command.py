@@ -7,7 +7,8 @@ from click.testing import CliRunner
 
 from substrate.api import Runtime
 from substrate.cli import EXIT_OK, main
-from substrate.topologies.conversation_demos import debate_topology, natural_conversation_topology
+from substrate.topologies.debate import debate_topology
+from substrate.topologies.natural_conversation import natural_conversation_topology
 
 
 @pytest.mark.timeout(15)

@@ -4,6 +4,16 @@ Runnable demonstration topologies, built only on the public `substrate.api` surf
 surface a third-party author has). Each runs with no network and no config — deterministic
 stand-in Producers — and produces a replayable run record.
 
+## Layout
+
+Each topology is a **self-contained package** — its code (`<name>/__init__.py`) and its committed
+CI-mode record (`<name>/records/ci_mode.record/`) live together under `<name>/`. Shared
+infrastructure sits alongside them: `conversation.py` (the N-speaker turn engine the four
+conversation demos configure), `instruments/` (the side-Producers the natural-conversation ablation
+composes), and `bundled.py` (the `--topology <name>` registry). `natural_conversation_bare/` holds
+only a record — it is the WITHOUT arm of the ablation, the same `natural_conversation` code run with
+`instruments=False`.
+
 ## Run one
 
     substrate topology list                        # the bundled topologies
@@ -41,5 +51,5 @@ The conversation demos and the Wave-11 topologies accept `walkthrough=True`, whi
 local LLM (Ollama, `OllamaResponder`) for the deterministic stand-in:
 
     python -c "import asyncio; from substrate.api import Runtime; \
-      from substrate.topologies.conversation_demos import debate_topology; \
+      from substrate.topologies.debate import debate_topology; \
       asyncio.run(Runtime('/tmp/debate').run(debate_topology(walkthrough=True)))"

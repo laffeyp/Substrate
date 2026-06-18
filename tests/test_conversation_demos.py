@@ -8,11 +8,9 @@ real dynamics (the demonstration) are the walkthrough against local LLMs.
 import pytest
 
 from substrate.api import Runtime, first_divergence, read_record
-from substrate.topologies.conversation_demos import (
-    debate_topology,
-    intel_asymmetry_topology,
-    prisoners_dilemma_topology,
-)
+from substrate.topologies.debate import debate_topology
+from substrate.topologies.intel_asymmetry import intel_asymmetry_topology
+from substrate.topologies.prisoners_dilemma import prisoners_dilemma_topology
 
 
 @pytest.mark.timeout(15)

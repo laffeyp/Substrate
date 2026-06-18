@@ -19,12 +19,10 @@ from .. import api
 from ..reference._models import DeterministicResponder
 from .adversarial_pair import adversarial_pair_topology
 from .code_review import DEFAULT_ROLES, code_review_topology
-from .conversation_demos import (
-    debate_topology,
-    intel_asymmetry_topology,
-    natural_conversation_topology,
-    prisoners_dilemma_topology,
-)
+from .debate import debate_topology
+from .intel_asymmetry import intel_asymmetry_topology
+from .natural_conversation import natural_conversation_topology
+from .prisoners_dilemma import prisoners_dilemma_topology
 from .pair_coding import pair_coding_topology
 from .recursive_decomposition import recursive_decomposition_topology
 

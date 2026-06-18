@@ -26,10 +26,23 @@ from typing import Any, NamedTuple
 from msgspec import Struct
 
 from .. import api
-from ..reference._models import Responder, call_responder
+from ..reference._models import DeterministicResponder, OllamaResponder, Responder, call_responder
 from .instruments.repair import REPAIR_OK  # the cue sentinel a speaker reads; instruments live demo-side
 
 _Factory = Callable[[], Any]
+
+
+def speakers(
+    systems: list[str], *, walkthrough: bool, model: str, ci_menu: list[str] | None = None
+) -> list[Responder]:
+    """Build the conversation's speaker Responders from their system prompts — the one helper every
+    conversation demo (debate / PD / intel / natural) shares. Walkthrough: a real OllamaResponder per
+    speaker carrying its system prompt. CI: a seeded DeterministicResponder per speaker; for a game
+    with a typed outcome, `ci_menu` makes the stub emit a real decision-bearing phrase so the
+    speaker's outcome function parses a genuine (deterministic) choice — no stand-in fabrication."""
+    if walkthrough:
+        return [OllamaResponder(model, system=s) for s in systems]
+    return [DeterministicResponder(seed=i, menu=ci_menu) for i, _ in enumerate(systems)]
 
 
 class Turn(Struct, frozen=True):

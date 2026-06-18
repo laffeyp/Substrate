@@ -9,7 +9,7 @@ The delta — not either run alone — is the demonstration of composition.
 import pytest
 
 from substrate.api import Runtime, first_divergence, read_record
-from substrate.topologies.conversation_demos import natural_conversation_topology
+from substrate.topologies.natural_conversation import natural_conversation_topology
 
 
 @pytest.mark.timeout(20)
