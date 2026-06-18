@@ -7,7 +7,7 @@ the precursor extraction (`docs/precursor-application-ideas.md`).
 ## The organizing axis: instrument emergence, don't fake it
 
 The catalogue is sorted by one principled question, lifted from the recursive_strategy_refinment
-precursor — NOT by "shock-and-awe vs LangGraph" (a marketing frame):
+precursor — not by how impressive a demo looks:
 
 - **Instrumenting for emergence** — create structural conditions (asymmetric
   information, payoffs, tighter coupling, a side instrument that feeds the next step) so the

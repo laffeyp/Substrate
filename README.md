@@ -23,9 +23,11 @@ pieces grows, and both leave the history of a run implicit — spread across log
 in-memory state, and control flow you can't replay.
 
 Substrate takes one approach throughout: everything goes through a single,
-totally-ordered, append-only log. Each computation reads from the log and emits
-typed events back onto it; none of them talk to each other directly. That one
-shared log is the only place coordination happens.
+totally-ordered, append-only log — think of an accountant's ledger, where you only
+ever add a new entry, never erase an old one, and any total you care about is
+*derived* by replaying the entries rather than kept on the side. Each computation
+reads from the log and emits typed events back onto it; none of them talk to each
+other directly. That one shared log is the only place coordination happens.
 
 The set of running computations isn't fixed ahead of time. Instead of declaring a
 static graph, you write small conditions over the log — "once three answers are
