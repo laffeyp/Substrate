@@ -22,6 +22,7 @@ avoided (the demonstration runs on the Architect's machine).
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 
 # The Responder Protocol now lives among the structural protocols (substrate.protocols) and is
@@ -29,7 +30,7 @@ import hashlib
 # Responder` and the topologies' `from ..reference._models import Responder` keep working.
 from ..protocols import Responder
 
-__all__ = ["Responder", "DeterministicResponder", "OllamaResponder"]
+__all__ = ["Responder", "DeterministicResponder", "OllamaResponder", "call_responder"]
 
 
 class DeterministicResponder:
@@ -137,3 +138,25 @@ class OllamaResponder:
         raise RuntimeError(
             f"OllamaResponder({self._model}) failed after {self._max_retries} attempts: {last_exc!r}"
         )
+
+
+async def call_responder(responder: Responder, prompt: str) -> str:
+    """Invoke a Responder from inside an async Producer WITHOUT blocking the event loop.
+
+    A real responder (OllamaResponder, any network/IO-backed model) does blocking I/O. Calling it
+    directly serializes every Producer on the single event loop — so the substrate's headline
+    property (N candidates streaming concurrently; "wall-clock latency drops because nothing is
+    sequential that doesn't have to be") is NOT realized on the real-model path: the candidates run
+    one after another. Offload the blocking call to a worker thread so the loop stays free and the
+    Producers genuinely overlap.
+
+    DeterministicResponder is pure CPU and instant; it is called SYNCHRONOUSLY here (no thread, and
+    this coroutine then completes without awaiting, so it never yields control). That is deliberate:
+    in CI the deterministic stand-ins must complete in a fixed order so concurrent Producers produce
+    a byte-identical record (N-DET-1 / conformance check 9). Offloading them to threads would inject
+    real scheduling nondeterminism into CI and make the committed records non-reproducible — exactly
+    what must not happen. So: real responders offload (concurrency); stand-ins stay sync (determinism).
+    """
+    if isinstance(responder, DeterministicResponder):
+        return responder.respond(prompt)
+    return await asyncio.to_thread(responder.respond, prompt)

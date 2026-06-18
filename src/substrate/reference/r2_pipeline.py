@@ -39,7 +39,7 @@ from msgspec import Struct
 
 from .. import api
 from ..types import Event
-from ._models import Responder
+from ._models import Responder, call_responder
 
 _Factory = Callable[[], Any]
 
@@ -138,7 +138,7 @@ def _transform_factory(
         # send the bare row value, not "transform: {raw}" — a weak model told to "uppercase the input
         # word" uppercases the literal label "transform" and ignores the row. The caller's system
         # prompt defines the transform; the user message is just the thing to transform.
-        yield Transformed(row=row, out=responder.respond(raw), attempt=attempt)
+        yield Transformed(row=row, out=await call_responder(responder, raw), attempt=attempt)
 
     return lambda: transform
 

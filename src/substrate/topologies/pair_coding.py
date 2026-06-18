@@ -30,7 +30,7 @@ from typing import Any
 from msgspec import Struct
 
 from .. import api
-from ..reference._models import Responder
+from ..reference._models import Responder, call_responder
 
 _Factory = Callable[[], Any]
 
@@ -62,7 +62,7 @@ def _driver_factory(file_path: str, chunks: list[str], responder: Responder) -> 
         # the staged suggestion; in CI it is the canned chunk (the suggestion is still recorded as
         # injected — the wiring is what CI proves).
         suggestions = inp.get("suggestions") if hasattr(inp, "get") else None
-        _ = responder.respond(f"continue {file_path} given suggestion={suggestions}")
+        _ = await call_responder(responder, f"continue {file_path} given suggestion={suggestions}")
         yield CodeChunk(file_path=file_path, text=chunks[index], chunk_index=index)
         yield ChunkBoundary(file_path=file_path, kind="function")
 
@@ -73,7 +73,7 @@ def _navigator_factory(responder: Responder) -> _Factory:
     async def navigator(inp: Any) -> AsyncIterator[Suggestion]:
         chunk = inp.get("chunk", {}) if hasattr(inp, "get") else {}
         anchor = int(inp.get("anchor_seq", -1)) if hasattr(inp, "get") else -1
-        rationale = responder.respond(f"review chunk: {chunk.get('text', '')}")
+        rationale = await call_responder(responder, f"review chunk: {chunk.get('text', '')}")
         yield Suggestion(
             file_path=str(chunk.get("file_path", "")),
             anchor_seq=anchor,

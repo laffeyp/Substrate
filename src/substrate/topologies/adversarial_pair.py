@@ -19,7 +19,7 @@ from typing import Any
 from msgspec import Struct
 
 from .. import api
-from ..reference._models import Responder
+from ..reference._models import Responder, call_responder
 
 _Factory = Callable[[], Any]
 
@@ -40,7 +40,7 @@ def _writer_factory(responder: Responder) -> _Factory:
         version = int(inp.get("version", 0)) if hasattr(inp, "get") else 0
         challenge = inp.get("challenge") if hasattr(inp, "get") else None
         prompt = "draft the artifact" if version == 0 else f"revise to address: {challenge}"
-        text = responder.respond(prompt)
+        text = await call_responder(responder, prompt)
         yield Artifact(text=text[:120], version=version)
 
     return lambda: write
@@ -50,7 +50,7 @@ def _finder_factory(responder: Responder) -> _Factory:
     async def find(inp: Any) -> AsyncIterator[Challenge]:
         version = int(inp.get("version", 0)) if hasattr(inp, "get") else 0
         text = str(inp.get("artifact", "")) if hasattr(inp, "get") else ""
-        _ = responder.respond(f"find the worst vulnerability in: {text}")
+        _ = await call_responder(responder, f"find the worst vulnerability in: {text}")
         severity = (sum(text.encode()) % 3) + 1  # deterministic 1..3
         yield Challenge(issue=f"issue@v{version}", severity=severity, version=version)
 

@@ -28,7 +28,7 @@ from typing import Any
 from msgspec import Struct
 
 from .. import api
-from ._models import Responder
+from ._models import Responder, call_responder
 
 # A Producer factory: a zero-arg callable returning the `start` async-generator. Typed as
 # Callable[[], Any] because an async-generator function's static type does not structurally
@@ -59,7 +59,7 @@ def _candidate_factory(
         # changes how many fast Candidates are needed to fire.
         if linger_seconds > 0:
             await asyncio.sleep(linger_seconds)
-        yield Candidate(member=member, answer=responder.respond(question))
+        yield Candidate(member=member, answer=await call_responder(responder, question))
 
     return lambda: candidate
 
@@ -75,7 +75,7 @@ def _adjudicator_factory(question: str, responder: Responder) -> _Factory:
         # in the walkthrough the real model reasons over the candidate answers.
         listing = "\n".join(f"{c['member']}: {c['answer']}" for c in cands)
         prompt = f"Question: {question}\nCandidate answers:\n{listing}\nWhich member is best? Reply with just the member name."
-        choice = responder.respond(prompt).strip()
+        choice = (await call_responder(responder, prompt)).strip()
         chosen = next((c for c in cands if c["member"] in choice), cands[0])
         yield Verdict(chosen=chosen["member"], answer=chosen["answer"])
 

@@ -26,7 +26,7 @@ from typing import Any
 from msgspec import Struct
 
 from .. import api
-from ..reference._models import Responder
+from ..reference._models import Responder, call_responder
 
 _Factory = Callable[[], Any]
 
@@ -81,7 +81,9 @@ def _solver_factory(max_depth: int, fanout: int, responder: Responder, runaway: 
                     depth=depth + 1,
                 )
         else:
-            yield SolutionReached(task_id=task_id, solution=responder.respond(f"solve: {task}"))
+            yield SolutionReached(
+                task_id=task_id, solution=await call_responder(responder, f"solve: {task}")
+            )
 
     return lambda: solve
 

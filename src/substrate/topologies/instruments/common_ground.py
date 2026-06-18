@@ -17,7 +17,7 @@ from typing import Any
 
 from msgspec import Struct
 
-from ...reference._models import Responder
+from ...reference._models import Responder, call_responder
 
 _Factory = Callable[[], Any]
 
@@ -34,7 +34,7 @@ def common_ground_factory(responder: Responder) -> _Factory:
         transcript = inp.get("transcript", []) if hasattr(inp, "get") else []
         rnd = int(inp.get("round", 0)) if hasattr(inp, "get") else 0
         # walkthrough: the LLM maintains the document; CI: a deterministic digest of recent turns.
-        _ = responder.respond(f"update common ground from {len(transcript)} turns")
+        _ = await call_responder(responder, f"update common ground from {len(transcript)} turns")
         facts = tuple(f"S{t['speaker']}: {str(t['text'])[:40]}" for t in transcript[-3:])
         yield CommonGround(facts=facts, round=rnd)
 

@@ -26,7 +26,7 @@ from typing import Any
 from msgspec import Struct
 
 from .. import api
-from ..reference._models import DeterministicResponder, Responder
+from ..reference._models import DeterministicResponder, Responder, call_responder
 from .instruments.common_ground import CommonGround, common_ground_factory
 from .instruments.grader import Grade, grader_factory
 from .instruments.repair import REPAIR_OK, Repair, repair_factory
@@ -107,7 +107,7 @@ def _speaker_factory(
             )
         else:
             user_msg = f"You are speaker {speaker_id}. Open the conversation.{extra}"
-        text = responder.respond(user_msg)
+        text = await call_responder(responder, user_msg)
         # strip any leaked transcript label ("S2:", even doubled "S2: S2:") the model copied from the
         # transcript format into its own output — cosmetic, keeps the recorded turn clean.
         text = re.sub(r"^\s*(S\d+:\s*)+", "", text)

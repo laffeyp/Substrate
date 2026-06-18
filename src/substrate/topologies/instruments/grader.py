@@ -18,7 +18,7 @@ from typing import Any
 
 from msgspec import Struct
 
-from ...reference._models import Responder
+from ...reference._models import Responder, call_responder
 from .scoring import Outcome, Prediction, ScoringRule
 
 _Factory = Callable[[], Any]
@@ -40,7 +40,7 @@ def grader_factory(responder: Responder) -> _Factory:
         prior = inp.get("prior_turns", []) if hasattr(inp, "get") else []
         if not prior:
             return  # nothing to grade before the first turn
-        _ = responder.respond("grade the prior speaker's confidence claims")
+        _ = await call_responder(responder, "grade the prior speaker's confidence claims")
         last = prior[-1]
         # CI: a deterministic pseudo-grade derived from the prior turn's text (a real grader is an
         # LLM judging the claim against the new turn; the scoring is identical either way).

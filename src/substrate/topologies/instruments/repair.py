@@ -15,7 +15,7 @@ from typing import Any
 
 from msgspec import Struct
 
-from ...reference._models import Responder
+from ...reference._models import Responder, call_responder
 
 _Factory = Callable[[], Any]
 
@@ -38,7 +38,7 @@ def repair_factory(
 ) -> _Factory:
     async def detect(inp: Any) -> AsyncIterator[Repair]:
         rnd = int(inp.get("round", 0)) if hasattr(inp, "get") else 0
-        _ = responder.respond("scan the latest turn for misalignment")
+        _ = await call_responder(responder, "scan the latest turn for misalignment")
         # walkthrough: the LLM judges. CI: a deterministic status — `alternate` discriminates by
         # round parity so the record shows the detector both FIRING and staying quiet (not firing
         # every turn, which reads as "is it doing anything?"); else the fixed `ci_status`.

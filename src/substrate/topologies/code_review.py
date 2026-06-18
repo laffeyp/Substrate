@@ -26,7 +26,7 @@ from typing import Any
 from msgspec import Struct
 
 from .. import api
-from ..reference._models import Responder
+from ..reference._models import Responder, call_responder
 
 # A Producer factory: a zero-arg callable returning the `start` async-generator. Typed as
 # Callable[[], Any] for the same reason as r1_ensemble — an async-generator function does not
@@ -68,9 +68,10 @@ def _reviewer_factory(
         # most glaring bug (SQLi, a div-by-zero) regardless of role — no divergence, the whole point
         # of a multi-role panel lost. Constrain each reviewer to its OWN lens so the panel genuinely
         # diverges (security finds the injection, performance the O(n²), style the naming, ...).
-        text = responder.respond(
+        text = await call_responder(
+            responder,
             f"You are the {role.upper()} reviewer. Review this code for {role} problems ONLY and name "
-            f"the single most important {role} issue in one sentence; ignore issues outside {role}.\n{code}"
+            f"the single most important {role} issue in one sentence; ignore issues outside {role}.\n{code}",
         )
         yield CritiquePosted(role=role, severity=_severity_of(text), summary=text[:200])
 
@@ -87,9 +88,10 @@ def _judge_factory(responder: Responder) -> _Factory:
         # severities; in the walkthrough the real model reasons over the critique summaries.
         if responder is not None and roles:
             # the judge must see the critique CONTENT to adjudicate, not just the role names.
-            _ = responder.respond(
+            _ = await call_responder(
+                responder,
                 "Adjudicate these code-review critiques; name the most serious and the verdict:\n"
-                + "\n".join(f"- {c['role']}: {c.get('summary', '')}" for c in crits)
+                + "\n".join(f"- {c['role']}: {c.get('summary', '')}" for c in crits),
             )
         decision = "block" if max_sev >= 4 else "request-changes" if max_sev >= 2 else "approve"
         yield VerdictRendered(decision=decision, cited_roles=roles, n_critiques=len(crits))

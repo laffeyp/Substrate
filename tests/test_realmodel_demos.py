@@ -111,7 +111,11 @@ async def test_code_review_role_divergence_and_cancel(tmp_path):
         code,
         responders={r: OllamaResponder(_SMART, max_tokens=60) for r in DEFAULT_ROLES},
         judge=OllamaResponder(_SMART, max_tokens=40), quorum=3,
-        slow_roles=frozenset({"correctness", "clarity"}), linger_seconds=0.4,
+        # linger LONGER than the fast reviewers' real call latency so the lingerers are reliably still
+        # running when the quorum fires the judge -> cancel-others has live victims. 0.4s worked only
+        # while reviewers ran SERIALLY (blocking); now they run concurrently (the offload fix), so the
+        # linger must clear the concurrent fast-path. R-1 uses 8.0 for the same reason.
+        slow_roles=frozenset({"correctness", "clarity"}), linger_seconds=8.0,
     )
     await Runtime(tmp_path / "run").run(topo)
     envs = list(read_record(tmp_path / "run"))
