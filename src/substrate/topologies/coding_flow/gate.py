@@ -1,0 +1,107 @@
+"""The deterministic core of the coding-flow topology: parse a candidate's artifacts, write them to
+a throwaway sandbox, run the task's GATE command, and return a normalized verdict.
+
+This is the "build-validation" the precursor (prompt-factory) did with a project build — generalized:
+the gate is a free-form shell command the task declares (`ruff check . && mypy . && pytest`,
+`cargo build && cargo test`, `npm run build`, …). The flow never inspects the code; the gate's exit
+code IS the truth. Pure deterministic code — no model anywhere near the validation, by the
+heterogeneous-producers rule (truth is a test run, not an LLM's opinion).
+
+The verdict is NORMALIZED (temp paths and timings stripped) so a fixed candidate + gate yields a
+byte-identical verdict — the CI record stays reproducible (D-8) even though a subprocess ran.
+"""
+
+from __future__ import annotations
+
+import re
+import subprocess
+import tempfile
+from pathlib import Path
+
+from msgspec import Struct
+
+# A candidate declares each file's path two ways real coders both emit: as a `# path: X` header on
+# the line BEFORE a fenced block, or as the FIRST comment line INSIDE the fence. Handle both — being
+# strict about one cost a whole real-model run (every candidate parsed to zero files).
+_FENCE = re.compile(r"```[A-Za-z0-9_+.-]*[ \t]*\r?\n(?P<body>.*?)\r?\n```", re.DOTALL)
+_PATH = re.compile(r"^\s*(?:#|//|<!--|;|--)?\s*path:\s*(?P<path>[\w./-]+)", re.IGNORECASE)
+_TIMING = re.compile(r"\bin \d+\.\d+s\b")  # pytest "= 8 passed in 0.04s ="  -> strip the wall-clock
+
+
+class GateResult(Struct, frozen=True):
+    """The outcome of running the gate on one candidate. `passed` is the exit-code truth; `summary`
+    is the normalized gate output (deterministic for a fixed candidate); `returncode` is the raw rc."""
+
+    passed: bool
+    returncode: int
+    summary: str
+
+
+def parse_artifacts(text: str) -> dict[str, str]:
+    """Extract the path-tagged fenced-block payloads from a drafter's response into {path: content}.
+    Accepts a `# path: X` header just before a fence OR a `# path: X` first comment line inside it. A
+    response with no recognizable payloads yields an empty dict (the validator treats it as a
+    candidate that wrote nothing — it fails the gate honestly, not a crash)."""
+    out: dict[str, str] = {}
+    pos = 0
+    for m in _FENCE.finditer(text):
+        body = m.group("body")
+        path: str | None = None
+        # (a) a `# path: X` header on the line(s) immediately before the fence
+        for line in reversed(text[pos : m.start()].rstrip().splitlines()[-2:]):
+            header = _PATH.match(line)
+            if header:
+                path = header.group("path")
+                break
+        # (b) else the path as the first comment line INSIDE the fence (strip it from the body)
+        lines = body.splitlines()
+        if path is None and lines and (inner := _PATH.match(lines[0])):
+            path = inner.group("path")
+            body = "\n".join(lines[1:]).lstrip("\n")
+        if path:
+            out[path] = body
+        pos = m.end()
+    return out
+
+
+def _normalize(output: str, sandbox: Path) -> str:
+    """Make the gate output reproducible: drop the per-run temp path and wall-clock timings, and cap
+    length. Two runs of the same candidate then produce the same summary, so the record is stable."""
+    cleaned = output.replace(str(sandbox), "<sandbox>").replace(str(sandbox.resolve()), "<sandbox>")
+    cleaned = _TIMING.sub("in <t>s", cleaned)
+    cleaned = cleaned.strip()
+    return (
+        cleaned if len(cleaned) <= 4000 else cleaned[:2000] + "\n…[truncated]…\n" + cleaned[-2000:]
+    )
+
+
+def run_gate(artifacts: dict[str, str], gate: str, *, timeout: float = 60.0) -> GateResult:
+    """Write `artifacts` into a fresh temp dir, run `gate` there (shell, no network assumed), and
+    return the normalized verdict. A timeout or a non-zero exit is a fail, never an exception to the
+    caller — a hanging or crashing candidate must not take the run down."""
+    if not artifacts:
+        return GateResult(
+            passed=False, returncode=-1, summary="no artifacts: the candidate wrote no files"
+        )
+    with tempfile.TemporaryDirectory(prefix="coding_flow_") as d:
+        sandbox = Path(d)
+        for rel, content in artifacts.items():
+            target = (sandbox / rel).resolve()
+            target.relative_to(
+                sandbox.resolve()
+            )  # path-traversal guard: a `../` payload can't escape
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content)
+        try:
+            proc = subprocess.run(
+                gate, shell=True, cwd=sandbox, capture_output=True, text=True, timeout=timeout
+            )
+        except subprocess.TimeoutExpired:
+            return GateResult(
+                passed=False, returncode=-1, summary=f"gate timed out after {timeout:g}s"
+            )
+        return GateResult(
+            passed=proc.returncode == 0,
+            returncode=proc.returncode,
+            summary=_normalize(proc.stdout + proc.stderr, sandbox),
+        )
