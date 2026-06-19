@@ -150,7 +150,9 @@ def test_instrument_wires_producer_trigger_and_route(tmp_path: pathlib.Path) -> 
     )
     # ...and the route staged each Mark (into="last" => an InjectionApplied per Mark).
     injections = [e for e in read_record(root) if e["kind"] == "substrate.InjectionApplied"]
-    assert len(injections) == 2 and all(i["payload"]["target_input_slot"] == "last" for i in injections)
+    assert len(injections) == 2 and all(
+        i["payload"]["target_input_slot"] == "last" for i in injections
+    )
 
 
 def test_instrument_observation_only_has_no_route(tmp_path: pathlib.Path) -> None:

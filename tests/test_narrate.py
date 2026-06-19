@@ -211,7 +211,13 @@ def test_pause_beat_renders_the_resume_condition() -> None:
 
 
 def test_pause_beat_without_condition_is_still_legible() -> None:
-    env = [{"seq": 3, "kind": "substrate.TerminationMatched", "payload": {"decision": "pause-await-input"}}]
+    env = [
+        {
+            "seq": 3,
+            "kind": "substrate.TerminationMatched",
+            "payload": {"decision": "pause-await-input"},
+        }
+    ]
     (line,) = list(narrate(env))
     assert line.text == "Run paused -- awaiting input."
 
@@ -226,7 +232,11 @@ def test_paused_finalise_reason_is_carried() -> None:
 def test_summary_counts_failures_on_a_broken_run() -> None:
     env = [
         {"seq": 0, "kind": "substrate.RunStarted", "payload": {"run_id": "R1"}},
-        {"seq": 1, "kind": "substrate.ProducerFailed", "payload": {"producer": _ref("a"), "error": "e"}},
+        {
+            "seq": 1,
+            "kind": "substrate.ProducerFailed",
+            "payload": {"producer": _ref("a"), "error": "e"},
+        },
         {"seq": 2, "kind": "substrate.RunFinalised", "payload": {}},
     ]
     s = narration_summary(env)

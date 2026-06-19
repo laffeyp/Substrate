@@ -253,7 +253,10 @@ def run_graph(record: Any) -> RunGraph:
             finalised = True
             reason = payload.get("reason")
             final_reason = str(reason) if reason else None
-        elif kind == "substrate.TerminationMatched" and payload.get("decision") == "pause-await-input":
+        elif (
+            kind == "substrate.TerminationMatched"
+            and payload.get("decision") == "pause-await-input"
+        ):
             paused = True
             rc = payload.get("resume_condition")
             paused_resume_condition = str(rc) if rc else None
@@ -292,7 +295,9 @@ def run_graph(record: Any) -> RunGraph:
             )
         )
     # spawn order: by started_seq (None sorts last), then instance for stability.
-    instances.sort(key=lambda p: (p.started_seq if p.started_seq is not None else 1 << 62, p.instance))
+    instances.sort(
+        key=lambda p: (p.started_seq if p.started_seq is not None else 1 << 62, p.instance)
+    )
     # run-level outcome, matching RunResult.status: a run-level FAILURE finalise (view_failure /
     # kernel_error / stuck_quiescent) is "failed" — NOT "finalised" — so the outcome surface can't
     # render a kernel-errored run as a clean green finalise (§7.2). A clean finalise that had

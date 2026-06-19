@@ -179,10 +179,16 @@ def test_run_graph_started_not_ended_is_interrupted_in_a_finished_run() -> None:
     # (a finished run must not show live work). "running" stays reserved for incomplete runs.
     env = [
         {"seq": 0, "kind": "substrate.RunStarted", "payload": {"run_id": "R"}},
-        {"seq": 1, "kind": "substrate.TriggerFired",
-         "payload": {"instance": "i1", "factory": "w", "trigger_id": "__initial__"}},
-        {"seq": 2, "kind": "substrate.ProducerStarted",
-         "payload": {"producer": {"kind": "w", "instance": "i1", "parent": None}}},
+        {
+            "seq": 1,
+            "kind": "substrate.TriggerFired",
+            "payload": {"instance": "i1", "factory": "w", "trigger_id": "__initial__"},
+        },
+        {
+            "seq": 2,
+            "kind": "substrate.ProducerStarted",
+            "payload": {"producer": {"kind": "w", "instance": "i1", "parent": None}},
+        },
         # NO ProducerCompleted for i1 — interrupted
         {"seq": 3, "kind": "substrate.RunFinalised", "payload": {}},
     ]
@@ -209,17 +215,31 @@ def test_run_graph_clean_finalise_with_producer_failures_is_still_finalised() ->
     # failed inside it. That is status="finalised" + a failed instance — not run-level "failed".
     env = [
         {"seq": 0, "kind": "substrate.RunStarted", "payload": {"run_id": "R"}},
-        {"seq": 1, "kind": "substrate.TriggerFired",
-         "payload": {"instance": "i1", "factory": "w", "trigger_id": "__initial__"}},
-        {"seq": 2, "kind": "substrate.ProducerStarted",
-         "payload": {"producer": {"kind": "w", "instance": "i1", "parent": None}}},
-        {"seq": 3, "kind": "substrate.ProducerFailed",
-         "payload": {"producer": {"kind": "w", "instance": "i1", "parent": None}, "error": "boom"}},
+        {
+            "seq": 1,
+            "kind": "substrate.TriggerFired",
+            "payload": {"instance": "i1", "factory": "w", "trigger_id": "__initial__"},
+        },
+        {
+            "seq": 2,
+            "kind": "substrate.ProducerStarted",
+            "payload": {"producer": {"kind": "w", "instance": "i1", "parent": None}},
+        },
+        {
+            "seq": 3,
+            "kind": "substrate.ProducerFailed",
+            "payload": {
+                "producer": {"kind": "w", "instance": "i1", "parent": None},
+                "error": "boom",
+            },
+        },
         {"seq": 4, "kind": "substrate.RunFinalised", "payload": {}},
     ]
     g = run_graph(env)
     assert g.status == "finalised"  # the RUN itself finalised cleanly...
-    assert g.instances[0].status == "failed"  # ...but a Producer inside it failed (finished!=worked)
+    assert (
+        g.instances[0].status == "failed"
+    )  # ...but a Producer inside it failed (finished!=worked)
 
 
 def test_run_graph_is_deterministic() -> None:

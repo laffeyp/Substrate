@@ -535,11 +535,15 @@ def validate(topology_module: str) -> None:
     for t in reg.triggers:
         for kind in sorted(t.subscription.kinds):
             if not kind.startswith("substrate.") and kind not in declared:
-                failures.append(f"trigger {t.id!r} subscribes to kind {kind!r}, which no Producer declares")
+                failures.append(
+                    f"trigger {t.id!r} subscribes to kind {kind!r}, which no Producer declares"
+                )
     for r in reg.routes:
         for kind in sorted(r.subscription.kinds):
             if not kind.startswith("substrate.") and kind not in declared:
-                failures.append(f"route {r.id!r} subscribes to kind {kind!r}, which no Producer declares")
+                failures.append(
+                    f"route {r.id!r} subscribes to kind {kind!r}, which no Producer declares"
+                )
 
     click.echo(
         f"{len(reg.producer_kinds)} Producer kinds, {len(reg.triggers)} Triggers, "
@@ -549,7 +553,9 @@ def validate(topology_module: str) -> None:
     if reg.has_wall_clock_cooldown:
         click.echo('1+ WallClock cooldown registered -> replay ceiling = "3b".')
     if reg.termination is None:
-        click.echo("note: no TerminationPolicy registered -> the run defaults to quiescence-with-watchdog.")
+        click.echo(
+            "note: no TerminationPolicy registered -> the run defaults to quiescence-with-watchdog."
+        )
 
     if failures:
         _err.print(f"[FAIL] {len(failures)} issue(s):")

@@ -139,10 +139,14 @@ class OllamaResponder:
         last_exc: Exception | None = None
         for attempt in range(self._max_retries):
             try:
-                resp = httpx.post(self._endpoint, headers=headers, json=payload, timeout=self._timeout)
+                resp = httpx.post(
+                    self._endpoint, headers=headers, json=payload, timeout=self._timeout
+                )
                 resp.raise_for_status()
                 return self._content(resp.json())
-            except httpx.HTTPError as exc:  # transport OR 4xx/5xx: retry with backoff, then fail loud
+            except (
+                httpx.HTTPError
+            ) as exc:  # transport OR 4xx/5xx: retry with backoff, then fail loud
                 last_exc = exc
                 if attempt < self._max_retries - 1:
                     time.sleep(1.0 * (2**attempt))

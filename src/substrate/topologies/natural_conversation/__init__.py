@@ -31,7 +31,9 @@ _NC_THIN = (
 )
 
 
-def _emergence_instruments(*, deterministic: bool, responder: Responder | None = None) -> list[Instrument]:
+def _emergence_instruments(
+    *, deterministic: bool, responder: Responder | None = None
+) -> list[Instrument]:
     """The three side-Producers whose WITH-vs-WITHOUT delta IS the natural-conversation ablation:
     common-ground accretion + a repair detector (both Routed back into the next speaker via `into`)
     + a grader (observation-only — its Grades are scored off the bus). The demo composes them and
@@ -39,23 +41,30 @@ def _emergence_instruments(*, deterministic: bool, responder: Responder | None =
     r = responder or DeterministicResponder(seed=999)
     return [
         Instrument(
-            "common-ground", [CommonGround], common_ground_factory(r),
+            "common-ground",
+            [CommonGround],
+            common_ground_factory(r),
             lambda ctx: {
                 "transcript": list(ctx.views["transcript"].value()),
                 "round": int(ctx.event.payload["round"]),
             },
-            into="cg", via=lambda event: list(event.payload["facts"]),
+            into="cg",
+            via=lambda event: list(event.payload["facts"]),
         ),
         Instrument(
             # in CI, alternate the repair status by round so the record shows the detector both
             # firing and staying quiet (it discriminates, not just fires); walkthrough judges for real.
-            "repair", [Repair], repair_factory(r, ci_status=REPAIR_OK, alternate=True),
+            "repair",
+            [Repair],
+            repair_factory(r, ci_status=REPAIR_OK, alternate=True),
             lambda ctx: {"round": int(ctx.event.payload["round"])},
             into="repair",
             via=lambda event: {"status": event.payload["status"], "note": event.payload["note"]},
         ),
         Instrument(
-            "grader", [Grade], grader_factory(r),
+            "grader",
+            [Grade],
+            grader_factory(r),
             lambda ctx: {
                 "round": int(ctx.event.payload["round"]),
                 "prior_turns": list(ctx.views["transcript"].value()),

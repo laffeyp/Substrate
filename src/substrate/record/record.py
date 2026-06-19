@@ -290,7 +290,9 @@ def read_record(root: Path | str) -> Iterator[dict[str, Any]]:
                 except (CRCMismatchError, TornFrameError) as exc:
                     # a corrupt frame in a SEALED segment is data loss (the segment is supposed to be
                     # immutable + complete). Fatal, like a seq gap — but say WHERE (segment + line).
-                    raise CRCMismatchError(f"corruption in sealed segment {seg.name} at line {offset}: {exc}") from exc
+                    raise CRCMismatchError(
+                        f"corruption in sealed segment {seg.name} at line {offset}: {exc}"
+                    ) from exc
                 yield _checked(env)
     hot = _hot_segment(root)
     if hot is not None:

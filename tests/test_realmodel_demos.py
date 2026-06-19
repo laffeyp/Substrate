@@ -68,18 +68,36 @@ def _payloads(root, kind):  # noqa: ANN001
 async def test_ensemble_real_disagreement_and_cancel(tmp_path):
     _require(_FAST, _SMART)
     fast = {
-        f"m{i}": OllamaResponder(_FAST, max_tokens=12, temperature=0.9, system="Answer with ONE short word. No explanation.")
+        f"m{i}": OllamaResponder(
+            _FAST,
+            max_tokens=12,
+            temperature=0.9,
+            system="Answer with ONE short word. No explanation.",
+        )
         for i in range(3)
     }
     slow = {
-        n: OllamaResponder(_FAST, max_tokens=12, temperature=0.9, system="Answer with ONE short word. No explanation.")
+        n: OllamaResponder(
+            _FAST,
+            max_tokens=12,
+            temperature=0.9,
+            system="Answer with ONE short word. No explanation.",
+        )
         for n in ("slowA", "slowB")
     }
-    adj = OllamaResponder(_SMART, max_tokens=24, system="Given candidate answers labelled by member id, pick the single best one. Reply with JUST the member id (e.g. m0).")
+    adj = OllamaResponder(
+        _SMART,
+        max_tokens=24,
+        system="Given candidate answers labelled by member id, pick the single best one. Reply with JUST the member id (e.g. m0).",
+    )
     topo = ensemble_topology(
         "In one word, what is the most important quality in a leader?",
-        members={**fast, **slow}, adjudicator=adj, quorum=3,
-        slow_members=frozenset(slow), linger_seconds=8.0, deterministic=False,
+        members={**fast, **slow},
+        adjudicator=adj,
+        quorum=3,
+        slow_members=frozenset(slow),
+        linger_seconds=8.0,
+        deterministic=False,
     )
     await Runtime(tmp_path / "run").run(topo)
     envs = list(read_record(tmp_path / "run"))
@@ -98,7 +116,7 @@ async def test_code_review_role_divergence_and_cancel(tmp_path):
     _require(_SMART)
     code = (
         "def get_user(name):\n"
-        "    q = \"SELECT * FROM users WHERE name = '\" + name + \"'\"\n"
+        '    q = "SELECT * FROM users WHERE name = \'" + name + "\'"\n'
         "    rows = db.execute(q)\n"
         "    out = []\n"
         "    for r in rows:\n"
@@ -109,16 +127,20 @@ async def test_code_review_role_divergence_and_cancel(tmp_path):
     topo = code_review_topology(
         code,
         responders={r: OllamaResponder(_SMART, max_tokens=60) for r in DEFAULT_ROLES},
-        judge=OllamaResponder(_SMART, max_tokens=40), quorum=3,
+        judge=OllamaResponder(_SMART, max_tokens=40),
+        quorum=3,
         # linger LONGER than the fast reviewers' real call latency so the lingerers are reliably still
         # running when the quorum fires the judge -> cancel-others has live victims. 0.4s worked only
         # while reviewers ran SERIALLY (blocking); now they run concurrently (the offload fix), so the
         # linger must clear the concurrent fast-path. R-1 uses 8.0 for the same reason.
-        slow_roles=frozenset({"correctness", "clarity"}), linger_seconds=8.0,
+        slow_roles=frozenset({"correctness", "clarity"}),
+        linger_seconds=8.0,
     )
     await Runtime(tmp_path / "run").run(topo)
     envs = list(read_record(tmp_path / "run"))
-    summaries = [str(e["payload"]["summary"]).lower() for e in envs if e["kind"] == "CritiquePosted"]
+    summaries = [
+        str(e["payload"]["summary"]).lower() for e in envs if e["kind"] == "CritiquePosted"
+    ]
     verdicts = [e for e in envs if e["kind"] == "VerdictRendered"]
     cancelled = [e for e in envs if e["kind"] == "substrate.ProducerCancelled"]
     # SUBSTANCE: different roles surface DIFFERENT issues (>=2 distinct summaries) — fails when every
@@ -140,7 +162,9 @@ async def test_pd_real_decision_on_record(tmp_path):
     # real token (the outcome fn returns None otherwise) — so its existence proves a real decision; no
     # cross-check needed. And the record ATTRIBUTES it to the prisoner (F-OBS-2), not a parser.
     by_prisoner = {e["payload"]["prisoner"]: e for e in decisions}
-    assert set(by_prisoner) == {1, 2}, f"both decisions not recorded: {[e['payload'] for e in decisions]}"
+    assert set(by_prisoner) == {1, 2}, (
+        f"both decisions not recorded: {[e['payload'] for e in decisions]}"
+    )
     assert all(e["payload"]["choice"] in {"silent", "talk"} for e in decisions)
     assert all(e["producer"]["kind"] == f"speaker-{p}" for p, e in by_prisoner.items())
 
@@ -164,13 +188,17 @@ async def test_intel_real_jointcall_on_record(tmp_path):
 @pytest.mark.timeout(240)
 async def test_debate_progresses_without_echo(tmp_path):
     _require(_SMART)
-    await Runtime(tmp_path / "run").run(debate_topology(walkthrough=True, model=_SMART, max_rounds=2))
+    await Runtime(tmp_path / "run").run(
+        debate_topology(walkthrough=True, model=_SMART, max_rounds=2)
+    )
     turns = _payloads(tmp_path / "run", "Turn")
     texts = [t["text"] for t in turns]
     # SUBSTANCE: both advocates argue across rounds AND every turn is DISTINCT (the round-2 echo bug
     # produced verbatim duplicates) — fails on the echo, which a turn-count predicate would pass.
     assert {t["speaker"] for t in turns} == {1, 2}, "both sides did not argue"
-    assert len(set(texts)) == len(texts), f"echo: only {len(set(texts))} distinct of {len(texts)} turns"
+    assert len(set(texts)) == len(texts), (
+        f"echo: only {len(set(texts))} distinct of {len(texts)} turns"
+    )
 
 
 # ── recursive decomposition: real recursion to the depth bound ─────────────────
@@ -178,14 +206,18 @@ async def test_debate_progresses_without_echo(tmp_path):
 async def test_recursion_reaches_depth_bound(tmp_path):
     _require(_FAST)
     await Runtime(tmp_path / "run").run(
-        recursive_decomposition_topology("build an auth feature", solver_model=OllamaResponder(_FAST), max_depth=2, fanout=2)
+        recursive_decomposition_topology(
+            "build an auth feature", solver_model=OllamaResponder(_FAST), max_depth=2, fanout=2
+        )
     )
     envs = list(read_record(tmp_path / "run"))
     subtasks = [e["payload"] for e in envs if e["kind"] == "SubtaskProposed"]
     solutions = [e for e in envs if e["kind"] == "SolutionReached"]
     # SUBSTANCE: the cascade actually reached the depth bound AND produced real leaf solutions —
     # fails if recursion stops short of the bound or no leaves are reached.
-    assert subtasks and max(s["depth"] for s in subtasks) == 2, "recursion did not reach the depth bound"
+    assert subtasks and max(s["depth"] for s in subtasks) == 2, (
+        "recursion did not reach the depth bound"
+    )
     assert solutions, "no leaf SolutionReached — the recursion produced nothing"
 
 
@@ -196,8 +228,13 @@ async def test_pair_coding_route_carries_suggestion(tmp_path):
     await Runtime(tmp_path / "run").run(
         pair_coding_topology(
             "write a function to validate an email",
-            driver_model=OllamaResponder(_FAST), navigator_model=OllamaResponder(_FAST),
-            chunks=["def validate_email(s):\n", "    import re\n", "    return bool(re.match(r'.+@.+', s))\n"],
+            driver_model=OllamaResponder(_FAST),
+            navigator_model=OllamaResponder(_FAST),
+            chunks=[
+                "def validate_email(s):\n",
+                "    import re\n",
+                "    return bool(re.match(r'.+@.+', s))\n",
+            ],
         )
     )
     envs = list(read_record(tmp_path / "run"))
@@ -217,7 +254,9 @@ async def test_instrument_ablation_delta(tmp_path):
         natural_conversation_topology(instruments=True, walkthrough=True, model=_FAST, max_rounds=3)
     )
     await Runtime(tmp_path / "without").run(
-        natural_conversation_topology(instruments=False, walkthrough=True, model=_FAST, max_rounds=3)
+        natural_conversation_topology(
+            instruments=False, walkthrough=True, model=_FAST, max_rounds=3
+        )
     )
     with_kinds = {e["kind"] for e in read_record(tmp_path / "with")}
     without_kinds = {e["kind"] for e in read_record(tmp_path / "without")}
@@ -243,9 +282,12 @@ class _UppercaseTransform:
 async def test_adversarial_pair_real_findings_and_bounded_loop(tmp_path):
     _require(_SMART)
     topo = adversarial_pair_topology(
-        writer_model=OllamaResponder(_SMART, max_tokens=80, temperature=0.7, system="You write a short artifact."),
+        writer_model=OllamaResponder(
+            _SMART, max_tokens=80, temperature=0.7, system="You write a short artifact."
+        ),
         finder_model=OllamaResponder(_SMART, max_tokens=40, system="You find one flaw."),
-        max_attempts=2, deterministic=False,
+        max_attempts=2,
+        deterministic=False,
     )
     await Runtime(tmp_path / "run").run(topo)
     envs = list(read_record(tmp_path / "run"))
@@ -256,8 +298,9 @@ async def test_adversarial_pair_real_findings_and_bounded_loop(tmp_path):
     # into the writer's next version, and the loop is BOUNDED (stops at max_attempts, can't run away).
     # (Whether the writer's revision *improves* the artifact is model-dependent and NOT asserted here.)
     assert len(artifacts) >= 3, "the refinement loop did not produce v0..v2"
-    assert challenges and all(len(c["issue"]) > 15 and "issue@v" not in c["issue"] for c in challenges), \
-        f"findings are not real model output: {[c['issue'] for c in challenges]}"
+    assert challenges and all(
+        len(c["issue"]) > 15 and "issue@v" not in c["issue"] for c in challenges
+    ), f"findings are not real model output: {[c['issue'] for c in challenges]}"
     assert injections, "the challenge was not routed into the next writer (InjectionApplied)"
     assert max(c["version"] for c in challenges) == 2, "the loop is not bounded at max_attempts"
 
@@ -269,34 +312,58 @@ async def test_pipeline_cascade_halt_and_resume(tmp_path):
     # proves the CASCADE — invalid-emission -> retry -> RetryExhausted -> PAUSE, then resume in a
     # FRESH Runtime -> Recovered -> finalise on a continuous seq.
     topo = pipeline_topology(
-        ["alpha", "beta", "gamma", "delta"], transform_model=_UppercaseTransform(),
-        fault_row=1, hard_fault_row=2, malformed_row=3, deterministic=False,
+        ["alpha", "beta", "gamma", "delta"],
+        transform_model=_UppercaseTransform(),
+        fault_row=1,
+        hard_fault_row=2,
+        malformed_row=3,
+        deterministic=False,
     )
     root = tmp_path / "run"
     paused = await Runtime(root, persistent=True).run(topo)
     envs = list(read_record(root))
     assert paused.status == "paused", f"the cascade did not pause: {paused.status}"
     # the deterministic transform is CORRECT (code, not a flaky model): row 0 'alpha' -> 'ALPHA'.
-    transformed = {e["payload"]["row"]: e["payload"]["out"] for e in envs if e["kind"] == "Transformed"}
+    transformed = {
+        e["payload"]["row"]: e["payload"]["out"] for e in envs if e["kind"] == "Transformed"
+    }
     assert transformed.get(0) == "ALPHA", f"the code transform is wrong: {transformed}"
-    assert [e for e in envs if e["kind"] == "RetryExhausted"], "the unrecoverable fault did not exhaust retries"
+    assert [e for e in envs if e["kind"] == "RetryExhausted"], (
+        "the unrecoverable fault did not exhaust retries"
+    )
     # resume across a FRESH Runtime (the cross-process persistence promise) with the operator override
-    resumed = await Runtime(root, persistent=True).resume(topo, resume_event=operator_override(row=2))
+    resumed = await Runtime(root, persistent=True).resume(
+        topo, resume_event=operator_override(row=2)
+    )
     after = list(read_record(root))
-    assert resumed.status == "finalised" and resumed.run_id == paused.run_id, "resume did not continue the run"
-    assert [e for e in after if e["kind"] == "Recovered"], "the override did not recover the paused row"
-    assert [e["seq"] for e in after] == list(range(len(after))), "seq not continuous across pause/resume"
+    assert resumed.status == "finalised" and resumed.run_id == paused.run_id, (
+        "resume did not continue the run"
+    )
+    assert [e for e in after if e["kind"] == "Recovered"], (
+        "the override did not recover the paused row"
+    )
+    assert [e["seq"] for e in after] == list(range(len(after))), (
+        "seq not continuous across pause/resume"
+    )
 
 
 # ── codesynth (R-3): concurrent checker over real code + composition isolation ──
 @pytest.mark.timeout(180)
 async def test_codesynth_concurrent_checker_isolation(tmp_path):
     _require(_SMART)
-    writer = OllamaResponder(_SMART, max_tokens=160, system="Write ONLY Python code, no prose, no markdown fences.")
-    code = writer.respond("Write two functions: add(a,b) returning a+b, and mul(a,b) returning a*b.")
-    chunks = [code[i : i + 30] for i in range(0, len(code), 30)]  # ~30-char chunks -> cross-chunk overlap
+    writer = OllamaResponder(
+        _SMART, max_tokens=160, system="Write ONLY Python code, no prose, no markdown fences."
+    )
+    code = writer.respond(
+        "Write two functions: add(a,b) returning a+b, and mul(a,b) returning a*b."
+    )
+    chunks = [
+        code[i : i + 30] for i in range(0, len(code), 30)
+    ]  # ~30-char chunks -> cross-chunk overlap
     inner_root = tmp_path / "inner"
-    await Runtime(tmp_path / "run").run(codesynth_composed_topology(chunks, str(inner_root), deterministic=False))
+    await Runtime(tmp_path / "run").run(
+        codesynth_composed_topology(chunks, str(inner_root), deterministic=False)
+    )
     inner = list(read_record(inner_root))
     outer = list(read_record(tmp_path / "run"))
     declarations = [e for e in inner if e["kind"] == "Declaration"]
@@ -304,6 +371,8 @@ async def test_codesynth_concurrent_checker_isolation(tmp_path):
     artifacts = [e for e in outer if e["kind"] == "OuterArtifact"]
     # SUBSTANCE: the concurrent checker found real declarations in the streamed REAL code, the inner
     # composition stayed ISOLATED (no inner kind crossed outward), and the artifact crossed the seam.
-    assert len(declarations) >= 2, f"checker found <2 Declarations in the streamed code: {len(declarations)}"
+    assert len(declarations) >= 2, (
+        f"checker found <2 Declarations in the streamed code: {len(declarations)}"
+    )
     assert not leaked, f"inner kinds leaked to the outer record: {leaked}"
     assert artifacts, "no OuterArtifact crossed the composition boundary"

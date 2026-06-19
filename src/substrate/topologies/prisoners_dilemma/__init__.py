@@ -64,11 +64,15 @@ def prisoners_dilemma_topology(
     ALPHA's reasoning visible. Defect/cooperate dynamics emerge from the incentives, not a
     script. Default one round (ALPHA then BRAVO)."""
     spk = speakers(
-        [_PD_ALPHA_SYS, _PD_BRAVO_SYS], walkthrough=walkthrough, model=model,
+        [_PD_ALPHA_SYS, _PD_BRAVO_SYS],
+        walkthrough=walkthrough,
+        model=model,
         ci_menu=["STAY SILENT", "TALK"],
     )
     # the prisoner emits its own typed Decision at its mouth (outcome=); no downstream detector.
     return conversation_topology(
-        spk, max_rounds=max_rounds, deterministic=not walkthrough,
+        spk,
+        max_rounds=max_rounds,
+        deterministic=not walkthrough,
         outcome=(Decision, _pd_outcome),
     )

@@ -374,7 +374,7 @@ def test_stats_reads_writer_stats_sidecar(tmp_path):
     assert "writer_stats:" in res.stdout
 
 
-_VALIDATE_MODULE = '''
+_VALIDATE_MODULE = """
 from msgspec import Struct
 from substrate import api
 class Note(Struct, frozen=True):
@@ -389,7 +389,7 @@ def _common(b, kind):
     b.termination(api.all_completed())
 def good(b): _common(b, "Note")
 def bad(b): _common(b, "FailEvent")  # no Producer declares FailEvent
-'''
+"""
 
 
 def test_cli_validate_clean_topology_reports_counts(tmp_path):

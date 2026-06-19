@@ -27,7 +27,9 @@ from msgspec import Struct
 
 from .. import api
 from ..reference._models import DeterministicResponder, OllamaResponder, Responder, call_responder
-from .instruments.repair import REPAIR_OK  # the cue sentinel a speaker reads; instruments live demo-side
+from .instruments.repair import (
+    REPAIR_OK,
+)  # the cue sentinel a speaker reads; instruments live demo-side
 
 _Factory = Callable[[], Any]
 
@@ -90,8 +92,7 @@ def _after_predicate(k: int, n: int, max_rounds: int) -> Callable[[api.TriggerCo
     # fire speaker k+1 after speaker k's Turn, while within the round budget (closure over k/n,
     # so the callback is a clean single-`ctx` lambda — no default-arg trick mypy can't infer).
     return lambda ctx: (
-        int(ctx.event.payload["speaker"]) == k
-        and _next_round(ctx.event.payload, n) <= max_rounds
+        int(ctx.event.payload["speaker"]) == k and _next_round(ctx.event.payload, n) <= max_rounds
     )
 
 

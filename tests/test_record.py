@@ -85,7 +85,9 @@ def test_truncated_sealed_segment_is_detected(tmp_path, monkeypatch):
     w.close()
     sealed = _sealed(tmp_path)
     assert sealed, "expected a sealed segment"
-    sealed[0].write_bytes(sealed[0].read_bytes()[:-5])  # lop the trailing newline + part of the frame
+    sealed[0].write_bytes(
+        sealed[0].read_bytes()[:-5]
+    )  # lop the trailing newline + part of the frame
     with pytest.raises(RecordGapError):
         list(read_record(tmp_path))
 

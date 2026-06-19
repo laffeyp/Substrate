@@ -159,12 +159,16 @@ def _input_build_failed(p: dict[str, Any], ref: Any) -> str:
 
 def _predicate_quarantined(p: dict[str, Any], ref: Any) -> str:
     tail = f" -- {p['error']}" if p.get("error") else ""
-    return f"Predicate quarantined (trigger {p.get('trigger_id', '?')}): {p.get('reason', '?')}{tail}"
+    return (
+        f"Predicate quarantined (trigger {p.get('trigger_id', '?')}): {p.get('reason', '?')}{tail}"
+    )
 
 
 def _invalid_emission(p: dict[str, Any], ref: Any) -> str:
     at = f" at {p['at_path']}" if p.get("at_path") else ""
-    return f"{_producer_kind(p.get('producer'))} emitted an invalid event: {p.get('reason', '?')}{at}"
+    return (
+        f"{_producer_kind(p.get('producer'))} emitted an invalid event: {p.get('reason', '?')}{at}"
+    )
 
 
 def _termination_matched(p: dict[str, Any], ref: Any) -> str:

@@ -90,11 +90,15 @@ def intel_asymmetry_topology(
     calibrated assessment (information asymmetry). Hypothesis-testing, questioning, and
     cross-source corroboration emerge as the rational response."""
     spk = speakers(
-        [_INTEL_HUMINT_SYS, _INTEL_SIGINT_SYS], walkthrough=walkthrough, model=model,
+        [_INTEL_HUMINT_SYS, _INTEL_SIGINT_SYS],
+        walkthrough=walkthrough,
+        model=model,
         ci_menu=["ASSESSMENT: offensive CONFIDENCE: 60%", "ASSESSMENT: routine CONFIDENCE: 75%"],
     )
     # the analyst emits its own typed JointCall at its mouth (outcome=); no downstream detector.
     return conversation_topology(
-        spk, max_rounds=max_rounds, deterministic=not walkthrough,
+        spk,
+        max_rounds=max_rounds,
+        deterministic=not walkthrough,
         outcome=(JointCall, _intel_outcome),
     )
