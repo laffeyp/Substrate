@@ -2,10 +2,12 @@
 
 The precursor (prompt-factory) orchestrated open-source models to write code ONE candidate at a
 time, validated by a project build. This topology generalizes that and adds the thing Substrate
-makes free that a sequential orchestrator can't: N candidates drafted CONCURRENTLY, each
-build-validated in parallel, the passing one selected — and on a round where none pass, the gate
-failures are fed back into a fresh round of N drafters, bounded. The whole search — every candidate,
-every gate run, every correction round — is one replayable record.
+makes free that a sequential orchestrator can't: N candidates drafted CONCURRENTLY — typically one
+from each of N DIFFERENT models (an ensemble: qwen-coder, deepseek, llama, … each with its own
+strengths and failure modes — that heterogeneity, not just sampling temperature, is where best-of-N
+gets its diversity) — each build-validated in parallel, the passing one selected; and on a round
+where none pass, the gate failures are fed back into a fresh round of N drafters, bounded. The whole
+search — every candidate, every gate run, every correction round — is one replayable record.
 
 Heterogeneous by the rule: DRAFTING (initial + correction) is the only model work. SEEDING,
 VALIDATION (running the gate), SELECTING, and CORRECTING are deterministic code — the truth is a
@@ -256,6 +258,13 @@ def ci_responders(task: CodingTask, n: int = 3) -> list[Responder]:
     ]
 
 
-def walkthrough_responders(model: str = "qwen2.5-coder:7b", n: int = 3) -> list[Responder]:
-    """Walkthrough: n real local coders. Temperature > 0 gives the N candidates genuine diversity."""
-    return [OllamaResponder(model, temperature=0.6, max_tokens=900) for _ in range(n)]
+def walkthrough_responders(
+    models: list[str] | str, *, temperature: float = 0.6, max_tokens: int = 900
+) -> list[Responder]:
+    """Best-of-N over an ENSEMBLE — one drafter per model. The real diversity in best-of-N comes from
+    N DIFFERENT models (each family has its own strengths + failure modes), not just N samples of one;
+    so pass several distinct model names — e.g. ["qwen2.5-coder:7b", "deepseek-r1:8b", "llama3:8b"].
+    The topology hands slot i to `models[i]`. A single name (or a name repeated) still works — that is
+    degenerate best-of-N, sampling-temperature diversity only — but the point is heterogeneity."""
+    names = [models] if isinstance(models, str) else list(models)
+    return [OllamaResponder(m, temperature=temperature, max_tokens=max_tokens) for m in names]

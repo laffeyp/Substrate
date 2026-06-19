@@ -18,11 +18,14 @@ from substrate.topologies.coding_flow.gate import parse_artifacts, run_gate
 from substrate.topologies.coding_flow.task import CodingTask, kvstore_task
 
 _OLLAMA_V1 = "http://localhost:11434/v1"
+# distinct model FAMILIES — best-of-N's diversity is meant to come from different models, not just
+# different samples of one. The ensemble test picks up to k of whatever is installed.
 _CODERS = [
     "qwen2.5-coder:7b",
-    "qwen2.5-coder:3b",
+    "deepseek-r1:8b",
+    "llama3:8b",
     "qwen2.5:7b-instruct",
-    "llama3.1:8b",
+    "qwen2.5-coder:3b",
     "llama3.2:3b",
 ]
 
@@ -118,7 +121,9 @@ async def test_exhausted_when_every_round_fails(tmp_path) -> None:
 # ── walkthrough: a real local coder closes the loop against the real gate ───────
 
 
-def _coder() -> str:
+def _ensemble(k: int) -> list[str]:
+    """Up to k DISTINCT installed coder models — best-of-N over an ensemble of different families.
+    Skips if Ollama is unreachable or none of the candidates are installed."""
     try:
         import httpx
 
@@ -127,27 +132,27 @@ def _coder() -> str:
         pytest.skip(
             f"coding_flow walkthrough skipped — Ollama not reachable ({type(exc).__name__})"
         )
-    for m in _CODERS:
-        if m in ids:
-            return m
-    pytest.skip(f"coding_flow walkthrough skipped — no coder model among {_CODERS}")
+    available = [m for m in _CODERS if m in ids]
+    if not available:
+        pytest.skip(f"coding_flow walkthrough skipped — none of {_CODERS} installed")
+    return available[:k]
 
 
 @pytest.mark.realmodel
 @pytest.mark.timeout(600)
-async def test_walkthrough_real_coder_closes_the_loop(tmp_path) -> None:
-    # the claim: a REAL local coder drafting + the REAL gate validating reaches a terminal — Solved if
-    # any candidate's code actually passes ruff+mypy+pytest, else Exhausted after the rounds. Either
-    # is a pass: it proves the loop closes on real model output, not that a 7B model is infallible.
-    model = _coder()
+async def test_walkthrough_ensemble_closes_the_loop(tmp_path) -> None:
+    # the claim: a best-of-N ENSEMBLE of real local coders (different model families) + the REAL gate
+    # reaches a terminal — Solved if any candidate's code passes ruff+mypy+pytest, else Exhausted.
+    # Either is a pass: it proves the loop closes on real, heterogeneous model output.
+    models = _ensemble(3)
     task = kvstore_task()
     topo = coding_flow_topology(
-        task, responders=walkthrough_responders(model, n=3), n=3, max_rounds=2, timeout=180
+        task, responders=walkthrough_responders(models), n=len(models), max_rounds=2, timeout=180
     )
     await Runtime(tmp_path / "run").run(topo)
     events = list(read_record(tmp_path / "run"))
 
-    assert _kinds(events, "Candidate"), "the real model produced at least one candidate"
+    assert _kinds(events, "Candidate"), "the ensemble produced at least one candidate"
     assert _kinds(events, "Verdict"), "each candidate was really gate-validated"
     out = _outcome(events)
     assert out is not None and out["kind"] in ("Solved", "Exhausted")
