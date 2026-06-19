@@ -672,6 +672,7 @@ dependencies = [
     { name = "python-ulid" },
     { name = "rfc8785" },
     { name = "rich" },
+    { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
@@ -709,6 +710,7 @@ requires-dist = [
     { name = "rfc8785" },
     { name = "rich" },
     { name = "ruff", marker = "extra == 'dev'" },
+    { name = "typing-extensions" },
 ]
 provides-extras = ["dev", "openai-compat"]
 
