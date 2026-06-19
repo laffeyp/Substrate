@@ -44,6 +44,19 @@ e.g. `substrate tail src/substrate/topologies/code_review/records/ci_mode.record
 | `recursive_decomposition` | one recursive Trigger spawns solvers at any depth, bounded by a depth-budget guard |
 | `debate` / `prisoners_dilemma` / `intel_asymmetry` | the conversation substrate under positional / payoff / information asymmetry |
 | `natural_conversation` | the emergence ablation — common-ground + repair instruments toggled; the delta is the demo |
+| `coding_flow` | best-of-N codegen over a model ENSEMBLE → build-validation (a real gate) → correction loop. A run-and-observe app, **not** a committed record — see below. |
+
+### `coding_flow` — a run-and-observe app, not a committed record
+
+`coding_flow` is the exception: it validates each candidate by running a REAL gate (`ruff check &&
+mypy --strict && pytest`) in a subprocess, so its run is not byte-reproducible — it is
+`deterministic=False`, is **not** in the `bundled` registry, and ships no `records/` snapshot. Run it
+and watch: a seeder fans out N drafters (one per model in a heterogeneous ensemble), each emits a
+Candidate, a validator runs the gate on each in parallel, and when a round's verdicts are all in the
+judge selects the gate-passing candidate — or, if none pass, feeds every failure back into a fresh
+round (bounded), or gives up (Exhausted). CI proves the wiring on canned candidates against the real
+gate; the `@realmodel` walkthrough runs a real local-coder ensemble. Code + tests:
+`topologies/coding_flow/` and `tests/test_coding_flow.py`.
 
 ## Walkthrough mode (real local LLMs)
 

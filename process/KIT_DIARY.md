@@ -251,6 +251,26 @@
 
 ---
 
+### 2026-06-19 — Hardening + reorg + a new app + CI: what real CI and real models exposed
+
+**What happened:** A long chapter (reviews #44–#48): applied a 78-finding adversarial review of both repos; reorganized `src/substrate/` into subpackages, `topologies/` into co-located code+records packages, and `substrate-ui/` into folders; added LICENSE + a docs index + White/Orwell README fixes; stood up CI on both repos (substrate's matrix + NEW substrate-ui CI with a cross-repo private checkout and a real-Chrome Playwright e2e); and built `coding_flow` — best-of-N over a model ensemble → build-validation → correction loop.
+
+**What worked:**
+- **Resolve-in-spec held under load.** Five spec↔code gaps the review surfaced went into product amendment A3 (additive, following the A1/A2 precedent), not into code comments or a side doc. The discipline scaled to a five-item batch without drift.
+- **The dual-mode contract carried a brand-new app.** coding_flow shipped CI-deterministic (canned candidates, real gate) AND walkthrough (a real local-coder ensemble) on day one — the wiring proven in CI, the claim proven against real models.
+
+**What got in the way (and the lessons):**
+- **Green locally is not green in a clean clone.** Pushing to real CI caught two bugs the local suite hid: `typing_extensions` (python-ulid 3.x imports it but does not declare it, so a base `pip install substrate` broke at import for ANY user — masked locally because a dev dep pulled it transitively) and a server-test that passed only on STALE `runs/` fixtures a clean checkout doesn't have. A suite that has never run from a clean checkout is not verified.
+- **A parser tested only on your own canned format breaks on real model output.** coding_flow's deterministic tests (canned candidates) all passed and the demo "worked" — then EVERY real-model candidate parsed to zero files and the flow exhausted, because the model put `# path:` INSIDE the code fence, not as a header before it. The green test said nothing; I only caught it by LOOKING at the raw model output. A model-output-parsing seam must be verified against real output, not just the format your fixtures emit.
+- **best-of-N's diversity is the ENSEMBLE, not sampling.** The point of best-of-N is N DIFFERENT models (each family's distinct strengths/failure modes), not N temperature-samples of one — a correctness point the Architect had to make; the topology already supported per-slot models, but the helper hardcoded one.
+- **The standing pipe reviewer out-caught a cold agent.** A readability review on the live pipe flagged a duplicated run-block that a freshly-spawned reviewer missed — continuity (it has watched the repo evolve) is worth more than a cold independent read for this kind of pass.
+
+**What this says about the next kit version:**
+- 27. **Make "runs green from a clean checkout" an explicit gate, distinct from "runs green here."** The kit's dual contract proves wiring locally; it does not prove the artifact installs and tests from a fresh clone. A base-install / clean-checkout CI run should be a named step — it is where undeclared transitive deps and stale-fixture dependencies surface, and they are invisible to a warm dev tree.
+- 28. **For any seam that parses real model (or external) output, the observation contract should require a check against REAL output, not just the canned format the producer emits.** A deterministic stand-in proves the wiring; it actively HIDES format-mismatch bugs, because the stand-in emits exactly the shape the parser expects.
+
+---
+
 ## Phase boundary syntheses
 
 *(one per phase close)*
