@@ -127,8 +127,8 @@ def game_of_life_topology(
     advances, for `generations` steps. `initial` defaults to a 5x5 blinker."""
 
     grid0 = initial if initial is not None else blinker()
-    if not grid0 or not grid0[0]:
-        raise ValueError("game_of_life: initial must be a non-empty 2-D grid")
+    if not grid0 or not grid0[0] or any(len(r) != len(grid0[0]) for r in grid0):
+        raise ValueError("game_of_life: initial must be a non-empty RECTANGULAR 2-D grid")
     rows, cols = len(grid0), len(grid0[0])
     cell_count = rows * cols
 
