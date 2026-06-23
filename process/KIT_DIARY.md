@@ -271,6 +271,23 @@
 
 ---
 
+### 2026-06-22 — Agents on the substrate: the tool-loop, the simulation, and "where it goes" docs
+
+**What happened:** Closed the last two "What you can build" sketches as real bundled topologies — `tool_loop` (the model->tool->model agent loop) and `game_of_life` (Conway's Life as the tick-based simulation) — wrote two forward-design docs (tool-loop-futures, substrate-as-a-tool), did a README accuracy pass on "What you can build", and recorded a CLI-backed-models research finding.
+
+**What worked:**
+- **Reading the real source beat the blog summaries.** Best-in-class tool-loop behavior came from reading opencode's actual `tool.ts` / `max-steps.ts` (pulled via `gh`), not from search-result paraphrases — and the two patterns it surfaced (a tool failure is a typed observation, not a crash; the step budget ends gracefully on a forced answer) turned out to be MORE substrate-idiomatic, not less: the failure path mirrors the R-2 structured-error cascade, and the wrap-up is one extra Trigger. The Architect's standing "look at the actual code" instruction is the reason the crash-on-unknown-tool cut got fixed before commit.
+- **The bundled-topology pattern is a fast, safe template.** Both topologies followed adversarial_pair / recursive_decomposition (producer_kind + Trigger + Route/View + bounded loop), registered in one line, record auto-generated from the registry, swept by the existing replay/pressure tests. New behavior-touching code shipped same-session, dual + observation contract verified, with no kernel change.
+
+**What got in the way (and the lessons):**
+- **Green-on-canned hides crash-on-real, again (the finding-28 lesson, re-confirmed).** tool_loop's first `tool` Producer did `_TOOLS[tool](args)` — fine on the calculator, a crash on any unknown tool. The deterministic happy-path test was green and said nothing. Only the adversarial "call a tool that doesn't exist" test — written *because* the opencode read flagged errors-as-observations — caught it. A model-output-driven seam needs a test for output the producer's own fixtures don't emit.
+- **"Many producers per tick" is a record-size lever.** game_of_life at 5x5 = 50 concurrent cell-Producers -> a 264-frame / 80K committed record, larger than the other demos. The pattern wants the concurrency visible, but a committed demo record pays for it in git. And the raw event stream is the wrong surface for a grid: the simulation's natural output is the grid animating across generations, which the generic graph/stream panels don't render — the Architect raised exactly this (does substrate-ui need a custom-visual panel?).
+
+**What this says about the next kit version:**
+- 29. **For a runtime whose output is an application-domain artifact (a grid, a board, a waveform), the observation contract should name the domain rendering, not just the event sequence — and the tooling should follow the domain, not the framework.** game_of_life is "correct" on the event log (the Rubber Duck Pass narrates it), but a human verifies it by SEEING the blinker oscillate. The kit already says this for UI/audio classes; the lesson is that a *generic* runtime's demos are often domain-visual too, so the verification surface (and a viewer — a read-only "scene" panel that interprets a known payload shape, driven by the existing seq-cursor) is worth naming as first-class, not left to the raw stream.
+
+---
+
 ## Phase boundary syntheses
 
 *(one per phase close)*

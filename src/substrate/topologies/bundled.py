@@ -24,6 +24,7 @@ from .intel_asymmetry import intel_asymmetry_topology
 from .natural_conversation import natural_conversation_topology
 from .prisoners_dilemma import prisoners_dilemma_topology
 from .pair_coding import pair_coding_topology
+from .game_of_life import game_of_life_topology
 from .recursive_decomposition import recursive_decomposition_topology
 from .tool_loop import tool_loop_topology
 
@@ -73,6 +74,7 @@ BUNDLED: dict[str, Callable[[], _Topo]] = {
     "natural_conversation_bare": lambda: natural_conversation_topology(instruments=False),
     "adversarial_pair": adversarial_pair_topology,
     "tool_loop": tool_loop_topology,
+    "game_of_life": game_of_life_topology,
 }
 
 _registered = False

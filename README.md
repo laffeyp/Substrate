@@ -105,10 +105,10 @@ Each of these is a topology — a short Python program against the runtime:
 - A tool-using loop as a chain of model → tool → model Producers, each call
   independently replayable.
 
-All of these ship as runnable topologies with committed run records you can read back —
-except the tick-based simulation, which is still a sketch. Browse them with `substrate
-topology list`, then read one back with `substrate demo replay <name>`; a few committed
-records also live under `docs/walkthroughs/records/`. The streaming-writer-with-checker
+All of these ship as runnable topologies with committed run records you can read back.
+Browse them with `substrate topology list`, then read one back with `substrate demo
+replay <name>`; a few committed records also live under `docs/walkthroughs/records/`.
+The streaming-writer-with-checker
 ships with a deterministic `ast.parse` stand-in so it can carry a replayable record;
 `coding_flow` is the sibling that runs a real `ruff check . && mypy . && pytest` gate.
 

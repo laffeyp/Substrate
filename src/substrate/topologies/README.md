@@ -43,6 +43,7 @@ e.g. `substrate tail src/substrate/topologies/code_review/records/ci_mode.record
 | `pair_coding` | driver streams chunks; a navigator's suggestion is Routed into the driver's next instantiation |
 | `recursive_decomposition` | one recursive Trigger spawns solvers at any depth, bounded by a depth-budget guard |
 | `tool_loop` | the model -> tool -> model agent loop: a ToolCall fires a tool Producer, its ToolResult re-fires the model with the result appended; failed tools surface as typed observations, bounded by a step budget that ends on a FinalAnswer |
+| `game_of_life` | a tick-based simulation: a world Producer fans the shared grid out as one CellTick per cell; a cell Producer per cell applies Conway's Life rule concurrently; a step Trigger assembles the next generation once all cells report, bounded by a generation budget — every grid on the record |
 | `debate` / `prisoners_dilemma` / `intel_asymmetry` | the conversation substrate under positional / payoff / information asymmetry |
 | `natural_conversation` | the emergence ablation — common-ground + repair instruments toggled; the delta is the demo |
 | `coding_flow` | best-of-N codegen over a model ENSEMBLE → build-validation (a real gate) → correction loop. A run-and-observe app, **not** a committed record — see below. |
