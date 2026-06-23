@@ -57,10 +57,18 @@ async def test_committed_record_is_current(tmp_path, name):
     # RunStarted.topology and silently strands the record, while Level-2 replay — which checks the
     # record against ITSELF — still passes. So replay alone cannot catch staleness; a fresh run vs
     # the committed record can. (int->Any on ToolResult.output stranded tool_loop's record until regen.)
-    from substrate.api import Runtime, first_divergence
+    from substrate.api import Runtime, first_divergence, read_record
     from substrate.topologies import bundled
 
     await Runtime(tmp_path / name).run(bundled.BUNDLED[name]())
+    # GUARD (review #52): only an all-deterministic topology can regenerate byte-identically. Skip —
+    # LOUDLY, with a named reason — a non-deterministic bundled topology, so the gate never mistakes
+    # non-determinism for a stale record (a false-fail). Every BUNDLED entry is deterministic today;
+    # this keeps that invariant explicit rather than implicit.
+    rs = next(e for e in read_record(tmp_path / name) if e["kind"] == "substrate.RunStarted")
+    nondet = [pk["kind"] for pk in rs["payload"]["topology"]["producer_kinds"] if not pk["deterministic"]]
+    if nondet:
+        pytest.skip(f"{name}: non-deterministic producers {nondet} — not byte-reproducible, currency gate N/A")
     div = first_divergence(bundled.record_path(name), tmp_path / name)
     assert div is None, (
         f"{name}: committed record is STALE — a fresh run diverges from it. "

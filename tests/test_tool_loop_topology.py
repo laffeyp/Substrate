@@ -130,3 +130,4 @@ async def test_non_encodable_tool_output_is_an_observation_not_an_emit_crash(tmp
     bad = [e for e in envs if e["kind"] == "ToolResult" and not e["payload"]["ok"]]
     assert len(bad) == 1  # the non-encodable return became a typed failure...
     assert not [e for e in envs if e["kind"] == "substrate.ProducerFailed"]  # ...not an emit crash
+    assert not [e for e in envs if e["kind"] == "substrate.ProducerEmittedInvalidEvent"]  # nor at emit
