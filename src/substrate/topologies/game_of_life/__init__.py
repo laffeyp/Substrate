@@ -61,6 +61,18 @@ def blinker(rows: int = 5, cols: int = 5) -> list[list[int]]:
     return grid
 
 
+def glider(rows: int = 7, cols: int = 7) -> list[list[int]]:
+    """The iconic glider — a spaceship that is ASYMMETRIC (no mirror symmetry) and MOVING (it
+    translates one cell diagonally per period-4). The asymmetry is the point: it gives a frame that a
+    pure L-R / U-D mirror render bug would diverge on, which a mirror-symmetric blinker cannot (the
+    pixel-decode harness's mirror-blind spot — review #50). Offset one cell from the top-left so it
+    has a full neighborhood and room to travel without hitting an edge for a few generations."""
+    grid = [[0] * cols for _ in range(rows)]
+    for r, c in [(1, 2), (2, 3), (3, 1), (3, 2), (3, 3)]:
+        grid[r][c] = 1
+    return grid
+
+
 def _patch(grid: list[list[int]], r: int, c: int) -> list[list[int]]:
     """The 3x3 neighborhood around (r, c); off-grid cells are dead (finite, non-wrapping)."""
     rows, cols = len(grid), len(grid[0])

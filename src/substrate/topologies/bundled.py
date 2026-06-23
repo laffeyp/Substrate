@@ -24,7 +24,7 @@ from .intel_asymmetry import intel_asymmetry_topology
 from .natural_conversation import natural_conversation_topology
 from .prisoners_dilemma import prisoners_dilemma_topology
 from .pair_coding import pair_coding_topology
-from .game_of_life import game_of_life_topology
+from .game_of_life import game_of_life_topology, glider
 from .recursive_decomposition import recursive_decomposition_topology
 from .tool_loop import tool_loop_topology
 
@@ -75,6 +75,9 @@ BUNDLED: dict[str, Callable[[], _Topo]] = {
     "adversarial_pair": adversarial_pair_topology,
     "tool_loop": tool_loop_topology,
     "game_of_life": game_of_life_topology,
+    # an asymmetric, MOVING glider (vs the symmetric blinker) — the fixture that lets the pixel-decode
+    # harness catch a pure mirror render bug (review #50 mirror-blind spot).
+    "game_of_life_glider": lambda: game_of_life_topology(initial=glider(), generations=4),
 }
 
 _registered = False
