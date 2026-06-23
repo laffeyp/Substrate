@@ -74,3 +74,38 @@ async def test_tool_loop_is_deterministic(tmp_path):
     await Runtime(tmp_path / "a").run(tool_loop_topology())
     await Runtime(tmp_path / "b").run(tool_loop_topology())
     assert first_divergence(tmp_path / "a", tmp_path / "b") is None
+
+
+@pytest.mark.timeout(20)
+async def test_full_suite_runs_real_tools_and_errors_stay_observations(tmp_path):
+    # the real tool suite (write / read / surgical edit_file) runs through the SAME loop. The
+    # edit_file actually mutates the file — the read-back proves it (alpha\nbeta -> alpha\nBETA) — and
+    # a bad edit comes back as a typed ToolResult(ok=False), never a crash. FULL_SUITE has
+    # side-effecting tools, so the run is deterministic=False (still a real, inspectable record).
+    from substrate.topologies.tool_loop.tools import FULL_SUITE
+
+    f = tmp_path / "work.txt"
+    result = await Runtime(tmp_path / "run").run(
+        tool_loop_topology(
+            tools=FULL_SUITE,
+            deterministic=False,
+            max_steps=8,
+            script=[
+                ("write_file", [str(f), "alpha\nbeta\n"]),
+                ("read_file", [str(f)]),
+                ("edit_file", [str(f), "beta", "BETA"]),
+                ("read_file", [str(f)]),
+                ("edit_file", [str(f), "nope", "x"]),  # search not found -> typed failure
+            ],
+        )
+    )
+    assert result.status == "finalised"
+    envs = list(read_record(tmp_path / "run"))
+    results = [e for e in envs if e["kind"] == "ToolResult"]
+    # the surgical edit took effect end-to-end: the second read sees BETA, not beta.
+    reads = [r["payload"]["output"] for r in results if r["payload"]["tool"] == "read_file" and r["payload"]["ok"]]
+    assert reads == ["alpha\nbeta\n", "alpha\nBETA\n"]
+    # the bad edit is a typed observation, not a crash; no Producer failed.
+    bad = [r for r in results if not r["payload"]["ok"]]
+    assert len(bad) == 1 and "search text not found" in bad[0]["payload"]["error"]
+    assert not [e for e in envs if e["kind"] == "substrate.ProducerFailed"]

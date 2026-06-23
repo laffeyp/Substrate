@@ -44,29 +44,27 @@ from msgspec import Struct
 
 from ... import api
 from ...reference._models import Responder, call_responder
+from .tools import CALCULATOR, Tool, suite_describe
 
 _Factory = Callable[[], Any]
 
-# The tool registry: pure deterministic functions, so a tool run is reproducible and the CI
-# record stays byte-stable. A real topology points these at real tools (and marks the Producer
-# deterministic=False — see the module docstring).
-_TOOLS: dict[str, Callable[[list[int]], int]] = {
-    "add": lambda a: a[0] + a[1],
-    "mul": lambda a: a[0] * a[1],
-}
+# The tool registry lives in tools.py — PURE (the calculator) for the deterministic CI demo, plus
+# the real READ-ONLY and WRITE/EXEC suite a real agent passes in. CALCULATOR is the default so the
+# committed record stays byte-stable; a real run passes FULL_SUITE (deterministic=False). The suite
+# design is grounded in the source of opencode / Cline / aider — see docs/tool-loop-tool-suite.md.
 
 
 class ToolCall(Struct, frozen=True):
     call_id: str
     tool: str
-    args: list[int]
+    args: list[Any]  # ints for the calculator; strings (paths, patterns) for the real suite
     step: int
 
 
 class ToolResult(Struct, frozen=True):
     call_id: str
     tool: str
-    output: int
+    output: Any  # int / str / list / dict — whatever the tool returns (RFC-8785-encodable)
     step: int
     ok: bool = True
     error: str = ""
@@ -85,7 +83,8 @@ def _answer_text(results: list[dict[str, Any]]) -> str:
 def _model_factory(
     responder: Responder | None,
     walkthrough: bool,
-    script: list[tuple[str, list[int]]] | None,
+    script: list[tuple[str, list[Any]]] | None,
+    tools: dict[str, Tool],
 ) -> _Factory:
     async def model(inp: Any) -> AsyncIterator[ToolCall | FinalAnswer]:
         step = int(inp.get("step", 0)) if hasattr(inp, "get") else 0
@@ -103,14 +102,14 @@ def _model_factory(
             # real model: ask for the next action; the reply convention is one line, either
             # "TOOL <name> <a> <b>" or "ANSWER <value>".
             outputs = [r["output"] for r in results]
-            menu = ", ".join(_TOOLS)
+            menu = suite_describe(tools)
             reply = await call_responder(
                 responder,
-                f"Tools: {menu}. Results so far: {outputs}. Compute (2 + 3) * 4. "
+                f"Tools:\n{menu}\nResults so far: {outputs}. Compute (2 + 3) * 4. "
                 f"Reply with exactly one line: 'TOOL <name> <a> <b>' or 'ANSWER <value>'.",
             )
             head = reply.strip().splitlines()[0].split() if reply.strip() else ["ANSWER", ""]
-            if head[0].upper() == "TOOL" and len(head) >= 4 and head[1] in _TOOLS:
+            if head[0].upper() == "TOOL" and len(head) >= 4 and head[1] in tools:
                 yield ToolCall(
                     call_id=f"c{step}", tool=head[1], args=[int(head[2]), int(head[3])], step=step
                 )
@@ -138,25 +137,25 @@ def _model_factory(
     return lambda: model
 
 
-def _tool_factory() -> _Factory:
+def _tool_factory(tools: dict[str, Tool]) -> _Factory:
     async def run_tool(inp: Any) -> AsyncIterator[ToolResult]:
         tool = str(inp.get("tool")) if hasattr(inp, "get") else ""
         args = list(inp.get("args", [])) if hasattr(inp, "get") else []
         call_id = str(inp.get("call_id", "?")) if hasattr(inp, "get") else "?"
         step = int(inp.get("step", 0)) if hasattr(inp, "get") else 0
-        fn = _TOOLS.get(tool)
-        if fn is None:
+        entry = tools.get(tool)
+        if entry is None:
             # unknown tool -> a typed failure the model reads, NOT a crash.
             yield ToolResult(
-                call_id=call_id, tool=tool, output=0, step=step, ok=False,
+                call_id=call_id, tool=tool, output="", step=step, ok=False,
                 error=f"unknown tool '{tool}'",
             )
             return
         try:
-            output = fn(args)
-        except Exception as exc:  # bad args etc. -> typed failure, still no crash.
+            output = entry.run(args)
+        except Exception as exc:  # bad args / not-found / IO error -> typed failure, no crash.
             yield ToolResult(
-                call_id=call_id, tool=tool, output=0, step=step, ok=False,
+                call_id=call_id, tool=tool, output="", step=step, ok=False,
                 error=f"{type(exc).__name__}: {exc}",
             )
             return
@@ -168,10 +167,11 @@ def _tool_factory() -> _Factory:
 def tool_loop_topology(
     *,
     model: Responder | None = None,
-    script: list[tuple[str, list[int]]] | None = None,
+    script: list[tuple[str, list[Any]]] | None = None,
     max_steps: int = 4,
     walkthrough: bool = False,
     deterministic: bool = True,
+    tools: dict[str, Tool] | None = None,
 ) -> Callable[[api.TopologyBuilder], None]:
     """Build the tool-using loop. The `model` emits a ToolCall or a FinalAnswer; the named tool
     runs and its ToolResult re-fires the model with the result appended, until a FinalAnswer
@@ -183,6 +183,10 @@ def tool_loop_topology(
     from ...reference._models import OllamaResponder
 
     responder = (model or OllamaResponder("llama3.2:1b")) if walkthrough else model
+    # default to the PURE calculator (the byte-reproducible CI demo); a real agent passes FULL_SUITE.
+    # the run is deterministic only if every tool in the suite is.
+    suite = tools if tools is not None else CALCULATOR
+    det = deterministic and all(t.deterministic for t in suite.values())
 
     def _continue_input(ctx: Any, *, final: bool) -> dict[str, Any]:
         return {
@@ -196,15 +200,15 @@ def tool_loop_topology(
             "model",
             schemas=[ToolCall, FinalAnswer],
             schema_version=1,
-            factory=_model_factory(responder, walkthrough, script),
-            deterministic=deterministic,
+            factory=_model_factory(responder, walkthrough, script, suite),
+            deterministic=det,
         )
         b.producer_kind(
             "tool",
             schemas=[ToolResult],
             schema_version=1,
-            factory=_tool_factory(),
-            deterministic=deterministic,
+            factory=_tool_factory(suite),
+            deterministic=det,
         )
         b.initial("model", input={"step": 0, "results": [], "final": False})
         # the running transcript of tool results — the model reads it to decide the next step
