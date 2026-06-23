@@ -93,8 +93,7 @@ Each of these is a topology — a short Python program against the runtime:
   escalates after N attempts, and pauses for a human when it can't recover.
 - A code-writing setup where one Producer streams code while a checker Producer
   fires on each complete declaration as it arrives — running concurrently with the
-  still-streaming writer. (The shipped reference uses a deterministic stand-in
-  checker, `ast.parse`; swap in a real type/test checker in your own topology.)
+  still-streaming writer.
 - A planner that emits subtasks, each starting a solver that can itself emit more
   subtasks — recursive decomposition to arbitrary depth.
 - An adversarial pair — one Producer writes, another attacks — streaming at each
@@ -106,9 +105,12 @@ Each of these is a topology — a short Python program against the runtime:
 - A tool-using loop as a chain of model → tool → model Producers, each call
   independently replayable.
 
-Runnable versions of the first three ship with the runtime (the reference
-topologies), with committed run records you can read back; the rest are sketches of
-the same shape. See Docs.
+All of these ship as runnable topologies with committed run records you can read back —
+except the tick-based simulation, which is still a sketch. Browse them with `substrate
+topology list`, then read one back with `substrate demo replay <name>`; a few committed
+records also live under `docs/walkthroughs/records/`. The streaming-writer-with-checker
+ships with a deterministic `ast.parse` stand-in so it can carry a replayable record;
+`coding_flow` is the sibling that runs a real `ruff check . && mypy . && pytest` gate.
 
 ## Docs
 

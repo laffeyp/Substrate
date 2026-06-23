@@ -25,6 +25,7 @@ from .natural_conversation import natural_conversation_topology
 from .prisoners_dilemma import prisoners_dilemma_topology
 from .pair_coding import pair_coding_topology
 from .recursive_decomposition import recursive_decomposition_topology
+from .tool_loop import tool_loop_topology
 
 _Topo = Callable[[api.TopologyBuilder], None]
 
@@ -71,6 +72,7 @@ BUNDLED: dict[str, Callable[[], _Topo]] = {
     # run both and diff the records to SEE what the instruments buy.
     "natural_conversation_bare": lambda: natural_conversation_topology(instruments=False),
     "adversarial_pair": adversarial_pair_topology,
+    "tool_loop": tool_loop_topology,
 }
 
 _registered = False
