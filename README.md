@@ -10,7 +10,7 @@ shared, append-only log.
 > the rest of the path.
 
 ## What it is
-Substrate is a way of working with LLMs that happens to do much more. If you're familiar with Codex, Claude, or Amp: they each combine an LLM, which can only input and output text, with a harness of tools and procedures that determines how that text can direct work on a computer. They make an API that LLMs can use — an orchestration system. Substrate lets you build *your own harness*, with open-source models running on your machine or in the cloud.
+Substrate is a way of working with LLMs that happens to do much more. If you're familiar with Codex, Claude, or Amp: they each combine an LLM, which can only input and output text, with a harness of tools and procedures that determines how that text can direct work on a computer. They make an API that LLMs can use — an orchestration system, or harness. Substrate lets you build *your own harness*, with open-source models running on your machine or in the cloud.
 
 But you can also recreate whole parts of a traditional software workflow. Say you want to run three teams of pair-coding LLMs with varying acceptance criteria across teams and rounds, and you want some external data stream to change the direction of work when specific conditions are met. Substrate can help you do that.
 
