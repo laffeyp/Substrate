@@ -5,8 +5,9 @@ Designed by reading the SOURCE of three reference agents (not blog summaries) �
 `apps/cli/src/runtime/tool-policies.ts`, and aider's `coders/editblock_coder.py` (findings in
 docs/tool-loop-tool-suite.md). The tool SHAPE is adopted from all three: a tool is a typed `name` +
 schema + an `execute` that returns a STRUCTURED result OR a typed failure the model reads (errors
-are observations, never a crash — the loop already enforces this); output is CAPPED to protect the
-context; surgical `edit_file` (search/replace) is the primary code tool, `write_file` for new files.
+are observations, never a crash — the loop catches a tool exception OR a non-encodable return
+alike); output is CAPPED to protect the context; surgical `edit_file` (search/replace) is the
+primary code tool, `write_file` for new files.
 
 WHERE WE DIVERGE — PERMISSIONS. The three references gate mutation behind human approval by default
 (Cline auto-runs only a SAFE read/search/fetch set; opencode decorates each tool with a permission

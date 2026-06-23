@@ -10,9 +10,9 @@ Producer instantiation, so every step is independently inspectable and replayabl
 Two properties this follows from real agent harnesses (opencode's `tool.ts` / `max-steps.ts`),
 both of which fall out naturally in the substrate's typed-event model:
 
-  - A failed tool is an OBSERVATION, not a crash. An unknown tool or a bad call emits a typed
-    `ToolResult` with `ok=False` and an `error` the model reads and reacts to — never an
-    uncaught exception. (The substrate's own R-2 reference topology is the same discipline:
+  - A failed tool is an OBSERVATION, not a crash. An unknown tool, a bad call, or a non-encodable
+    result emits a typed `ToolResult` with `ok=False` and an `error` the model reads and reacts to —
+    never an uncaught exception. (The substrate's own R-2 reference topology is the same discipline:
     a structured error on the log, then recovery.)
   - The step budget ends gracefully. At `max_steps` the loop fires the model once more with
     tools disabled (`final=True`) so the run ALWAYS ends on a `FinalAnswer`, never a silent
@@ -43,6 +43,7 @@ from typing import Any
 from msgspec import Struct
 
 from ... import api
+from ...encoding import canonical_bytes
 from ...reference._models import Responder, call_responder
 from .tools import CALCULATOR, Tool, suite_describe
 
@@ -153,7 +154,10 @@ def _tool_factory(tools: dict[str, Tool]) -> _Factory:
             return
         try:
             output = entry.run(args)
-        except Exception as exc:  # bad args / not-found / IO error -> typed failure, no crash.
+            # pre-validate encodability so a non-RFC-8785-encodable return becomes a typed failure
+            # HERE, not an emit-time crash (the yield's encode runs in the runtime, outside this try).
+            canonical_bytes(output)
+        except Exception as exc:  # bad args / not-found / IO / non-encodable output -> ok=False, no crash
             yield ToolResult(
                 call_id=call_id, tool=tool, output="", step=step, ok=False,
                 error=f"{type(exc).__name__}: {exc}",

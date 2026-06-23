@@ -47,3 +47,22 @@ def test_demo_replay_unknown_errors():
 def test_demo_run_live(tmp_path):
     res = CliRunner().invoke(main, ["demo", "run", "debate", "--root", str(tmp_path / "d")])
     assert res.exit_code == EXIT_OK, res.output
+
+
+@pytest.mark.timeout(60)
+@pytest.mark.parametrize("name", names())
+async def test_committed_record_is_current(tmp_path, name):
+    # CURRENCY GATE (review #51 finding 1): the committed CI record must REGENERATE byte-identically
+    # from HEAD, not merely replay. A schema change (e.g. a Struct field's type) moves
+    # RunStarted.topology and silently strands the record, while Level-2 replay — which checks the
+    # record against ITSELF — still passes. So replay alone cannot catch staleness; a fresh run vs
+    # the committed record can. (int->Any on ToolResult.output stranded tool_loop's record until regen.)
+    from substrate.api import Runtime, first_divergence
+    from substrate.topologies import bundled
+
+    await Runtime(tmp_path / name).run(bundled.BUNDLED[name]())
+    div = first_divergence(bundled.record_path(name), tmp_path / name)
+    assert div is None, (
+        f"{name}: committed record is STALE — a fresh run diverges from it. "
+        f"Regenerate via `uv run python scripts/gen_topology_records.py` ({div})"
+    )

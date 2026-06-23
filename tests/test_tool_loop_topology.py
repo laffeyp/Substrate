@@ -109,3 +109,24 @@ async def test_full_suite_runs_real_tools_and_errors_stay_observations(tmp_path)
     bad = [r for r in results if not r["payload"]["ok"]]
     assert len(bad) == 1 and "search text not found" in bad[0]["payload"]["error"]
     assert not [e for e in envs if e["kind"] == "substrate.ProducerFailed"]
+
+
+@pytest.mark.timeout(15)
+async def test_non_encodable_tool_output_is_an_observation_not_an_emit_crash(tmp_path):
+    # review #51 finding 2: a tool returning a non-RFC-8785-encodable value (a set) must come back as
+    # ToolResult(ok=False), NOT crash the Producer at emit. The loop pre-validates the output inside
+    # the try (canonical_bytes), so output-encodability is covered, not just tool exceptions.
+    from substrate.topologies.tool_loop.tools import CALCULATOR, Tool
+
+    suite = dict(CALCULATOR)
+    # NaN is valid Python but NOT RFC-8785-encodable (JCS rejects it) — and unlike a set, msgspec
+    # won't silently coerce it to something encodable. The exact "non-encodable output" case.
+    suite["rogue"] = Tool("rogue", "rogue() -> a non-encodable NaN", False, lambda a: float("nan"))
+    result = await Runtime(tmp_path / "run").run(
+        tool_loop_topology(tools=suite, deterministic=False, script=[("rogue", [])])
+    )
+    assert result.status == "finalised"
+    envs = list(read_record(tmp_path / "run"))
+    bad = [e for e in envs if e["kind"] == "ToolResult" and not e["payload"]["ok"]]
+    assert len(bad) == 1  # the non-encodable return became a typed failure...
+    assert not [e for e in envs if e["kind"] == "substrate.ProducerFailed"]  # ...not an emit crash
