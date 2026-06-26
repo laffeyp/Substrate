@@ -66,6 +66,47 @@ def parse_artifacts(text: str) -> dict[str, str]:
     return out
 
 
+# Files an honest candidate has no business emitting — test/lint/build config that can neuter the gate.
+_CONFIG_DENY = frozenset(
+    {
+        "conftest.py",
+        "pytest.ini",
+        ".pytest.ini",
+        "tox.ini",
+        "setup.cfg",
+        "setup.py",
+        "pyproject.toml",
+        "ruff.toml",
+        ".ruff.toml",
+        "mypy.ini",
+        ".mypy.ini",
+        "pytest_plugins.py",
+    }
+)
+
+
+def sanitize_candidate_artifacts(artifacts: dict[str, str]) -> dict[str, str]:
+    """Drop config and test files from a CANDIDATE's parsed artifacts before they reach the sandbox.
+
+    The grade-time isolation hole: the gate runs in a config-less sandbox, so a candidate that emits a
+    `conftest.py`/`pyproject.toml` whose `addopts = "--co"` makes pytest collect-only and exit 0 — a
+    FALSE 'resolved' with no test actually run — or sneaks in its own `test_*.py`, subverts the gate.
+    The candidate's job is to emit MODULES; the tests and any config are the harness's, layered on AFTER
+    this (fixtures / held-out tests win on collision). Applied at BOTH gates (dev validation and the
+    held-out oracle grade), so neither the correction loop nor the score can be gamed by injected
+    config. (This does not sandbox candidate code from READING a co-located test file at runtime — that
+    residual needs process isolation; tracked separately.)"""
+    safe: dict[str, str] = {}
+    for path, content in artifacts.items():
+        base = Path(path).name.lower()
+        if base in _CONFIG_DENY or (base.startswith("test_") and base.endswith(".py")) or base.endswith(
+            "_test.py"
+        ):
+            continue
+        safe[path] = content
+    return safe
+
+
 def _normalize(output: str, sandbox: Path) -> str:
     """Make the gate output reproducible: drop the per-run temp path and wall-clock timings, and cap
     length. Two runs of the same candidate then produce the same summary, so the record is stable."""

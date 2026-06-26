@@ -12,7 +12,9 @@ from __future__ import annotations
 
 from .coding import CodingProblem
 
-_GATE = "ruff check . && mypy --strict . && python -m pytest -q"
+# `-c /dev/null` makes pytest ignore any config FILE in the sandbox (belt-and-suspenders with the
+# gate's sanitize_candidate_artifacts): a candidate cannot slip an `addopts = "--co"` past the grade.
+_GATE = "ruff check . && mypy --strict . && python -m pytest -c /dev/null -q"
 
 
 def _p(pid: str, module: str, signature: str, desc: str, dev: str, grade: str) -> CodingProblem:
@@ -435,7 +437,7 @@ def coding_problem_bank() -> list[CodingProblem]:
             "def rotate_left(xs: list[int], k: int) -> list[int]",
             "return xs rotated left by k positions; k>=0 and may exceed len(xs) (rotate by k mod len).",
             "from rl import rotate_left\n\n\ndef test_basic() -> None:\n    assert rotate_left([1, 2, 3, 4], 1) == [2, 3, 4, 1]\n\n\ndef test_wrap() -> None:\n    assert rotate_left([1, 2, 3], 4) == [2, 3, 1]\n",
-            "from rl import rotate_left\n\n\ndef test_zero() -> None:\n    assert rotate_left([1, 2, 3], 0) == [1, 2, 3]\n\n\ndef test_full() -> None:\n    assert rotate_left([5, 6], 2) == [5, 6]\n\n\ndef test_empty() -> None:\n    assert rotate_left([], 3) == []\n",
+            "from rl import rotate_left\n\n\ndef test_two() -> None:\n    assert rotate_left([10, 20, 30, 40], 2) == [30, 40, 10, 20]\n\n\ndef test_one() -> None:\n    assert rotate_left([7, 8, 9], 1) == [8, 9, 7]\n\n\ndef test_empty() -> None:\n    assert rotate_left([], 3) == []\n",
         ),
         _p(
             "running_max",

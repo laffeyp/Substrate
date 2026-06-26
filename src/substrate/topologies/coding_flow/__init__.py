@@ -43,7 +43,7 @@ from ...reference._models import (
     Responder,
     call_responder_metered,
 )
-from .gate import parse_artifacts, run_gate
+from .gate import parse_artifacts, run_gate, sanitize_candidate_artifacts
 from .task import CodingTask, kvstore_task
 
 _Factory = Callable[[], Any]
@@ -123,9 +123,10 @@ def _validator_factory(task: CodingTask, timeout: float) -> _Factory:
         rnd = int(inp.get("round", 1)) if hasattr(inp, "get") else 1
         slot = int(inp.get("slot", 0)) if hasattr(inp, "get") else 0
         response = str(inp.get("response", "")) if hasattr(inp, "get") else ""
-        # fixtures (the held-out tests) MUST win on key collision: a candidate emitting a file at a
-        # test's path cannot overwrite the test it is graded against (gate / benchmark integrity).
-        artifacts = {**parse_artifacts(response), **task.fixtures}
+        # sanitize the candidate (drop injected config/test files) THEN let the trusted fixtures win on
+        # collision: a candidate can neither overwrite a test nor inject a conftest/pyproject that
+        # neuters the gate (grade-time isolation, review fold).
+        artifacts = {**sanitize_candidate_artifacts(parse_artifacts(response)), **task.fixtures}
         # the gate is a blocking subprocess; offload it so N candidates validate CONCURRENTLY (the
         # build-validation parallelism the sequential precursor couldn't do).
         result = await asyncio.to_thread(run_gate, artifacts, task.gate, timeout=timeout)

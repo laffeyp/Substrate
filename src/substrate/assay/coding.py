@@ -30,7 +30,11 @@ from typing import Any
 from msgspec import Struct
 
 from ..topologies.coding_flow import coding_flow_topology, walkthrough_responders
-from ..topologies.coding_flow.gate import parse_artifacts, run_gate
+from ..topologies.coding_flow.gate import (
+    parse_artifacts,
+    run_gate,
+    sanitize_candidate_artifacts,
+)
 from ..topologies.coding_flow.task import CodingTask
 from .oracle import ExternalGraderOracle
 from .suite import ABLATION, BASELINE, FULL, Arm, Case, Suite
@@ -81,9 +85,10 @@ def coding_oracle(*, timeout: float = 120.0) -> ExternalGraderOracle:
         response = _selected_candidate_response(record)
         if response is None:
             return (False, "no candidate passed the dev gate (Exhausted) — no solution to grade")
-        # held-out tests WIN on key collision: a candidate emitting a file at a grading-test path
-        # cannot overwrite the test it is graded against (firewall integrity, second line).
-        artifacts = {**parse_artifacts(response), **problem.grading_tests}
+        # sanitize the candidate (drop injected config/test files), THEN the held-out tests WIN on
+        # collision: a candidate can neither overwrite the grading test nor inject a conftest/pyproject
+        # whose addopts fakes a collect-only pass (firewall grade-time isolation, review fold).
+        artifacts = {**sanitize_candidate_artifacts(parse_artifacts(response)), **problem.grading_tests}
         result = run_gate(artifacts, problem.grading_command, timeout=timeout)
         return (
             result.passed,

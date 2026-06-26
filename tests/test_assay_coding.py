@@ -7,7 +7,13 @@ does.
 """
 
 from substrate.assay.coding import CodingProblem, coding_oracle, coding_suite
+from substrate.assay.coding_problems import coding_problem_bank
 from substrate.assay.oracle import EXTERNAL_GRADER
+from substrate.topologies.coding_flow.gate import (
+    parse_artifacts,
+    run_gate,
+    sanitize_candidate_artifacts,
+)
 
 # DEV test the agent sees: f(1) == 2.  HELD-OUT test the oracle grades on: f(2) == 3.  Disjoint.
 _PROBLEM = CodingProblem(
@@ -83,3 +89,52 @@ def test_coding_suite_control_is_the_strong_model_and_arms_ablate():
     # only the dev fixtures).
     assert suite.cases[0].ground_truth.problem_id == "increment"
     assert "test_grade.py" in suite.cases[0].ground_truth.grading_tests
+
+
+# ── grade-time isolation (review #4) ──
+
+_GATE_HARD = "python -m pytest -c /dev/null -q"
+
+
+def test_sanitize_drops_config_and_test_files():
+    # a candidate emits MODULES; config and test files are the harness's and are stripped before the
+    # sandbox, so neither a neutering conftest/ini nor an injected test file ever runs.
+    arts = {
+        "rle.py": "x", "sub/mod.py": "y",
+        "conftest.py": "x", "pytest.ini": "x", "pyproject.toml": "x", "tox.ini": "x",
+        "test_evil.py": "x", "foo_test.py": "x",
+    }
+    assert set(sanitize_candidate_artifacts(arts)) == {"rle.py", "sub/mod.py"}
+
+
+def test_firewall_isolation_blocks_config_injection():
+    # the attack: an overfit module (f returns the dev-passing constant) PLUS a pytest.ini whose
+    # addopts=--co would make pytest collect-only — exit 0, no test run, a FALSE 'resolved'. The
+    # sanitizer drops the ini (and -c /dev/null ignores config), so test_grade actually runs and the
+    # overfit is caught.
+    problem = CodingProblem(
+        problem_id="inc",
+        spec="write f",
+        dev_gate=_GATE_HARD,
+        dev_fixtures={"test_dev.py": "from m import f\n\n\ndef test_dev() -> None:\n    assert f(1) == 2\n"},
+        grading_command=_GATE_HARD,
+        grading_tests={"test_grade.py": "from m import f\n\n\ndef test_grade() -> None:\n    assert f(2) == 3\n"},
+    )
+    sneaky = (
+        "# path: m.py\n```python\ndef f(x: int) -> int:\n    return 2\n```\n"
+        "# path: pytest.ini\n```ini\n[pytest]\naddopts = --co\n```\n"
+    )
+    record = [
+        {"kind": "Candidate", "payload": {"round": 1, "slot": 0, "response": sneaky}},
+        {"kind": "Solved", "payload": {"round": 1, "slot": 0}},
+    ]
+    assert coding_oracle().grade(record, problem).passed is False
+
+
+def test_rotate_left_held_out_has_teeth():
+    # the held-out used to be all identity rotations (k=0, k=len, empty), so `return xs` passed. With a
+    # non-identity case added, the overfit now fails the held-out grade.
+    p = next(x for x in coding_problem_bank() if x.problem_id == "rotate_left")
+    overfit = "# path: rl.py\n```python\ndef rotate_left(xs: list[int], k: int) -> list[int]:\n    return xs\n```\n"
+    arts = {**parse_artifacts(overfit), **p.grading_tests}
+    assert run_gate(arts, p.grading_command).passed is False
