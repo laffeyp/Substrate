@@ -29,7 +29,7 @@ def test_decide_selects_lowest_cost_and_evolves_at_max_gens():
         {"gen": 2, "slot": 0, "code": "c", "correct": True, "cost": 20},
         {"gen": 2, "slot": 1, "code": "d", "correct": False, "cost": 10**9},
     ]
-    kind, best = _decide(pop, 2, n=2, max_gens=2, select_k=2, patience=5)
+    kind, best = _decide(pop, 2, max_gens=2, select_k=2, patience=5)
     assert kind == "evolve" and best["cost"] == 20 and best["code"] == "c"
 
 
@@ -39,8 +39,15 @@ def test_decide_spawns_elite_parents_lowest_cost_first():
         {"gen": 1, "slot": 1, "code": "b", "correct": True, "cost": 30},
         {"gen": 1, "slot": 2, "code": "c", "correct": False, "cost": 10**9},
     ]
-    kind, parents = _decide(pop, 1, n=3, max_gens=4, select_k=2, patience=5)
-    assert kind == "spawn" and parents == ("b", "a")  # the two correct ones, lowest cost first
+    kind, elite = _decide(pop, 1, max_gens=4, select_k=2, patience=5)
+    assert kind == "spawn" and [g["code"] for g in elite] == [
+        "b",
+        "a",
+    ]  # correct ones, lowest cost first
+    assert [(g["gen"], g["slot"]) for g in elite] == [
+        (1, 1),
+        (1, 0),
+    ]  # explicit ids carried for lineage
 
 
 def test_decide_exhausts_when_no_correct_genome_within_budget():
@@ -48,7 +55,7 @@ def test_decide_exhausts_when_no_correct_genome_within_budget():
         {"gen": 1, "slot": 0, "code": "x", "correct": False, "cost": 10**9},
         {"gen": 2, "slot": 0, "code": "y", "correct": False, "cost": 10**9},
     ]
-    kind, payload = _decide(pop, 2, n=1, max_gens=2, select_k=2, patience=5)
+    kind, payload = _decide(pop, 2, max_gens=2, select_k=2, patience=5)
     assert kind == "exhaust" and payload is None
 
 
@@ -57,7 +64,7 @@ def test_decide_stagnation_terminates_before_max_gens():
     pop = [
         {"gen": g, "slot": 0, "code": chr(96 + g), "correct": True, "cost": 30} for g in range(1, 5)
     ]
-    kind, best = _decide(pop, 4, n=1, max_gens=10, select_k=1, patience=2)
+    kind, best = _decide(pop, 4, max_gens=10, select_k=1, patience=2)
     assert kind == "evolve" and best["cost"] == 30  # stopped early, not at max_gens=10
 
 
@@ -67,7 +74,7 @@ def test_decide_continues_while_cost_is_improving():
         {"gen": g, "slot": 0, "code": chr(96 + g), "correct": True, "cost": 60 - 10 * g}
         for g in range(1, 4)
     ]
-    kind, _ = _decide(pop, 3, n=1, max_gens=10, select_k=1, patience=2)
+    kind, _ = _decide(pop, 3, max_gens=10, select_k=1, patience=2)
     assert kind == "spawn"
 
 
@@ -113,3 +120,9 @@ def test_topology_runs_generations_and_reaches_evolved():
     # the loop actually advanced TWO generations (mutation is the model work; it metered).
     assert {int(e["payload"]["gen"]) for e in rec if e["kind"] == "Genome"} == {1, 2}
     assert any(e["kind"] == "ModelUsage" for e in rec)  # mutation metered onto the record
+    # EXPLICIT phylogeny edges: seed-gen genomes have no parents; gen-2 genomes carry ids to gen-1.
+    by_gen: dict[int, list[object]] = {}
+    for e in rec:
+        if e["kind"] == "Genome":
+            by_gen.setdefault(int(e["payload"]["gen"]), []).append(e["payload"]["parent_ids"])
+    assert all(not p for p in by_gen[1]) and all(p for p in by_gen[2])

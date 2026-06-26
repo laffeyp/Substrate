@@ -21,6 +21,12 @@ the phylogenetic tree. FunSearch (Romera-Paredes et al., Nature 2024) and AlphaE
 are the prior art; like them this uses sample-the-best-as-context, not literal code crossover (semantic
 merge of two programs is unreliable).
 
+DIVERSITY (a known limitation, bites the EA-vs-best-of-N run): selection is GLOBAL elitism every
+generation, so once a local optimum is the global best, every offspring is conditioned on it and the
+only escape is mutation temperature — no island model, no restart-on-stagnation. Elitism + a flat
+gradient = collapse onto one lineage, which is exactly how an EA loses to best-of-N. The fix (islands /
+random restart) is a knob for that run, not the skeleton.
+
 Like coding_flow it is RUN-and-observe, not replay-deterministic (the gate is a real subprocess);
 CI mode proves the wiring (the loop runs, selects on cost, terminates), the real models prove the claim.
 """
@@ -50,22 +56,26 @@ _MAX_COST = 10**9  # an incorrect (or unparseable) genome — worse than any cor
 
 
 class Spawn(Struct, frozen=True):
-    """A request to produce a genome in `gen`, slot `slot`. `parents` is the code of the selected
-    elite genomes (the mutation context); empty for the seed generation (random init)."""
+    """A request to produce a genome in `gen`, slot `slot`. `parents` is the elite parents' CODE (the
+    mutation context); `parent_ids` is their EXPLICIT (gen, slot) lineage edges. Both empty for the
+    seed generation (random init)."""
 
     gen: int
     slot: int
     parents: tuple[str, ...]
+    parent_ids: tuple[tuple[int, int], ...] = ()
 
 
 class Genome(Struct, frozen=True):
-    """A produced candidate program — the raw `# path:`-headed artifact text, plus its lineage (which
-    generation/slot it came from). The bus retains every Genome, so any final program's ancestry is
-    fully recoverable from the record."""
+    """A produced candidate program — the raw `# path:`-headed artifact text, plus EXPLICIT lineage:
+    its own (gen, slot) and `parent_ids`, the (gen, slot) of the genomes it was bred from. Edges are
+    stamped, not inferred by code string-equality (identical code recurs), so the record is a literal
+    phylogenetic tree — any final program's ancestry is unambiguous. `()` for the seed generation."""
 
     gen: int
     slot: int
     code: str
+    parent_ids: tuple[tuple[int, int], ...] = ()
 
 
 class Fitness(Struct, frozen=True):
@@ -95,11 +105,18 @@ class Exhausted(Struct, frozen=True):
 
 def _ast_cost(artifacts: dict[str, str]) -> int:
     """A deterministic, robust cost: the number of AST nodes across the candidate's `.py` modules — a
-    proxy for program complexity (smaller = fitter), pure and side-effect-free. NOTE: this is the
-    PLACEHOLDER fitness for the wiring increment; it rewards terseness, not algorithmic efficiency. The
-    real run swaps in an executed-operation count (measured in the gate fixture on held-out inputs), so
-    evolution is pushed toward better ALGORITHMS and the held-out re-measurement catches cost-overfitting
-    — the topology is unchanged, only `cost_fn` differs."""
+    proxy for program complexity (smaller = fitter), pure and side-effect-free. PLACEHOLDER for the
+    wiring increment: it rewards terseness, not algorithms, and — being artifacts-only — it cannot yet
+    detect reward-hacking.
+
+    The reward-hacking firewall is NOT built. The real cost (increment 2) needs three things this
+    signature/seam does not yet have, and the claim is hollow until all three exist:
+      1. cost measured by RUNNING the candidate on INPUTS (an executed-op count), so cost-inputs must
+         flow in — increment 2 makes cost a SECOND gate (like the correctness gate), not a pure fn.
+      2. the cost-inputs DISJOINT from the dev correctness-inputs AND the held-out grading-inputs,
+         enforced like coding_flow's firewall, with a per-problem disjointness test.
+      3. detection = cost on BOTH dev and held-out inputs, reported as the GAP (an explicit field). A
+         single held-out number catches nothing; the dev-vs-held-out delta IS the reward-hacking signal."""
     total = 0
     for path, content in artifacts.items():
         if path.endswith(".py"):
@@ -114,7 +131,6 @@ def _decide(
     population: list[dict[str, Any]],
     gen: int,
     *,
-    n: int,
     max_gens: int,
     select_k: int,
     patience: int,
@@ -125,8 +141,9 @@ def _decide(
       ("evolve", best_genome) — a correct genome exists AND we are out of budget (max gens) or stagnant
                                 (no cumulative-best improvement over `patience` generations): select it.
       ("exhaust", None)       — out of budget and NO correct genome was ever produced.
-      ("spawn", parents)      — budget remains: ELITIST selection of the `select_k` lowest-cost correct
-                                genomes' code as the next generation's mutation context (() if none yet).
+      ("spawn", elite)        — budget remains: ELITIST selection — the `select_k` lowest-cost correct
+                                genome DICTS (code + ids), lowest first, as the next gen's context ([] if
+                                none yet). The breeder reads both their code and their (gen, slot).
     """
     correct = sorted(
         (g for g in population if g["correct"]), key=lambda g: (g["cost"], g["gen"], g["slot"])
@@ -145,7 +162,7 @@ def _decide(
         return ("evolve", best)
     if best is None and gen >= max_gens:
         return ("exhaust", None)
-    return ("spawn", tuple(g["code"] for g in correct[:select_k]))
+    return ("spawn", correct[:select_k])  # the elite genome dicts (code + ids), lowest cost first
 
 
 def _seeder_factory(n: int) -> _Factory:
@@ -161,6 +178,11 @@ def _mutator_factory(task: CodingTask, responders: list[Responder]) -> _Factory:
         gen = int(inp.get("gen", 1)) if hasattr(inp, "get") else 1
         slot = int(inp.get("slot", 0)) if hasattr(inp, "get") else 0
         parents = list(inp.get("parents", [])) if hasattr(inp, "get") else []
+        parent_ids = (
+            tuple((int(a), int(b)) for a, b in inp.get("parent_ids", []))
+            if hasattr(inp, "get")
+            else ()
+        )
         prompt = task.spec
         if parents:
             prompt += (
@@ -170,7 +192,7 @@ def _mutator_factory(task: CodingTask, responders: list[Responder]) -> _Factory:
             )
         response, usage = await call_responder_metered(responders[slot % len(responders)], prompt)
         yield usage  # metered: per-call tokens/latency on the record (inert; no Trigger reads it)
-        yield Genome(gen=gen, slot=slot, code=response)
+        yield Genome(gen=gen, slot=slot, code=response, parent_ids=parent_ids)
 
     return lambda: mutate
 
@@ -200,17 +222,24 @@ def _breeder_factory(n: int, max_gens: int, select_k: int, patience: int) -> _Fa
         gen = int(inp.get("gen", 1)) if hasattr(inp, "get") else 1
         population = list(inp.get("population", [])) if hasattr(inp, "get") else []
         kind, payload = _decide(
-            population, gen, n=n, max_gens=max_gens, select_k=select_k, patience=patience
+            population, gen, max_gens=max_gens, select_k=select_k, patience=patience
         )
         if kind == "evolve":
             yield Evolved(
                 gen=int(payload["gen"]), slot=int(payload["slot"]), cost=int(payload["cost"])
             )
         elif kind == "exhaust":
-            yield Exhausted(gens=gen, best_cost=-1)
+            # no correct genome within budget — report the lowest cost SEEN (the incorrect sentinel if
+            # nothing parsed/passed), not a fake -1 that reads like a real cost.
+            yield Exhausted(
+                gens=gen, best_cost=min((int(g["cost"]) for g in population), default=_MAX_COST)
+            )
         else:
+            elite = list(payload)  # the selected elite genome dicts (lowest cost first)
+            parents = tuple(str(g["code"]) for g in elite)
+            parent_ids = tuple((int(g["gen"]), int(g["slot"])) for g in elite)
             for i in range(n):
-                yield Spawn(gen=gen + 1, slot=i, parents=tuple(payload))
+                yield Spawn(gen=gen + 1, slot=i, parents=parents, parent_ids=parent_ids)
 
     return lambda: breed
 
@@ -301,6 +330,7 @@ def code_evolution_topology(
                 "gen": int(ctx.event.payload["gen"]),
                 "slot": int(ctx.event.payload["slot"]),
                 "parents": list(ctx.event.payload["parents"]),
+                "parent_ids": list(ctx.event.payload.get("parent_ids", [])),
             },
             policy=api.PerEvent(),
         )
