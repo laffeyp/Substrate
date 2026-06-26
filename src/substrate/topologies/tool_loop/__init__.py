@@ -97,7 +97,9 @@ def _model_factory(
             return
         # a failed tool is an OBSERVATION: stop and report it (a stronger model could retry).
         if results and not results[-1].get("ok", True):
-            yield FinalAnswer(text=f"stopped: {results[-1].get('error', 'tool failed')}", steps=step)
+            yield FinalAnswer(
+                text=f"stopped: {results[-1].get('error', 'tool failed')}", steps=step
+            )
             return
         if walkthrough and responder is not None:
             # real model: ask for the next action; the reply convention is one line, either
@@ -110,10 +112,21 @@ def _model_factory(
                 f"Reply with exactly one line: 'TOOL <name> <a> <b>' or 'ANSWER <value>'.",
             )
             head = reply.strip().splitlines()[0].split() if reply.strip() else ["ANSWER", ""]
+            tool_call: ToolCall | None = None
             if head[0].upper() == "TOOL" and len(head) >= 4 and head[1] in tools:
-                yield ToolCall(
-                    call_id=f"c{step}", tool=head[1], args=[int(head[2]), int(head[3])], step=step
-                )
+                try:
+                    tool_call = ToolCall(
+                        call_id=f"c{step}",
+                        tool=head[1],
+                        args=[int(head[2]), int(head[3])],
+                        step=step,
+                    )
+                except ValueError:
+                    # a weak model (llama3.2:1b) emits non-integer args -> fall through to an answer,
+                    # never crash the model Producer (which would wedge the loop).
+                    tool_call = None
+            if tool_call is not None:
+                yield tool_call
             else:
                 yield FinalAnswer(text=(head[-1] if len(head) > 1 else ""), steps=step)
             return
@@ -148,7 +161,11 @@ def _tool_factory(tools: dict[str, Tool]) -> _Factory:
         if entry is None:
             # unknown tool -> a typed failure the model reads, NOT a crash.
             yield ToolResult(
-                call_id=call_id, tool=tool, output="", step=step, ok=False,
+                call_id=call_id,
+                tool=tool,
+                output="",
+                step=step,
+                ok=False,
                 error=f"unknown tool '{tool}'",
             )
             return
@@ -157,9 +174,15 @@ def _tool_factory(tools: dict[str, Tool]) -> _Factory:
             # pre-validate encodability so a non-RFC-8785-encodable return becomes a typed failure
             # HERE, not an emit-time crash (the yield's encode runs in the runtime, outside this try).
             canonical_bytes(output)
-        except Exception as exc:  # bad args / not-found / IO / non-encodable output -> ok=False, no crash
+        except (
+            Exception
+        ) as exc:  # bad args / not-found / IO / non-encodable output -> ok=False, no crash
             yield ToolResult(
-                call_id=call_id, tool=tool, output="", step=step, ok=False,
+                call_id=call_id,
+                tool=tool,
+                output="",
+                step=step,
+                ok=False,
                 error=f"{type(exc).__name__}: {exc}",
             )
             return
@@ -188,9 +211,11 @@ def tool_loop_topology(
 
     responder = (model or OllamaResponder("llama3.2:1b")) if walkthrough else model
     # default to the PURE calculator (the byte-reproducible CI demo); a real agent passes FULL_SUITE.
-    # the run is deterministic only if every tool in the suite is.
+    # the run is deterministic only if every tool is pure AND it is NOT the walkthrough path: a real
+    # model is not author-deterministic, so a walkthrough must never be stamped deterministic in the
+    # manifest (CI runs walkthrough=False, so the committed calculator record is unaffected).
     suite = tools if tools is not None else CALCULATOR
-    det = deterministic and all(t.deterministic for t in suite.values())
+    det = deterministic and not walkthrough and all(t.deterministic for t in suite.values())
 
     def _continue_input(ctx: Any, *, final: bool) -> dict[str, Any]:
         return {

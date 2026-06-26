@@ -14,3 +14,7 @@ build/
 .hypothesis/
 .benchmarks/
 .import_linter_cache/
+
+# Benchmark run artifacts — regenerable data written live by scripts/bench_coding.py, not source.
+# The verdicts themselves are recorded in process/BLACKBOARD.md.
+process/bench_results/

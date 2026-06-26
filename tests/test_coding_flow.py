@@ -62,6 +62,38 @@ def test_no_artifacts_fails_the_gate_without_crashing() -> None:
     assert not r.passed  # empty payloads -> a clean fail, not an exception
 
 
+def test_gate_rejects_path_traversal_without_crashing() -> None:
+    # a candidate writing a path that escapes the sandbox must be a FAILED gate, never an uncaught
+    # raise (which would kill the validator Producer and wedge the run).
+    r = run_gate({"../escape.py": "x = 1\n"}, "true")
+    assert not r.passed
+    assert "outside the sandbox" in r.summary
+
+
+def test_fixtures_win_over_a_colliding_candidate_file() -> None:
+    # the held-out test must win on a key collision so a candidate cannot overwrite the test it is
+    # graded against. The validator merges {**candidate, **fixtures}; here a "passing" candidate also
+    # emits a file at the fixture path with a trivially-passing test, but the real fixture (which the
+    # candidate's code fails) must be what runs -> the gate fails.
+    task = CodingTask(
+        name="collide",
+        spec="",
+        gate="python -m pytest -q",
+        fixtures={"test_it.py": "from m import f\n\n\ndef test_it() -> None:\n    assert f() == 1\n"},
+        ci_good="",
+        ci_bad="",
+    )
+    # candidate writes m.py (f returns 2 -> fails the real test) AND tries to overwrite test_it.py with
+    # a vacuous pass. fixtures must win, so the real test runs and fails.
+    candidate = {
+        "m.py": "def f() -> int:\n    return 2\n",
+        "test_it.py": "def test_it() -> None:\n    assert True\n",
+    }
+    merged = {**candidate, **task.fixtures}  # the order the validator now uses
+    r = run_gate(merged, task.gate)
+    assert not r.passed  # the held-out test ran (f()==2 != 1), not the candidate's vacuous one
+
+
 # ── the topology in CI mode (deterministic OUTCOME) ─────────────────────────────
 
 

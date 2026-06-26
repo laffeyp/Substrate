@@ -64,6 +64,14 @@ python_version = "3.12"
 strict = true
 files = ["src/substrate"]
 
+# `swebench` is an optional, env-gated dependency: the SWE-bench Adapter (substrate.assay.swebench)
+# lazy-imports it only on the Architect's box for a real Docker eval run. It ships no type stubs and is
+# not installed in CI, so declare its imports untyped here rather than scattering fragile inline
+# `type: ignore[import-not-found]` comments (which churn as mypy dedups the missing package).
+[[tool.mypy.overrides]]
+module = "swebench.*"
+ignore_missing_imports = true
+
 # F-API-6: the CLI is the standing proof that the public API suffices — `substrate.cli` may
 # import `substrate.api` (and stdlib / third-party) but NO other `substrate.*` module. Enforced
 # by `uv run lint-imports` (import-linter), run in CI. The src layout means the package must be

@@ -10,6 +10,20 @@ backend implements `Responder` (`respond(prompt: str) -> str`) and hands it to t
 import it from `substrate.reference`, not the underscore `_models` module.
 """
 
-from ._models import DeterministicResponder, OllamaResponder, Responder, call_responder
+from ._models import (
+    DeterministicResponder,
+    ModelUsage,
+    OllamaResponder,
+    Responder,
+    call_responder,
+    call_responder_metered,
+)
 
-__all__ = ["Responder", "DeterministicResponder", "OllamaResponder", "call_responder"]
+__all__ = [
+    "Responder",
+    "DeterministicResponder",
+    "OllamaResponder",
+    "call_responder",
+    "ModelUsage",
+    "call_responder_metered",
+]

@@ -36,7 +36,13 @@ from typing import Any
 from msgspec import Struct
 
 from ... import api
-from ...reference._models import DeterministicResponder, OllamaResponder, Responder, call_responder
+from ...reference._models import (
+    DeterministicResponder,
+    ModelUsage,
+    OllamaResponder,
+    Responder,
+    call_responder_metered,
+)
 from .gate import parse_artifacts, run_gate
 from .task import CodingTask, kvstore_task
 
@@ -92,7 +98,7 @@ def _seeder_factory(n: int) -> _Factory:
 
 
 def _drafter_factory(task: CodingTask, responders: list[Responder]) -> _Factory:
-    async def draft(inp: Any) -> AsyncIterator[Candidate]:
+    async def draft(inp: Any) -> AsyncIterator[Any]:
         rnd = int(inp.get("round", 1)) if hasattr(inp, "get") else 1
         slot = int(inp.get("slot", 0)) if hasattr(inp, "get") else 0
         context = str(inp.get("context", "")) if hasattr(inp, "get") else ""
@@ -102,7 +108,11 @@ def _drafter_factory(task: CodingTask, responders: list[Responder]) -> _Factory:
                 "\n\nA PRIOR attempt FAILED the gate. Return a corrected full set of files. "
                 f"The gate output was:\n{context}"
             )
-        response = await call_responder(responders[slot % len(responders)], prompt)
+        # drafting is the ONLY model work — meter it: emit the provider's token/latency accounting as
+        # a ModelUsage on the record (inert — no Trigger subscribes to it), so the harness can sum
+        # per-run tokens/inference instead of reading zeros.
+        response, usage = await call_responder_metered(responders[slot % len(responders)], prompt)
+        yield usage
         yield Candidate(round=rnd, slot=slot, response=response)
 
     return lambda: draft
@@ -113,7 +123,9 @@ def _validator_factory(task: CodingTask, timeout: float) -> _Factory:
         rnd = int(inp.get("round", 1)) if hasattr(inp, "get") else 1
         slot = int(inp.get("slot", 0)) if hasattr(inp, "get") else 0
         response = str(inp.get("response", "")) if hasattr(inp, "get") else ""
-        artifacts = {**task.fixtures, **parse_artifacts(response)}
+        # fixtures (the held-out tests) MUST win on key collision: a candidate emitting a file at a
+        # test's path cannot overwrite the test it is graded against (gate / benchmark integrity).
+        artifacts = {**parse_artifacts(response), **task.fixtures}
         # the gate is a blocking subprocess; offload it so N candidates validate CONCURRENTLY (the
         # build-validation parallelism the sequential precursor couldn't do).
         result = await asyncio.to_thread(run_gate, artifacts, task.gate, timeout=timeout)
@@ -164,6 +176,7 @@ def coding_flow_topology(
     max_rounds: int = 2,
     timeout: float = 60.0,
     deterministic: bool = False,
+    watchdog_seconds: float = 30.0,
 ) -> Callable[[api.TopologyBuilder], None]:
     """Build the coding-flow topology: a seeder fans out N drafters; each Candidate is gate-validated
     by a validator; when a round's N verdicts are all in, the judge selects the passing candidate
@@ -182,7 +195,7 @@ def coding_flow_topology(
         )
         b.producer_kind(
             "drafter",
-            schemas=[Candidate],
+            schemas=[Candidate, ModelUsage],
             schema_version=1,
             factory=_drafter_factory(job, responders),
             deterministic=deterministic,
@@ -241,8 +254,16 @@ def coding_flow_topology(
             },
             policy=api.PerEvent(),
         )
+        # Solved / Exhausted are the clean terminals; the watchdog is the SAFETY net. If a drafter or
+        # validator dies (a transient model failure, or a gate guard tripping) the round never reaches
+        # n verdicts, so the judge never fires — without this the run wedges in RunStuckQuiescent. The
+        # watchdog finalises a truly-idle run, which the Oracle then reads as not-solved (honest).
         b.termination(
-            api.any_of(api.threshold_count("Solved", 1), api.threshold_count("Exhausted", 1))
+            api.any_of(
+                api.threshold_count("Solved", 1),
+                api.threshold_count("Exhausted", 1),
+                api.quiescence_with_watchdog(seconds=watchdog_seconds),
+            )
         )
 
     return topo

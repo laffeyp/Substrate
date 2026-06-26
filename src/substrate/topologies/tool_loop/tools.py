@@ -127,8 +127,18 @@ FULL_SUITE: dict[str, Tool] = {
     "list_dir": Tool("list_dir", "list_dir(path) -> directory entries", False, _list_dir),
     "grep": Tool("grep", "grep(pattern, path) -> matching 'file:line: text'", False, _grep),
     "web_fetch": Tool("web_fetch", "web_fetch(url) -> the page text", False, _web_fetch),
-    "edit_file": Tool("edit_file", "edit_file(path, search, replace) -> surgical search/replace (SIDE EFFECT)", False, _edit_file),
-    "write_file": Tool("write_file", "write_file(path, text) -> create/overwrite a file (SIDE EFFECT)", False, _write_file),
+    "edit_file": Tool(
+        "edit_file",
+        "edit_file(path, search, replace) -> surgical search/replace (SIDE EFFECT)",
+        False,
+        _edit_file,
+    ),
+    "write_file": Tool(
+        "write_file",
+        "write_file(path, text) -> create/overwrite a file (SIDE EFFECT)",
+        False,
+        _write_file,
+    ),
     "bash": Tool("bash", "bash(cmd) -> {exit, stdout, stderr} (SIDE EFFECT)", False, _bash),
 }
 

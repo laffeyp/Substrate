@@ -7,8 +7,10 @@ the gate is a free-form shell command the task declares (`ruff check . && mypy .
 code IS the truth. Pure deterministic code — no model anywhere near the validation, by the
 heterogeneous-producers rule (truth is a test run, not an LLM's opinion).
 
-The verdict is NORMALIZED (temp paths and timings stripped) so a fixed candidate + gate yields a
-byte-identical verdict — the CI record stays reproducible (D-8) even though a subprocess ran.
+The verdict PAYLOAD is NORMALIZED (temp paths and timings stripped) so a fixed candidate + gate yields
+a byte-identical VERDICT. That is verdict-stability, not record reproducibility: coding_flow's run as a
+whole is NOT replay-deterministic (the gate is a real subprocess — see coding_flow's own docstring),
+so only the Verdict payload is byte-stable, not the record.
 """
 
 from __future__ import annotations
@@ -87,9 +89,18 @@ def run_gate(artifacts: dict[str, str], gate: str, *, timeout: float = 60.0) -> 
         sandbox = Path(d)
         for rel, content in artifacts.items():
             target = (sandbox / rel).resolve()
-            target.relative_to(
-                sandbox.resolve()
-            )  # path-traversal guard: a `../` payload can't escape
+            try:
+                target.relative_to(
+                    sandbox.resolve()
+                )  # path-traversal guard: a `../` payload escapes
+            except ValueError:
+                # a candidate wrote a path outside the sandbox -> a FAILED gate, never a crash (an
+                # uncaught raise here kills the validator Producer and wedges the whole run).
+                return GateResult(
+                    passed=False,
+                    returncode=-1,
+                    summary=f"candidate wrote a path outside the sandbox: {rel!r}",
+                )
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content)
         try:

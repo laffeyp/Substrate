@@ -25,12 +25,45 @@ from __future__ import annotations
 import asyncio
 import hashlib
 
+from msgspec import Struct
+
 # The Responder Protocol now lives among the structural protocols (substrate.protocols) and is
 # public as substrate.api.Responder; re-exported here so `from substrate.reference import
 # Responder` and the topologies' `from ..reference._models import Responder` keep working.
 from ..protocols import Responder
 
-__all__ = ["Responder", "DeterministicResponder", "OllamaResponder", "call_responder"]
+__all__ = [
+    "Responder",
+    "DeterministicResponder",
+    "OllamaResponder",
+    "call_responder",
+    "ModelUsage",
+    "call_responder_metered",
+]
+
+
+class ModelUsage(Struct, frozen=True):
+    """Per-model-call resource usage, emitted as an application event at the Responder seam so token
+    counts and latency land on the inner record — the measurement the seam used to throw away.
+    Tokens + wall time + the model id. No money is tracked anywhere: these are local / subscription
+    models, so there is no per-call dollar amount and never will be. A
+    DeterministicResponder reports wall_ms=0 and word-count token estimates so a CI record stays
+    byte-stable; a real OllamaResponder reports Ollama's own prompt_eval_count / eval_count and an
+    inference-only wall time. `estimated` is True when the counts are a word-count stand-in rather
+    than provider truth, so a reader tells them apart from the DATA, not by parsing the model string.
+    All fields RFC-8785-encodable, so the event rides the bus like any other application kind
+    (Producer-declared, not a reserved substrate.* kind — the ToolCall precedent)."""
+
+    model: str
+    prompt_tokens: int
+    completion_tokens: int
+    wall_ms: int  # INFERENCE latency (prompt-eval + generation); excludes model load — see _usage
+    estimated: bool = False  # True = word-count stand-in, not provider truth
+
+    def total_tokens(self) -> int:
+        """prompt + completion. A method, not a field, so it never lands on the wire (the durable
+        facts are the two counts; the sum is derived)."""
+        return self.prompt_tokens + self.completion_tokens
 
 
 class DeterministicResponder:
@@ -127,10 +160,32 @@ class OllamaResponder:
         text = message.get("content", "") if isinstance(message, dict) else ""
         return str(text).strip()
 
-    def respond(self, prompt: str) -> str:
-        """Synchronous call (the Responder protocol + non-async callers). For use INSIDE an async
-        Producer, prefer `call_responder`, which routes through `arespond` so the call is cancellable
-        rather than orphaning a worker thread on cancel-others / finalise."""
+    @staticmethod
+    def _usage(data: dict[str, object], model: str) -> ModelUsage:
+        """Read Ollama's native /api/chat accounting off the response — the fields `_content` used to
+        discard. prompt_eval_count = prompt tokens, eval_count = generated tokens. wall_ms is the
+        INFERENCE latency (prompt_eval_duration + eval_duration, ns -> ms) — NOT total_duration, which
+        folds in load_duration (seconds of VRAM load on a cold call) and would confound a
+        latency comparison by cache state. Falls back to total_duration only if the
+        eval phases are absent. Missing or odd-typed fields degrade to 0, never raise."""
+
+        def _i(key: str) -> int:
+            v = data.get(key)
+            return int(v) if isinstance(v, (int, float)) else 0
+
+        eval_ns = _i("prompt_eval_duration") + _i("eval_duration")
+        wall_ns = eval_ns if eval_ns > 0 else _i("total_duration")
+        return ModelUsage(
+            model=model,
+            prompt_tokens=_i("prompt_eval_count"),
+            completion_tokens=_i("eval_count"),
+            wall_ms=wall_ns // 1_000_000,
+            estimated=False,  # provider truth
+        )
+
+    def _chat(self, prompt: str) -> dict[str, object]:
+        """One POST to /api/chat with retry+backoff, returning the parsed response dict. The shared
+        core of `respond` / `respond_metered`, so the retry discipline lives in exactly one place."""
         import time
 
         import httpx  # lazy: the openai-compat optional extra; kernel/CI need not have it
@@ -143,7 +198,8 @@ class OllamaResponder:
                     self._endpoint, headers=headers, json=payload, timeout=self._timeout
                 )
                 resp.raise_for_status()
-                return self._content(resp.json())
+                data: dict[str, object] = resp.json()
+                return data
             except (
                 httpx.HTTPError
             ) as exc:  # transport OR 4xx/5xx: retry with backoff, then fail loud
@@ -154,12 +210,12 @@ class OllamaResponder:
             f"OllamaResponder({self._model}) failed after {self._max_retries} attempts: {last_exc!r}"
         )
 
-    async def arespond(self, prompt: str) -> str:
-        """Async call over httpx.AsyncClient. The await is genuinely CANCELLABLE: when a Producer is
-        cancelled (cancel-others, or any finalise racing an in-flight call) the request is cancelled
-        with the coroutine, so no worker thread is orphaned inside a blocking POST. That is the fix
-        for the shutdown stall — a blocking `respond` wrapped in `asyncio.to_thread` cannot be
-        cancelled, so `asyncio.run` then blocks on the default executor up to `timeout`."""
+    async def _achat(self, prompt: str) -> dict[str, object]:
+        """Async sibling of `_chat` over httpx.AsyncClient — the await is genuinely CANCELLABLE, so a
+        cancelled Producer (cancel-others / a finalise racing an in-flight call) cancels the request
+        rather than orphaning a worker thread inside a blocking POST (the shutdown-stall fix: a
+        blocking call wrapped in asyncio.to_thread cannot be cancelled, so asyncio.run then blocks on
+        the default executor up to `timeout`)."""
         import asyncio as _asyncio
 
         import httpx
@@ -171,7 +227,8 @@ class OllamaResponder:
                 async with httpx.AsyncClient(timeout=self._timeout) as client:
                     resp = await client.post(self._endpoint, headers=headers, json=payload)
                 resp.raise_for_status()
-                return self._content(resp.json())
+                data: dict[str, object] = resp.json()
+                return data
             except httpx.HTTPError as exc:
                 last_exc = exc
                 if attempt < self._max_retries - 1:
@@ -179,6 +236,27 @@ class OllamaResponder:
         raise RuntimeError(
             f"OllamaResponder({self._model}) failed after {self._max_retries} attempts: {last_exc!r}"
         )
+
+    def respond(self, prompt: str) -> str:
+        """Synchronous call (the Responder protocol + non-async callers). For use INSIDE an async
+        Producer, prefer `call_responder`, which routes through `arespond` so the call is cancellable
+        rather than orphaning a worker thread on cancel-others / finalise."""
+        return self._content(self._chat(prompt))
+
+    def respond_metered(self, prompt: str) -> tuple[str, ModelUsage]:
+        """`respond`, plus the provider's own token/latency accounting as a ModelUsage — the
+        measurement that `_content` alone throws away."""
+        data = self._chat(prompt)
+        return self._content(data), self._usage(data, self._model)
+
+    async def arespond(self, prompt: str) -> str:
+        """Async, cancellable call (see `_achat`) — the path `call_responder` prefers."""
+        return self._content(await self._achat(prompt))
+
+    async def arespond_metered(self, prompt: str) -> tuple[str, ModelUsage]:
+        """Async sibling of `respond_metered`: the cancellable call plus ModelUsage accounting."""
+        data = await self._achat(prompt)
+        return self._content(data), self._usage(data, self._model)
 
 
 async def call_responder(responder: Responder, prompt: str) -> str:
@@ -209,3 +287,29 @@ async def call_responder(responder: Responder, prompt: str) -> str:
     if isinstance(responder, DeterministicResponder):
         return responder.respond(prompt)
     return await asyncio.to_thread(responder.respond, prompt)
+
+
+async def call_responder_metered(responder: Responder, prompt: str) -> tuple[str, ModelUsage]:
+    """Like `call_responder`, but also returns a `ModelUsage` for the call — emit it from the Producer
+    so the inner record carries per-call token/latency accounting.
+
+    A responder exposing `arespond_metered` (OllamaResponder) returns the provider's REAL counts. Any
+    other responder (the DeterministicResponder stand-in, a custom seam) has no native accounting, so
+    usage is DERIVED deterministically — word-count token estimates and wall_ms=0: stable enough to
+    keep a CI record byte-identical, and honest that it is an estimate, not provider truth (the model
+    field carries the responder's identity so a reader can tell the two apart). The text is obtained
+    through the same `call_responder` path, preserving its concurrency/cancellation discipline."""
+    ametered = getattr(responder, "arespond_metered", None)
+    if callable(ametered):
+        text, usage = await ametered(prompt)
+        return str(text), usage
+    text = await call_responder(responder, prompt)
+    model = str(getattr(responder, "_model", type(responder).__name__))
+    usage = ModelUsage(
+        model=model,
+        prompt_tokens=len(prompt.split()),
+        completion_tokens=len(text.split()),
+        wall_ms=0,
+        estimated=True,  # word-count stand-in, NOT provider truth — marked in the data
+    )
+    return text, usage
