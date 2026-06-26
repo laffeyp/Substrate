@@ -99,16 +99,28 @@ def _print_report(suite: Suite) -> None:
     n_run = sum(1 for r in rows.values() if r.get("source") == "run")
     n_salv = sum(1 for r in rows.values() if r.get("source") == "salvage")
     n_fail = sum(1 for r in rows.values() if r.get("source") == "fail")
+    trials = (max((int(r["trial"]) for r in rows.values()), default=0) + 1) if rows else 0
     print(f"\n=== {report.suite}  primary={report.primary_metric}  control={report.control_arm} ===")
-    print(f"cells: {len(rows)} ({n_run} run, {n_salv} salvaged, {n_fail} failed/timeout)  control-ran: {report.control_check.state}")
+    print(f"cells: {len(rows)} ({n_run} run, {n_salv} salvaged, {n_fail} failed/timeout)  "
+          f"control-ran: {report.control_check.state}  margin=±{MARGIN}  trials={trials}")
+    print(f"  TWO CURRENCIES, never spliced: reliable = pass^{trials} (a problem counts only if ALL "
+          f"{trials} trials pass); per-trial = pass@1 (mean attempt). flake = per-trial − reliable.")
     for a in report.arms:
-        line = f"  {a.arm:22s} resolved-cells {a.passes}/{a.n_cases}  rate={a.pass_rate:.3f}"
+        flake = a.pass_at_1 - a.pass_rate
+        line = (f"  {a.arm:22s} reliable {a.passes}/{a.n_cases}={a.pass_rate:.3f}  "
+                f"per-trial={a.pass_at_1:.3f}  flake={flake:+.3f}")
+        if a.delta_vs_control is not None:  # harsher, same currency as the count
+            line += f"  | Δreliable={a.delta_vs_control:+.3f}"
+            if a.p_value is not None:
+                line += f"(McNemar p={a.p_value:.3f})"
         if a.delta_pass_k is not None:
-            line += (f"  | Δ={a.delta_pass_k:+.3f} CI=[{a.ci_low:+.3f},{a.ci_high:+.3f}]"
-                     f" {a.equivalence}  fdr_sig={a.fdr_significant}")
+            line += (f"  | Δpass@1={a.delta_pass_k:+.3f} CI95=[{a.ci_low:+.3f},{a.ci_high:+.3f}]"
+                     f" margin-verdict={a.equivalence} fdr={a.fdr_significant}")
         print(line)
-    print("\nheadline: the `full` row vs the strong control — `equivalent` = free orchestration reached "
-          "the strong model at ±0.10; `inferior` = a real gap; `inconclusive` = still underpowered.")
+    print(f"\nread it honestly: 'reliable' (pass^{trials}) and 'per-trial' (pass@1) are DIFFERENT "
+          "statistics — quote ONE. 'margin-verdict' is the TOST at ±margin: 'significantly worse' "
+          "(CI excludes 0) is NOT 'inferior' (CI clears -margin). A large `flake` means the arm "
+          "solves sometimes but not reliably — the gap pass@1 hides.")
 
 
 async def main() -> None:

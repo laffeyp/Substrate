@@ -38,13 +38,22 @@ def test_pass_hat_k_subset_estimator():
 
 def test_equivalence_verdict_tost():
     m = 0.1
-    assert equivalence_verdict(0.05, 0.20, margin=m) == SUPERIOR  # CI entirely > 0
-    assert equivalence_verdict(-0.20, -0.05, margin=m) == INFERIOR  # CI entirely < 0
-    assert equivalence_verdict(-0.05, 0.05, margin=m) == EQUIVALENT  # inside ±margin
-    assert equivalence_verdict(-0.30, 0.30, margin=m) == INCONCLUSIVE  # wide, spans margins
-    # the crux: a CI that includes 0 but is WIDER than the margin is NOT equivalence — non-significance
-    # is not evidence of no effect.
+    # SUPERIOR / INFERIOR require the CI to CLEAR the margin — not merely to exclude 0.
+    assert equivalence_verdict(0.15, 0.30, margin=m) == SUPERIOR  # CI clears +margin
+    assert equivalence_verdict(-0.30, -0.15, margin=m) == INFERIOR  # CI clears -margin
+    assert equivalence_verdict(-0.05, 0.05, margin=m) == EQUIVALENT  # whole CI inside ±margin
+    # THE CRUX the headline got wrong: 'significantly worse/better' (CI excludes 0) is NOT 'inferior/
+    # superior' (CI beyond the margin). A CI that excludes 0 but straddles a margin boundary is
+    # margin-INCONCLUSIVE, not a margin verdict.
+    assert equivalence_verdict(0.05, 0.20, margin=m) == INCONCLUSIVE  # sig. better, below +margin floor
+    assert equivalence_verdict(-0.18, -0.06, margin=m) == INCONCLUSIVE  # sig. worse — the full pass@1 case
+    assert equivalence_verdict(-0.30, 0.30, margin=m) == INCONCLUSIVE  # wide, non-significant
     assert equivalence_verdict(-0.15, 0.02, margin=m) == INCONCLUSIVE
+    # degenerate zero-width bootstrap: WITHIN the margin it is the false-equivalence trap -> inconclusive
+    # (never equivalent); CLEARING the margin it is a genuine maximal difference.
+    assert equivalence_verdict(0.0, 0.0, margin=m) == INCONCLUSIVE  # [0,0] must NOT read equivalent
+    assert equivalence_verdict(1.0, 1.0, margin=m) == SUPERIOR  # genuine maximal superiority
+    assert equivalence_verdict(-1.0, -1.0, margin=m) == INFERIOR  # genuine maximal inferiority
 
 
 def test_bootstrap_delta_is_repeatable_and_directional():
@@ -67,6 +76,29 @@ def test_bootstrap_equal_arms_not_called_superior():
     assert d.verdict in (EQUIVALENT, INCONCLUSIVE) and d.verdict != SUPERIOR
 
 
+def test_bootstrap_degenerate_zero_variance_is_inconclusive_not_equivalent():
+    # both arms solve EVERY trial of every case -> Δ is exactly 0 on every replicate -> a zero-width
+    # [0,0] CI. That tightness is an ARTIFACT (no variability to resample), not power: it must read
+    # INCONCLUSIVE, never EQUIVALENT — the false-equivalence-at-the-boundary trap the power analysis
+    # named, resurfacing through a degenerate bootstrap.
+    allpass = {f"c{i}": [True, True, True] for i in range(6)}
+    d = bootstrap_delta_pass_k(allpass, dict(allpass), k=1, margin=0.1, n_boot=1000, seed=3)
+    assert d.ci_low == d.ci_high == pytest.approx(0.0)
+    assert d.verdict == INCONCLUSIVE
+
+
+def test_bootstrap_maximal_difference_survives_degenerate_guard():
+    # arm solves everything, control nothing -> Δ is exactly +1 on every replicate -> zero-width [1,1].
+    # This is GENUINE maximal superiority, not an artifact: the degenerate guard must NOT swallow it.
+    d = bootstrap_delta_pass_k(
+        {f"c{i}": [True, True] for i in range(6)},
+        {f"c{i}": [False, False] for i in range(6)},
+        k=1, margin=0.1, n_boot=1000, seed=4,
+    )
+    assert d.ci_low == d.ci_high == pytest.approx(1.0)
+    assert d.verdict == SUPERIOR
+
+
 def test_bootstrap_carries_trial_variance():
     # a single noisy case (one trial difference) must NOT produce a tight CI claiming superiority — the
     # two-level bootstrap reflects how little is known. With one case, the CI should include 0.
@@ -87,6 +119,22 @@ def test_benjamini_hochberg():
     # BH is less conservative than Bonferroni: two moderate p's that Bonferroni (0.05/3) would keep.
     flags2 = benjamini_hochberg([0.01, 0.02, 0.9], alpha=0.05)
     assert flags2[0] and flags2[1] and not flags2[2]
+
+
+def test_exact_mcnemar_discordant_boundary():
+    # the discordant boundary the power argument rests on (b≈c, small counts) — previously unexercised.
+    from substrate.assay.report import exact_mcnemar_p
+
+    # cross-check against the definition: two-sided = 2 * P(Binom(b+c, 0.5) <= min(b,c)), capped at 1.
+    for b, c in [(5, 6), (5, 5), (0, 11), (1, 10), (3, 8), (2, 2)]:
+        n, kk = b + c, min(b, c)
+        expected = min(1.0, 2.0 * sum(math.comb(n, i) for i in range(kk + 1)) * 0.5**n)
+        assert exact_mcnemar_p(b, c) == pytest.approx(expected)
+    assert exact_mcnemar_p(0, 0) == 1.0  # no discordant pairs -> no evidence
+    # a near-balanced 5-vs-6 split is NOT significant — a near-tie must never read as a real difference.
+    assert exact_mcnemar_p(5, 6) > 0.05
+    # a lopsided split IS significant (this is where a real arm/control difference shows).
+    assert exact_mcnemar_p(0, 12) < 0.05
 
 
 def test_pass_hat_k_matches_hand_computation():

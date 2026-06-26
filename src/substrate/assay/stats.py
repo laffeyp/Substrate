@@ -9,8 +9,12 @@ the textbook instruments, applied to agent orchestration:
     is distinct from pass@k (which caps an oracle selector); pass^k measures consistency.
   - a PAIRED two-level bootstrap on the per-Case Δ-pass^k (resample Cases, then resample trials within
     each Case) — carrying the trial-level uncertainty the boolean collapse discarded.
-  - an EQUIVALENCE verdict via TOST against a PRE-SPECIFIED margin (Lakens 2017): a non-significant
-    result is NOT "no effect"; to claim equivalence the whole CI must sit inside ±margin.
+  - an EQUIVALENCE verdict against a PRE-SPECIFIED margin by CI-inclusion (the percentile-bootstrap
+    analogue of TOST, Lakens 2017 — NOT the Tango/Nam score-TOST the power analysis prefers; that
+    score test is the upgrade owed before any equivalence claim actually runs). The CI is the
+    bootstrap percentile interval, ~0.068 coverage error (the mild variant), not the Wald ~0.20. A
+    non-significant result is NOT "no effect"; to claim equivalence the whole CI must sit inside
+    ±margin, and a zero-width (all-identical) bootstrap is ruled INCONCLUSIVE, never equivalent.
   - Benjamini-Hochberg FDR across the arm matrix (Benjamini & Hochberg 1995) — raw per-arm p-values
     are uncorrected; BH is less conservative than Holm for many arms.
 
@@ -105,25 +109,48 @@ def bootstrap_delta_pass_k(
             total += _phk(a, k, da) - _phk(ctrl, k, dc)
         deltas.append(total / len(picked))
     deltas.sort()
-    lo = deltas[int((alpha / 2) * n_boot)]
-    hi = deltas[min(n_boot - 1, int((1 - alpha / 2) * n_boot))]
+
+    def _pct(a: float) -> tuple[float, float]:
+        return deltas[max(0, int((a / 2) * n_boot))], deltas[min(n_boot - 1, int((1 - a / 2) * n_boot))]
+
+    lo, hi = _pct(alpha)  # the 1-alpha (95%) CI — reported for display + the difference (!=0) test
+    # the verdict uses the 90% CI: a 5% TOST is two one-sided 5% tests, whose dual is the 90% interval,
+    # NOT the 95%. Feeding the 95% CI (as before) is conservative — harder to call equivalent, the safe
+    # direction — but mis-specified; this corrects the duality (review fold).
+    tost_lo, tost_hi = _pct(2 * alpha)
     le = sum(1 for d in deltas if d <= 0) / n_boot
     ge = sum(1 for d in deltas if d >= 0) / n_boot
     p = min(1.0, 2 * min(le, ge))
     return DeltaCI(
-        point, lo, hi, p, equivalence_verdict(lo, hi, margin=margin), len(cases), k, n_boot, margin
+        point, lo, hi, p, equivalence_verdict(tost_lo, tost_hi, margin=margin), len(cases), k, n_boot, margin
     )
 
 
 def equivalence_verdict(ci_low: float, ci_high: float, *, margin: float) -> str:
-    """From a CI on Δ and a pre-specified equivalence margin (TOST, Lakens 2017): whole CI above 0 ->
-    superior; below 0 -> inferior; inside (-margin, +margin) -> equivalent (a REAL 'no meaningful
-    difference', NOT mere non-significance); otherwise inconclusive (underpowered for either claim)."""
-    if ci_low > 0:
+    """Margin-proper verdict from a CI on Δ against a pre-specified equivalence margin. The CI passed
+    here should be the EQUIVALENCE interval (the 90% CI for a 5% TOST — two one-sided tests — NOT the
+    95% difference CI; see `bootstrap_delta_pass_k`).
+
+      - equivalent: whole CI inside (-margin, margin) — a REAL 'no meaningful difference', not mere
+        non-significance.
+      - superior / inferior: whole CI clears +margin / -margin — a difference EXCEEDING the margin.
+      - inconclusive: the CI straddles a margin boundary (underpowered for either claim), OR is
+        degenerate (zero width — an all-identical bootstrap cannot support an equivalence claim; the
+        false-EQUIVALENT-at-[0,0] trap the power analysis warned about).
+
+    The distinction the HEADLINE must respect: 'significantly worse than control' (the CI excludes 0)
+    is NOT the same claim as 'inferior' here (worse by MORE than the margin). A CI of [-0.18, -0.06]
+    at margin 0.10 excludes 0 (significantly worse) yet straddles -0.10 — so it is inconclusive FOR
+    THE MARGIN: significantly worse, but not shown worse-by-the-margin. Report the two separately."""
+    if ci_low >= margin:
         return SUPERIOR
-    if ci_high < 0:
+    if ci_high <= -margin:
         return INFERIOR
-    if -margin <= ci_low and ci_high <= margin:
+    # EQUIVALENT needs the whole CI inside ±margin AND a NON-degenerate interval. A zero-width CI within
+    # the margin is the false-equivalence trap: an all-identical bootstrap whose tightness is an
+    # artifact of few/identical cases, not power — it falls through to INCONCLUSIVE. (A zero-width CI
+    # that CLEARS a margin, e.g. [1,1] or [-1,-1], is a genuine maximal difference and is caught above.)
+    if -margin <= ci_low and ci_high <= margin and ci_low != ci_high:
         return EQUIVALENT
     return INCONCLUSIVE
 

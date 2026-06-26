@@ -53,8 +53,9 @@ class ArmReport:
     role: str
     n_cases: int
     passes: int
-    pass_rate: float
-    delta_vs_control: float | None
+    pass_rate: float  # pass^k-COLLAPSED reliable-solve rate (a cell counts only if ALL trials passed)
+    pass_at_1: float  # per-trial (pass@1) success rate — the OTHER currency; the gap to pass_rate is flakiness
+    delta_vs_control: float | None  # pass^k-collapsed Δ (same currency as `passes`) — the harsher, honest one
     discordant_control_only: int | None  # b: control passed, arm failed
     discordant_arm_only: int | None  # c: control failed, arm passed
     p_value: float | None  # exact McNemar (binary) — SECONDARY cross-check
@@ -104,6 +105,7 @@ class _Mid:
     n_cases: int
     passes: int
     pass_rate: float
+    pass_at_1: float
     delta_vs_control: float | None
     b: int | None
     c: int | None
@@ -194,6 +196,9 @@ def build_report(suite: Suite, results: Sequence[CaseResult]) -> Report:
                 n_cases=n,
                 passes=passes,
                 pass_rate=passes / n if n else 0.0,
+                pass_at_1=(sum(1 for r in arm_results if r.result.passed) / len(arm_results))
+                if arm_results
+                else 0.0,
                 delta_vs_control=delta_vs_control,
                 b=b_val,
                 c=c_val,
@@ -219,6 +224,7 @@ def build_report(suite: Suite, results: Sequence[CaseResult]) -> Report:
             n_cases=m.n_cases,
             passes=m.passes,
             pass_rate=m.pass_rate,
+            pass_at_1=m.pass_at_1,
             delta_vs_control=m.delta_vs_control,
             discordant_control_only=m.b,
             discordant_arm_only=m.c,
