@@ -18,12 +18,51 @@ from substrate.assay.swebench import (
     KEY_MODEL,
     KEY_PREDICTION,
     make_prediction,
+    model_patch_from_record,
     read_resolved,
     read_run_report,
     swebench_oracle,
+    swebench_record_oracle,
     verify_constants,
     write_predictions,
 )
+
+
+def _record(*kinds_payloads):
+    return [{"kind": k, "payload": p} for k, p in kinds_payloads]
+
+
+def test_model_patch_from_record_takes_the_selected_patch():
+    rec = _record(
+        ("SuspectFiles", {"files": ["m.py"]}),
+        ("SelectedPatch", {"slot": 0, "model_patch": "diff --git a/m.py b/m.py\n+x"}),
+    )
+    assert model_patch_from_record(rec) == "diff --git a/m.py b/m.py\n+x"
+    assert model_patch_from_record(_record(("Exhausted", {"rounds": 2}))) == ""  # no patch -> ""
+
+
+def test_record_oracle_grades_the_extracted_patch_via_the_injected_grader():
+    # stub grade: resolved iff the patch contains "GOOD" — no Docker, proves extraction + wiring.
+    oracle = swebench_record_oracle(
+        report_root="/unused", dataset_name="d", grade=lambda iid, patch: "GOOD" in patch
+    )
+    good = _record(("SelectedPatch", {"slot": 0, "model_patch": "diff GOOD"}))
+    res = oracle.grade(good, {"instance_id": "pallets__flask-4045"})
+    assert res.passed is True and res.metric == "resolved"
+    assert res.oracle_class == EXTERNAL_GRADER and res.replayable is False  # run-and-observe, labeled
+
+    bad = _record(("SelectedPatch", {"slot": 0, "model_patch": "diff BAD"}))
+    assert oracle.grade(bad, {"instance_id": "x"}).passed is False
+
+
+def test_record_oracle_no_patch_is_not_resolved_without_grading():
+    calls = []
+    oracle = swebench_record_oracle(
+        report_root="/unused", dataset_name="d", grade=lambda iid, patch: calls.append(1) or True
+    )
+    res = oracle.grade(_record(("Exhausted", {"rounds": 1})), "x")  # ground_truth as a bare id
+    assert res.passed is False and "no model_patch" in res.detail
+    assert calls == []  # the Docker grader is never invoked when there's nothing to grade
 
 
 def test_make_prediction_has_exactly_the_three_real_fields():

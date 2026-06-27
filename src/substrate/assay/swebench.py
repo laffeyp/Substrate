@@ -26,8 +26,9 @@ the stock swebench harness. SWE-bench-Live is a follow-up backend (bridge mappin
 
 from __future__ import annotations
 
+import hashlib
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -242,6 +243,79 @@ def swebench_oracle(
     return ExternalGraderOracle(grader=grader, metric="resolved")
 
 
+def model_patch_from_record(record: Sequence[Mapping[str, Any]]) -> str:
+    """The model_patch an Arm produced, read off its inner record: the last `SelectedPatch` event's
+    `model_patch`. This is the SWE-bench Arm CONTRACT — a topology is a valid arm iff it emits a
+    SelectedPatch carrying the diff. Empty string if the Arm emitted none (no candidate survived) ->
+    graded not-resolved, never a crash."""
+    patches = [e["payload"]["model_patch"] for e in record if e.get("kind") == "SelectedPatch"]
+    return str(patches[-1]) if patches else ""
+
+
+def grade_patch(
+    instance_id: str,
+    model_patch: str,
+    *,
+    report_root: Path | str,
+    dataset_name: str,
+    model_name: str = DEFAULT_MODEL_NAME,
+    namespace: str = "swebench",
+) -> bool:
+    """ENV-GATED (Docker). Grade ONE model_patch for ONE instance via the official harness; return
+    resolved. The run_id is HASHED from (model_name, patch) so distinct patches grade fresh and the
+    swebench harness never reuses a prior run's verdict for this instance (the run_id cache-collision
+    lesson — a constant run_id makes the harness skip re-evaluation and report a stale grade). An empty
+    patch is not-resolved without invoking Docker."""
+    if not model_patch.strip():
+        return False
+    h = hashlib.sha1(f"{model_name}:{model_patch}".encode()).hexdigest()[:10]
+    run_id = f"assay-{instance_id}-{h}"
+    rdir = Path(report_root) / instance_id
+    pred = make_prediction(instance_id, model_patch, model_name=model_name)
+    run_swebench(
+        [pred], dataset_name=dataset_name, run_id=run_id, instance_ids=[instance_id],
+        report_dir=rdir, max_workers=1, namespace=namespace,
+    )
+    return read_resolved(rdir, run_id, model_name, instance_id)
+
+
+def swebench_record_oracle(
+    *,
+    report_root: Path | str,
+    dataset_name: str,
+    model_name: str = DEFAULT_MODEL_NAME,
+    grade: Callable[[str, str], bool] | None = None,
+) -> ExternalGraderOracle:
+    """The SWE-bench external-grader Oracle for the assay control plane: grade an ARM'S RECORD against a
+    SWE-bench instance. It extracts the model_patch the Arm emitted (`SelectedPatch`) and grades it with
+    the official Docker harness, reporting `resolved`. `ground_truth` is the instance (a mapping carrying
+    `instance_id`, or the id itself). Run-and-observe (replayable=False). `grade(instance_id, patch)->bool`
+    overrides the Docker call for tests; the default grades for real via `grade_patch`. A run that emitted
+    no patch grades not-resolved with a note, never a crash."""
+
+    def _default_grade(instance_id: str, model_patch: str) -> bool:
+        return grade_patch(
+            instance_id, model_patch, report_root=report_root,
+            dataset_name=dataset_name, model_name=model_name,
+        )
+
+    do_grade = grade or _default_grade
+
+    def grader(record: list[Mapping[str, Any]], ground_truth: Any) -> tuple[bool, str]:
+        instance_id = (
+            str(ground_truth["instance_id"])
+            if isinstance(ground_truth, Mapping)
+            else str(ground_truth)
+        )
+        patch = model_patch_from_record(record)
+        if not patch.strip():
+            return (False, f"no model_patch on the record for {instance_id} (the Arm produced none)")
+        resolved = do_grade(instance_id, patch)
+        return (resolved, f"swebench resolved={resolved} for {instance_id} ({len(patch)}b patch)")
+
+    return ExternalGraderOracle(grader=grader, metric="resolved")
+
+
 __all__ = [
     "KEY_INSTANCE_ID",
     "KEY_MODEL",
@@ -254,6 +328,9 @@ __all__ = [
     "verify_constants",
     "run_swebench",
     "swebench_oracle",
+    "model_patch_from_record",
+    "grade_patch",
+    "swebench_record_oracle",
 ]
 
 # re-exported for callers that grade via the Oracle directly
