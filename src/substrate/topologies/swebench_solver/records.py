@@ -29,6 +29,7 @@ __all__ = [
     "SuspectElements",
     "EditLocations",
     "AppliedPatch",
+    "ReproductionTest",
     "Reproduction",
     "TestResults",
     "SelectedPatch",
@@ -74,6 +75,14 @@ class AppliedPatch(Struct, frozen=True):
 
 
 # --- SELECT (after the loop) ---
+
+
+class ReproductionTest(Struct, frozen=True):
+    """The solver's OWN generated test that reproduces the issue (NOT the held-out FAIL_TO_PASS — firewall).
+    Generated once per instance from the issue; SELECT runs it against each candidate patch. `code` is the
+    test script; "" means generation failed (SELECT falls back to regression-only)."""
+
+    code: str
 
 
 class Reproduction(enum.Enum):
