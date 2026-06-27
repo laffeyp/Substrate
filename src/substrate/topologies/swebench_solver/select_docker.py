@@ -74,7 +74,11 @@ def build_regression_command(
             "regression command. Add a per-repo command adapter (e.g. paths->module labels) before this repo."
         )
     install = str(spec["install"]).strip()
-    return f"{activate} && {install} && {test_cmd} {' '.join(regression_files)}".strip()
+    # --continue-on-collection-errors: pytest ABORTS the whole run if ANY named file fails to collect
+    # (a stray test module with a missing optional dep -> 0 passed for everything, proven by the real solve
+    # #152). Continue past it so the collectable tests still run and establish the base-passing set; an
+    # uncollectable file simply contributes no test ids (it can't be in passed_at_base anyway).
+    return f"{activate} && {install} && {test_cmd} --continue-on-collection-errors {' '.join(regression_files)}".strip()
 
 
 class DockerTestRunner:

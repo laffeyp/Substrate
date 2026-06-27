@@ -23,7 +23,9 @@ def test_build_regression_command_reuses_repo_install_and_runner() -> None:
     # and runs only the chosen file — never test_patch / PASS_TO_PASS.
     assert "conda activate testbed" in cmd
     assert "python -m pip install -e ." in cmd
-    assert cmd.endswith("pytest -rA tests/test_json.py")
+    # --continue-on-collection-errors so one stray uncollectable file can't abort the whole run (#152)
+    assert "--continue-on-collection-errors" in cmd
+    assert cmd.endswith("pytest -rA --continue-on-collection-errors tests/test_json.py")
 
 
 def test_build_regression_command_empty_when_no_files() -> None:

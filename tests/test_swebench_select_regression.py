@@ -86,7 +86,7 @@ def test_planner_builds_per_candidate_firewall_clean_command() -> None:
     plan = make_regression_planner(_SPEC, repo_tests, exclude=exclude)
     cmd = plan(_FLASK_PATCH)  # the patch touches src/flask/blueprints.py
     # only the issue-unrelated, non-held-out test runs, under the repo's own install + runner.
-    assert cmd.endswith("pytest -rA tests/test_json.py")
+    assert cmd.endswith("pytest -rA --continue-on-collection-errors tests/test_json.py")
     assert "python -m pip install -e ." in cmd
 
 
@@ -114,4 +114,4 @@ def test_resolve_regression_static_vs_planner() -> None:
     # a static string is the same for every patch; a planner tailors per patch.
     assert resolve_regression("REG", "any patch") == "REG"
     plan = make_regression_planner(_SPEC, ["tests/test_json.py"], exclude=set())
-    assert resolve_regression(plan, _FLASK_PATCH).endswith("pytest -rA tests/test_json.py")
+    assert resolve_regression(plan, _FLASK_PATCH).endswith("pytest -rA --continue-on-collection-errors tests/test_json.py")
