@@ -153,8 +153,9 @@ def _print_report() -> None:
                  else "  (unanchored — a pre-fingerprint run)"))
     for a in report.arms:
         flake = a.pass_at_1 - a.pass_rate
+        compute = f"calls={a.model_calls}" if a.model_calls else "calls=—"
         line = (f"  {a.arm:22s} reliable {a.passes}/{a.n_cases}={a.pass_rate:.3f}  "
-                f"per-trial={a.pass_at_1:.3f}  flake={flake:+.3f}")
+                f"per-trial={a.pass_at_1:.3f}  flake={flake:+.3f}  {compute}")
         if a.arm == report.control_arm:
             pass  # the bar — no self-comparison
         elif not a.complete:
