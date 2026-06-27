@@ -1,0 +1,194 @@
+"""The SWE-bench Adapter + Suite — wire substrate topologies as Arms over real SWE-bench instances.
+
+The assay harness (suite.py / run.py / report.py / oracle.py) is generic and already proven by the
+firewalled coding benchmark (coding.py). This is the SWE-bench analog: a `Case` per instance, an Arm
+matrix of topologies, and the record-grading `swebench_record_oracle`. The Adapter does the per-case
+setup the session's `scripts/solve_instance.py` did by hand — clone the repo at base_commit, discover the
+canonical test modules, build the firewall-clean regression command, and run the base suite ONCE for the
+passed-at-base set — and packs PRIMITIVES into `Case.payload` so each Arm's `build(case)` reconstructs the
+runner + regression planner without redoing the I/O. Every Arm on a Case consumes the IDENTICAL payload
+(the Wave-0-carry discipline); the firewall lives here (the held-out test_patch/FAIL_TO_PASS never enter
+the payload — `exclude` carries only test_patch FILE PATHS, used to drop issue-related tests, disclosed).
+
+THE ARM CONTRACT: a topology is a valid SWE-bench Arm iff `build(case)` returns a topology that emits a
+`SelectedPatch` carrying its model_patch (what `model_patch_from_record` reads). The pipeline arm built
+here (`swebench_solver_arm`) does; other topologies (a tool agent, an ensemble) provide their own arm
+builder over the same payload.
+"""
+
+from __future__ import annotations
+
+import subprocess
+import tempfile
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any
+
+from ..reference._models import OllamaResponder
+from ..topologies.swebench_solver.assemble import swebench_solver_topology
+from ..topologies.swebench_solver.select_docker import (
+    DockerTestRunner,
+    build_regression_command,
+    instance_image,
+    repo_test_spec,
+)
+from ..topologies.swebench_solver.select_exec import passed_tests
+from ..topologies.swebench_solver.select_regression import (
+    discover_test_modules,
+    make_regression_planner,
+)
+from .suite import ABLATION, BASELINE, FULL, Arm, Case, Suite, Topology
+from .swebench import firewall_check, swebench_record_oracle
+
+
+def safe_case_id(instance_id: str) -> str:
+    """A filesystem-safe Case.case_id from a SWE-bench instance_id. The harness forbids `__` in a case_id
+    (it is the `{arm}__{case}__t{trial}` run-root separator), but SWE-bench ids contain it
+    (`pallets__flask-4045`). Map `__`->`_1776_` (swebench's own TestSpec convention). The REAL instance_id
+    stays in `Case.ground_truth` — this is only the path-safe label, never the grade key."""
+    return instance_id.replace("__", "_1776_")
+
+
+def _added_files(diff: str) -> set[str]:
+    return {ln[6:] for ln in diff.splitlines() if ln.startswith("+++ b/") and ln[6:] != "dev/null"}
+
+
+def _clone_at(repo: str, base_commit: str) -> str:
+    d = tempfile.mkdtemp(prefix="assay-swe-")
+    url = f"https://github.com/{repo}"
+    subprocess.run(["git", "clone", "--quiet", url, d], check=True)
+    subprocess.run(["git", "-C", d, "checkout", "--quiet", base_commit], check=True)
+    return d
+
+
+def prepare_swebench_case(
+    instance: dict[str, Any], *, namespace: str = "swebench", timeout: int = 1800
+) -> Case:
+    """ENV-GATED (git + Docker). The Adapter's per-case setup: firewall-check the instance, clone at
+    base_commit, discover the canonical test modules, build the firewall-clean full regression command,
+    and run it once at base for the passed-at-base set. Returns a `Case` whose `payload` holds PRIMITIVES
+    every Arm reconstructs from; `ground_truth` is the instance (the Oracle reads its instance_id).
+    Raises if the instance fails the firewall (it must never be benchmarked)."""
+    ok, reason = firewall_check(instance)
+    if not ok:
+        raise ValueError(f"instance {instance['instance_id']} fails the firewall: {reason}")
+
+    base = _clone_at(instance["repo"], instance["base_commit"])
+    repo_files = subprocess.run(
+        ["git", "-C", base, "ls-files"], capture_output=True, text=True
+    ).stdout.split()
+    repo_tests = discover_test_modules(repo_files)
+    exclude = _added_files(instance["test_patch"])  # held-out test_patch file PATHS (firewall-disclosed)
+    spec = dict(repo_test_spec(instance["repo"], instance["version"]))
+
+    image = instance_image(instance["instance_id"], namespace=namespace)
+    runner = DockerTestRunner(image, timeout=timeout)
+    full_reg = build_regression_command(spec, [t for t in repo_tests if t not in exclude])
+    _, base_out = runner.run("", full_reg)  # empty patch -> run on base_commit
+    passed_at_base = sorted(passed_tests(base_out))
+
+    payload: dict[str, Any] = {
+        "base_checkout": base,
+        "repo_skeleton": "\n".join(repo_files),
+        "known_files": repo_files,
+        "regression_files": repo_tests,
+        "exclude": sorted(exclude),
+        "spec": spec,
+        "passed_at_base": passed_at_base,
+        "image": image,
+        "issue": instance["problem_statement"],
+    }
+    return Case(case_id=safe_case_id(instance["instance_id"]), payload=payload, ground_truth=instance)
+
+
+def solver_topology_from_payload(
+    payload: dict[str, Any], responders: list[Any], *, n: int, max_rounds: int
+) -> Topology:
+    """Reconstruct the swebench_solver topology for a prepared Case payload — the runner + the
+    per-candidate firewall-clean regression planner + passed-at-base, with the given responders. Pure
+    (no I/O): the runner runs only when the topology runs. This is the Arm's `build` body."""
+    runner = DockerTestRunner(str(payload["image"]))
+    planner = make_regression_planner(
+        payload["spec"], list(payload["regression_files"]), exclude=set(payload["exclude"])
+    )
+    return swebench_solver_topology(
+        responders=responders,
+        base_checkout=str(payload["base_checkout"]),
+        issue=str(payload["issue"]),
+        repo_skeleton=str(payload["repo_skeleton"]),
+        known_files=set(payload["known_files"]),
+        runner=runner,
+        regression_command=planner,
+        passed_at_base=frozenset(payload["passed_at_base"]),
+        n=n,
+        max_rounds=max_rounds,
+        watchdog_seconds=2400.0,
+    )
+
+
+def swebench_solver_arm(
+    name: str,
+    role: str,
+    *,
+    models: Sequence[str],
+    n: int | None = None,
+    max_rounds: int = 2,
+    max_tokens: int = 2048,
+) -> Arm:
+    """A pipeline (localize→repair→select) Arm over the given producer models. `build(case)` wires the
+    swebench_solver topology from the prepared payload with one OllamaResponder per slot. `n` defaults to
+    len(models). The producers are interchangeable — this arm uses Ollama responders; the CLI/agent seam
+    is a drop-in once built (no model-tier distinction — just producers)."""
+    slots = n if n is not None else len(models)
+
+    def build(case: Case) -> Topology:
+        responders = [OllamaResponder(models[i % len(models)], max_tokens=max_tokens) for i in range(slots)]
+        return solver_topology_from_payload(case.payload, responders, n=slots, max_rounds=max_rounds)
+
+    return Arm(name=name, role=role, build=build)
+
+
+def swebench_suite(
+    cases: Sequence[Case],
+    arms: Sequence[Arm],
+    *,
+    report_root: Path | str,
+    dataset_name: str,
+    control_arm: str,
+    name: str = "swebench",
+    version: str = "0.1",
+    primary_metric: str = "resolved",
+    null_rule: str = (
+        "the primary endpoint is instances resolved (held-out FAIL_TO_PASS + PASS_TO_PASS all pass, "
+        "all-or-nothing). A control Arm must appear on the log; equivalence is claimed only if the paired "
+        "delta CI sits inside the pre-registered margin, never from non-significance alone."
+    ),
+    equivalence_margin: float = 0.1,
+    pass_k: int = 1,
+) -> Suite:
+    """Assemble the pre-registered SWE-bench Suite: the prepared Cases, the Arm matrix, and the
+    record-grading Docker Oracle. `report_root` is where the harness writes per-instance grade reports."""
+    return Suite(
+        name=name,
+        version=version,
+        cases=tuple(cases),
+        arms=tuple(arms),
+        oracle=swebench_record_oracle(report_root=report_root, dataset_name=dataset_name),
+        control_arm=control_arm,
+        primary_metric=primary_metric,
+        null_rule=null_rule,
+        equivalence_margin=equivalence_margin,
+        pass_k=pass_k,
+    )
+
+
+__all__ = [
+    "safe_case_id",
+    "prepare_swebench_case",
+    "solver_topology_from_payload",
+    "swebench_solver_arm",
+    "swebench_suite",
+    "ABLATION",
+    "BASELINE",
+    "FULL",
+]
