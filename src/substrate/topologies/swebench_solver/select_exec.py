@@ -84,17 +84,25 @@ async def run_one(
     )
 
 
+def resolve_regression(regression: str | Callable[[str], str], model_patch: str) -> str:
+    """The regression command for a candidate: a static string runs the same set for every patch (tests);
+    a planner (Callable[model_patch -> command]) tailors the firewall-clean set to what THAT patch touches
+    (the proximity picker, review #65). One seam so the assembly fan-out and the standalone factory agree."""
+    return regression(model_patch) if callable(regression) else regression
+
+
 def select_exec_validate_factory(
     runner: TestRunner,
-    regression_command: str,
+    regression: str | Callable[[str], str],
     repro_code: str = "",
 ) -> _Factory:
     """Per AppliedPatch (input carries `slot` + `model_patch`): run the tests via `run_one`, emit one
-    TestResults. Host in a producer with `deterministic=False`."""
+    TestResults. `regression` is a static command OR a per-candidate planner (see `resolve_regression`).
+    Host in a producer with `deterministic=False`."""
 
     async def select_exec(inp: Any) -> AsyncIterator[TestResults]:
         slot = int(inp.get("slot", 0)) if hasattr(inp, "get") else 0
         patch = str(inp.get("model_patch", "")) if hasattr(inp, "get") else ""
-        yield await run_one(runner, regression_command, repro_code, slot, patch)
+        yield await run_one(runner, resolve_regression(regression, patch), repro_code, slot, patch)
 
     return lambda: select_exec

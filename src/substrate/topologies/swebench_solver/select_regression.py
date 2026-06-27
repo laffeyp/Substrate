@@ -25,6 +25,10 @@ WHICH test files are eligible.
 from __future__ import annotations
 
 import os
+from collections.abc import Callable, Mapping
+from typing import Any
+
+from .select_docker import build_regression_command
 
 
 def patch_touched_files(model_patch: str) -> set[str]:
@@ -78,3 +82,24 @@ def proximity_regression_files(
     CHECKOUT — never PASS_TO_PASS."""
     related = related_test_files(test_files, touched)
     return sorted(tf for tf in test_files if tf not in related and tf not in exclude)
+
+
+def make_regression_planner(
+    spec: Mapping[str, Any],
+    repo_test_files: list[str] | set[str],
+    *,
+    exclude: set[str],
+) -> Callable[[str], str]:
+    """A PER-CANDIDATE regression planner: given a candidate's `model_patch`, pick the proximity regression
+    set (repo tests minus the ones this patch is near, minus the held-out `exclude`) and build the
+    firewall-clean in-container command from the repo `spec` (env-setup + test runner only). Each candidate
+    gets a command tailored to what IT changed (review #65's 'not in a file/dir the candidate patch
+    touches'). `repo_test_files` + the patch both come from the checkout — never PASS_TO_PASS."""
+    files = list(repo_test_files)
+
+    def plan(model_patch: str) -> str:
+        touched = patch_touched_files(model_patch)
+        regression = proximity_regression_files(files, touched, exclude=exclude)
+        return build_regression_command(spec, regression)
+
+    return plan

@@ -5,8 +5,11 @@ arm64 it runs under emulation (`--platform linux/amd64`) — the path the gold s
 lives at /testbed in the image (checked out at base_commit), so a model_patch (a git diff from base_commit)
 applies cleanly.
 
-`derive_regression_command` keeps the firewall: the regression command is built from the repo's OWN test
-files, with the held-out `test_patch` files dropped — it is never the instance's PASS_TO_PASS field.
+`build_regression_command` keeps the firewall: it reuses ONLY the repo's env-setup (`pip install -e .`) and
+test-runner invocation (e.g. `pytest -rA`) from swebench's per-repo spec — NEVER the eval_script's test
+selection (which applies `test_patch` and names the held-out FAIL_TO_PASS/PASS_TO_PASS tests — that script
+IS the grade, review #67). The test FILES come from the checkout via the proximity picker, never the
+PASS_TO_PASS field.
 """
 
 from __future__ import annotations
@@ -14,6 +17,12 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
+from collections.abc import Mapping
+from typing import Any
+
+# The swebench eval images activate a conda env named `testbed` holding the installed repo (seen in
+# make_test_spec(inst).eval_script). Reusing the activation + install is env-setup, NOT test selection.
+TESTBED_ACTIVATE = "source /opt/miniconda3/bin/activate && conda activate testbed"
 
 
 def instance_image(instance_id: str, *, namespace: str = "swebench", arch: str = "x86_64") -> str:
@@ -23,13 +32,29 @@ def instance_image(instance_id: str, *, namespace: str = "swebench", arch: str =
     return f"{namespace}/sweb.eval.{arch}.{key}:latest"
 
 
-def derive_regression_command(test_files: list[str], *, exclude: set[str], extra: str = "-q") -> str:
-    """Build the regression pytest command from the REPO's discovered test files, dropping the held-out
-    `test_patch` files (`exclude`). NOT the PASS_TO_PASS field. Empty if nothing is left to run."""
-    files = [f for f in test_files if f not in exclude]
-    if not files:
+def repo_test_spec(repo: str, version: str) -> Mapping[str, Any]:
+    """swebench's per-repo eval spec (`install`, `test_cmd`, ...) for a repo+version, read from
+    MAP_REPO_VERSION_TO_SPECS — the SAME source make_test_spec uses for env setup + the test runner, with
+    NONE of the eval_script's test selection / test_patch application (firewall). Lazy-imports swebench
+    (env-gated); raises KeyError if the repo/version is unknown so a missing spec fails loudly."""
+    from swebench.harness.constants import MAP_REPO_VERSION_TO_SPECS  # lazy, env-gated
+
+    return MAP_REPO_VERSION_TO_SPECS[repo][version]  # type: ignore[no-any-return]
+
+
+def build_regression_command(
+    spec: Mapping[str, Any], regression_files: list[str], *, activate: str = TESTBED_ACTIVATE
+) -> str:
+    """The firewall-clean in-container regression command: activate the testbed env, run the repo's OWN
+    install (`spec['install']`, e.g. `python -m pip install -e .` so the candidate's source change takes
+    effect) then the repo's OWN test runner (`spec['test_cmd']`, e.g. `pytest -rA`) over the chosen
+    `regression_files`. `regression_files` come from the proximity picker over the checkout — NEVER the
+    eval_script's selection / PASS_TO_PASS. Empty if there's nothing to run (no vacuous all-pass)."""
+    if not regression_files:
         return ""
-    return f"python -m pytest {' '.join(files)} {extra}".strip()
+    install = str(spec["install"]).strip()
+    test_cmd = str(spec["test_cmd"]).strip()
+    return f"{activate} && {install} && {test_cmd} {' '.join(regression_files)}".strip()
 
 
 class DockerTestRunner:

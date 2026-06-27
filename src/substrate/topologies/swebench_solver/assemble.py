@@ -34,7 +34,7 @@ from .records import (
 from .repair import repair_drafter_factory, repair_validate_factory
 from .reproduction import repro_generator_factory
 from .select import select_patch
-from .select_exec import TestRunner, run_one
+from .select_exec import TestRunner, resolve_regression, run_one
 
 _Factory = Callable[[], Any]
 
@@ -63,7 +63,7 @@ def _round_applied(ctx: api.TriggerContext, rnd: int) -> list[dict[str, Any]]:
     return [a for a in ctx.views["applied"].value() if int(a["round"]) == rnd]
 
 
-def _select_exec_factory(runner: TestRunner, regression_command: str) -> _Factory:
+def _select_exec_factory(runner: TestRunner, regression: str | Callable[[str], str]) -> _Factory:
     """Triggered on Solved: run the tests for EVERY applied patch of the solved round, concurrently; yield
     a TestResults per patch. The run-and-observe Docker seam (deterministic=False). The generated
     reproduction test (`repro_code`, from the input) is run per patch too. ALWAYS yields exactly
@@ -76,7 +76,13 @@ def _select_exec_factory(runner: TestRunner, regression_command: str) -> _Factor
         repro_code = str(inp.get("repro_code", "")) if hasattr(inp, "get") else ""
         outcomes = await asyncio.gather(
             *[
-                run_one(runner, regression_command, repro_code, int(p["slot"]), str(p["model_patch"]))
+                run_one(
+                    runner,
+                    resolve_regression(regression, str(p["model_patch"])),
+                    repro_code,
+                    int(p["slot"]),
+                    str(p["model_patch"]),
+                )
                 for p in patches
             ],
             return_exceptions=True,
@@ -128,14 +134,17 @@ def swebench_solver_topology(
     repo_skeleton: str,
     known_files: set[str],
     runner: TestRunner,
-    regression_command: str,
+    regression_command: str | Callable[[str], str],
     n: int = 3,
     max_rounds: int = 2,
     top_k: int = 5,
     watchdog_seconds: float = 60.0,
 ) -> Callable[[api.TopologyBuilder], None]:
     """The whole solver. `responders[0]` localizes; `responders` (per slot) draft. `runner` runs tests in
-    the instance env (the real DockerTestRunner, or a stand-in). Terminates on SelectedPatch or Exhausted."""
+    the instance env (the real DockerTestRunner, or a stand-in). `regression_command` is a static command
+    (same set for every candidate) OR a per-candidate planner (model_patch -> firewall-clean command, e.g.
+    `make_regression_planner` — the proximity picker over the checkout). Terminates on SelectedPatch or
+    Exhausted."""
 
     def topo(b: api.TopologyBuilder) -> None:
         # LOCALIZE
