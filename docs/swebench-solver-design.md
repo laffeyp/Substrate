@@ -197,9 +197,19 @@ exist. The three artifacts that convert it from claim to contract are PRE-BUILD 
   `SuspectElements` -> `EditLocations` -> `CandidatePatch` ×N -> `TestResults` -> `SelectedPatch`, +
   `ModelUsage` per phase. But #1/#6 require the PAYLOAD FIELDS locked and reviewed like a schema migration
   — which doesn't exist yet. **OBLIGATION: a solver vocabulary-session sprint that locks each record's
-  fields and runs the #25 dual-contract audit (pair each behavior record with its observable:
-  CandidatePatch -> apply/test status; TestResults -> the SELECT seam; SelectedPatch -> the verdict view),
-  BEFORE the skeleton sprint.** Until then vocabulary-first is a claim.
+  fields and runs the #25 dual-contract audit — pair EVERY behavior record with its observable:
+  SuspectFiles/SuspectElements/EditLocations -> recall@k; CandidatePatch -> apply/test status;
+  TestResults -> the SELECT seam; SelectedPatch -> the verdict view — BEFORE the skeleton sprint.** Until
+  then vocabulary-first is a claim.
+  - **The session must ALSO lock the SHARED SUB-TOPOLOGY's contract, not just the solver-specific records
+    (review #57).** The best-of-N + correction sub-topology (chain sprint 4) is consumed by THREE
+    topologies, and `coding_flow` ALREADY has a vocabulary for it (`Candidate` / `Verdict` / `Solved` /
+    `ModelUsage`). So the session makes a RECONCILIATION decision, not clean-slate authoring: either reuse
+    coding_flow's record set as the canonical 3-consumer contract (swebench's Repairer + the EA consume
+    it) or a wrapped set — and lock THAT in `WORKING_AGREEMENT.md` (#22) as a Wave-0 #15 shared file in
+    sprint 1, BUILT AGAINST in sprint 4. Locking only the solver-specific records and deferring the shared
+    contract to the extraction sprint is exactly the #22 thrash / finding-12 divergence risk. Lock the
+    contract first; build against it later.
 - **Observation contract asserts on the RECORD + deterministic seams, NEVER on stochastic quality (#24,
   #38).** This is the line that keeps it from hand-wave. "The model localizes correctly" is unobservable;
   what IS observable, per sprint, built as `assert_signal`/`assert_no_signal` over recorded captures
@@ -253,3 +263,9 @@ PRE-BUILD OBLIGATIONS named (vocabulary session #25/#1; WORKING_AGREEMENT regist
 observation-contract-asserts-on-record-not-quality line added (#24/#38); sprint chain re-split (vocab
 session | skeleton | applier | Wave-0 sub-topology | Repairer-nests | test-exec bridge | selector |
 oracle); #40 fidelity framing corrected to a #39 architecture ablation; "42"->"53" technique count fixed.
+Review #57 (CONFIRMED — design code-ready; cadence dialed to key-moments-only): one note FOR sprint 1
+folded — the vocabulary session must lock the SHARED sub-topology's 3-consumer contract (reconcile with
+coding_flow's Candidate/Verdict/Solved/ModelUsage), in WORKING_AGREEMENT, in sprint 1, built against in
+sprint 4; #25 audit table completed with the LOCALIZE records -> recall@k pairing. NEXT reviews = the
+four key gates: vocabulary-session lock | the applier | first end-to-end gold-instance solve | before any
+reported resolve-rate (the cargo-cult power gates).
