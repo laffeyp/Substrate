@@ -5,7 +5,7 @@
 ```yaml
 ---
 id: 133
-status: active
+status: closed
 phase: 0
 pass_kind: architecture
 cadence_band: plan-mode-per-sprint

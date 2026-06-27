@@ -42,13 +42,13 @@ REPAIR handoff (the deterministic apply output the shared loop produces for sweb
 
 | Record | Locked fields | Meaning | Category / stratum |
 |---|---|---|---|
-| `AppliedPatch` | `slot:int, model_patch:str, creates_file:bool` | a candidate that applied cleanly, carrying its `git diff` (`model_patch`) and whether it created a new file (the empty-SEARCH path, §4b). The REPAIR->SELECT bridge. | repair / event |
+| `AppliedPatch` | `round:int, slot:int, model_patch:str, creates_file:bool` | a candidate that applied cleanly, carrying its `git diff` (`model_patch`) and whether it created a new file (the empty-SEARCH path, §4b). The REPAIR->SELECT bridge. `round` completes the lineage (which round produced the winner) for replay/debug provenance. | repair / event |
 
 SELECT (after the loop):
 
 | Record | Locked fields | Meaning | Category / stratum |
 |---|---|---|---|
-| `TestResults` | `slot:int, regression_passed:bool, reproduction:str, summary:str` | the solver's own validation of one applied patch: repo-derived regression result + reproduction-test status (`reproduced`/`resolved`/`other`). **`replayable=False`** — a run-and-observe Docker seam (§4), captured once. | select / incident-or-event |
+| `TestResults` | `slot:int, regression_passed:bool, reproduction:Reproduction, summary:str` | the solver's own validation of one applied patch: repo-derived regression result + reproduction-test status. **`replayable=False`** — a run-and-observe Docker seam (§4), captured once. `Reproduction` is a typed 3-state enum (`REPRODUCED`/`RESOLVED`/`OTHER`) — enforced at the speaker's mouth (#2 poka-yoke), not by string convention. | select / incident-or-event |
 | `SelectedPatch` | `slot:int, model_patch:str, reason:str` | the final submitted patch + why it won (majority vote / regression / reproduction). The topology's output to the swebench oracle. | select / summary |
 
 ## C. #25 dual-contract audit — every behavior record has a record-observable
@@ -67,6 +67,7 @@ these (#24/#38), flask-4045 seeded.
 | `TestResults` | `replayable=False`; the regression set is repo-DERIVED (NOT the `PASS_TO_PASS` field — §4); the allowlist excludes `test_patch` files. |
 | `SelectedPatch` | deterministic GIVEN the recorded `TestResults` (best-status pick; regression-only fallback fires when no candidate passes reproduction); IS the submitted `model_patch`. |
 | `Solved` / `Exhausted` | the loop terminal; reuses coding_flow's proven observation. |
+| `ModelUsage` | metering, not behavior — no behavior-observable required; one per drafter call (LOCALIZE / each REPAIR candidate / SELECT), summed for the matched-compute axis (#3). |
 
 ## D. Open items for later sprints (named, not deferred-silently)
 
@@ -75,3 +76,9 @@ these (#24/#38), flask-4045 seeded.
   distinct from the grade-harness mapping in `docs/swebench-bridge-mapping.md`.
 - `EditTarget` as a typed Struct vs the `list[str]` shorthand — `list[str]` for v1 (minimal-complete #6);
   promote to a Struct only if a downstream consumer needs structured fields.
+- Sprint 5 (the Repairer): swebench packs spec + edit-targets (from the `EditLocations` view) + prior
+  failures into the shared `Draft.context` opaque str — the flex point that makes the reuse work. The
+  Repairer's input_builder composes `EditLocations` into `Draft.context`; not a vocabulary gap (review #58).
+- Matched-compute forward note (assay-arm stage): the shared loop's short-circuit-on-first-pass (coding_flow)
+  vs run-all-N (swebench) parameter has a COMPUTE consequence at equal N — hold the short-circuit policy
+  CONSTANT in any coding_flow-vs-swebench compute comparison (review #58).
