@@ -134,12 +134,24 @@ for MECHANICAL reasons unrelated to model quality — confounding every number t
 can't tell "model wrote a bad fix" from "applier dropped a good one"). This is the one component where a
 v1 shortcut poisons the measurement rather than just lowering it. The committed contract (re-implemented,
 NOT reused from the prompt-factory):
-- **Unique-match-or-reject**: each SEARCH block must match exactly once in the target file; zero or
-  multiple matches -> reject that candidate with a structured reason (fed back to the correction loop).
+- **Unique-match-or-reject, via a TIERED match (the crux — review #55).** "Normalize" is specified, not
+  vague, because the whole guarantee hinges on it: a too-loose (fuzzy/similarity) match silently applies
+  to the WRONG region (a plausible-but-wrong patch — the hollow-number risk); a too-strict exact-bytes-only
+  match spuriously zero-matches on trivial indent/whitespace drift (which LLMs produce constantly) and
+  tanks the resolve rate mechanically. So: **(tier 1) exact-byte match first; (tier 2) if zero, a
+  whitespace/leading-indent-flexible match, accepted ONLY if it is still UNIQUE; NEVER a fuzzy/similarity
+  fallback.** Zero or multiple matches at every tier -> reject the candidate with a structured reason (fed
+  to the correction loop). The uniqueness invariant holds at every tier.
+- **File creation (review #55 — decided, not silent).** Some SWE-bench gold patches ADD a file; an
+  edits-only applier silently cannot solve those. v1 **supports creation**: an empty SEARCH block (or a
+  full-file payload for a not-yet-existing declared path) writes the whole file — the prompt-factory's
+  applier already had this FULL_FILE mode. AND we **measure the create-file share** of the chosen instance
+  set as a known number (gold patches that add a file), so the ceiling is quantified, never a silent gap.
 - **Overlap handling**: resolve all blocks against the ORIGINAL file, splice in one pass; overlapping
   spans -> reject (a worker error, not a silent mis-apply).
-- **Whitespace / CRLF**: detect and preserve the file's line endings; normalize for matching, restore on
-  write.
+- **Whitespace / EOL preservation**: detect the file's real indentation + line endings; match under the
+  tiered normalization above, then **restore the file's real indentation/EOL on write** (the patched
+  region adopts the surrounding file's conventions, not the model's).
 - **Atomic, all-or-nothing**: a candidate's blocks all apply or none do; never a half-applied tree.
 - **Output is `git diff` on the clone, NEVER hand-built hunks**: apply edits to the checked-out repo,
   then `git diff` produces `model_patch`. This is the committed rule, not a diagram aside.
@@ -212,3 +224,7 @@ SELECT-Docker §4 FOLDED.
 Review #54 (CONFIRMED): P1 applier contract §4b PINNED · P2 SELECT allowlist repo-derived (NOT
 PASS_TO_PASS) §4 FOLDED · P3 per-phase ModelUsage §3 FOLDED · lower notes (replay precision §3,
 reproduction-test reliability §5) FOLDED.
+Review #55 (CONFIRMED): §4b file-creation scope DECIDED (support empty-SEARCH/full-file create + measure
+the create-file share) · §4b tiered match SPECIFIED (exact -> whitespace-flexible-if-unique -> reject,
+never fuzzy; restore real indent/EOL on write). Non-blocking: suspect-file-scoped regression needs a
+file->tests mapping rule (a cost knob — the full suite × N × instances is slow on big repos).
