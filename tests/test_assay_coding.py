@@ -54,6 +54,36 @@ def test_firewall_catches_an_overfit_candidate():
     assert correct.passed is True
 
 
+def test_provenance_detects_a_tampered_margin():
+    # the cargo-cult-via-sidecar attack: edit the recorded margin to a flattering value to manufacture a
+    # verdict. The per-cell fingerprint (stamped at run time, in the append-only cell log) is the anchor;
+    # editing the meta's margin without re-fingerprinting is DETECTED.
+    import hashlib
+    import json as _json
+
+    from substrate.assay.cells import provenance_status
+
+    cfg = {"strong_model": "s", "weak_models": ["w"], "trials": 10, "margin": 0.1}
+    fp = hashlib.sha256(_json.dumps(cfg, sort_keys=True).encode()).hexdigest()[:12]
+    meta = {"config_fp": fp, "run_id": "r1", **cfg}
+    rows = [{"config_fp": fp}, {"config_fp": fp}]
+    assert provenance_status(meta, rows) == "verified"
+    assert provenance_status({**meta, "margin": 0.30}, rows) == "tampered"  # margin edited post-hoc
+    assert provenance_status(meta, [{"config_fp": "deadbeef0000"}]) == "tampered"  # cells disagree
+    assert provenance_status({}, [{"config_fp": None}]) == "unverified"  # pre-fingerprint run
+
+
+def test_firewall_catches_exit_code_gaming():
+    # an adversarial candidate defines f (wrong) then calls os._exit(0) at import — so when pytest
+    # imports the module to run the held-out test, the process exits CLEAN (rc 0) before any test runs.
+    # Exit-code 0 alone would read 'resolved'; the positive-evidence check (the held-out tests must
+    # actually report passed) catches it.
+    gamer = (
+        "# path: m.py\n```python\nimport os\n\n\ndef f(x: int) -> int:\n    return 2\n\n\nos._exit(0)\n```\n"
+    )
+    assert coding_oracle().grade(_record(gamer), _PROBLEM).passed is False
+
+
 def test_candidate_cannot_overwrite_the_held_out_tests():
     # the candidate emits m.py (overfit) AND tries to overwrite the grading test with a vacuous pass.
     # held-out tests WIN on collision, so the real test_grade.py runs and the overfit fails.

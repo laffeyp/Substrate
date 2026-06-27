@@ -9,6 +9,7 @@ types reconstruct their own suite when they exist."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -75,9 +76,40 @@ def suite_from_meta(meta: dict[str, Any]) -> Suite:
     )
 
 
+def provenance_status(meta: dict[str, Any], rows: list[dict[str, Any]]) -> str:
+    """Is the recorded config trustworthy — or was the (editable) meta sidecar tampered post-hoc to
+    manufacture a verdict (the cargo-cult via a loosened margin)?
+
+      - verified: the meta's config_fp matches BOTH a recompute of its own config fields (so the margin/
+        models were not edited) AND the fingerprint stamped on the cells at run time (the tamper-evident
+        anchor in the append-only cell log).
+      - tampered: a config_fp is present but does NOT match the recompute or the cells — the sidecar was
+        changed after the run.
+      - unverified: no fingerprint to check (a pre-provenance run); the verdict stands but is unanchored."""
+    stored = meta.get("config_fp")
+    cell_fps = {str(r.get("config_fp")) for r in rows if r.get("config_fp")}
+    if not stored and not cell_fps:
+        return "unverified"
+    config = {k: v for k, v in meta.items() if k not in ("config_fp", "run_id", "_provenance")}
+    recomputed = (
+        hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:12] if config else None
+    )
+    if stored and recomputed is not None and stored != recomputed:
+        return "tampered"  # the meta's margin/models were edited but its fingerprint was not
+    if stored and cell_fps and cell_fps != {str(stored)}:
+        return "tampered"  # the meta disagrees with the per-cell stamps
+    if stored and recomputed == stored:
+        return "verified"
+    return "unverified"
+
+
 def report_from_cells(cells_path: Path) -> tuple[Report, dict[str, Any]]:
     """The whole read: rows + meta -> (Report, meta). The Report carries both currencies, the harsher
-    delta_vs_control + McNemar, the pass@1 bootstrap + margin-verdict + FDR — the honest arm matrix."""
+    delta_vs_control + McNemar, the pass@1 bootstrap + margin-verdict + FDR. `meta['_provenance']`
+    flags whether the recorded config (the margin the verdict binds to) is verified / tampered /
+    unverified — so a post-hoc-edited margin cannot silently drive a confirmatory verdict."""
     meta = read_meta(cells_path)
-    results = [caseresult_from_row(r) for r in read_rows(cells_path)]
+    rows = read_rows(cells_path)
+    meta["_provenance"] = provenance_status(meta, rows)
+    results = [caseresult_from_row(r) for r in rows]
     return build_report(suite_from_meta(meta), results), meta

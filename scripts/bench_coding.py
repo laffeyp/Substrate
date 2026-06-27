@@ -143,6 +143,14 @@ def _print_report() -> None:
           f"equivalence needs >= {floor} problems at this margin ===")
     print(f"cells: {len(rows)} ({n_run} run, {n_salv} salvaged, {n_fail} failed)  "
           f"control-ran: {report.control_check.state}  trials={trials}")
+    prov = meta.get("_provenance", "unverified")
+    if prov == "tampered":
+        print("  ** PROVENANCE TAMPERED — the recorded config (margin/models) does NOT match its "
+              "fingerprint or the cells. The verdict below is NOT trustworthy. **")
+    else:
+        print(f"  provenance: {prov}"
+              + ("  (config cryptographically anchored to the cells)" if prov == "verified"
+                 else "  (unanchored — a pre-fingerprint run)"))
     for a in report.arms:
         flake = a.pass_at_1 - a.pass_rate
         line = (f"  {a.arm:22s} reliable {a.passes}/{a.n_cases}={a.pass_rate:.3f}  "

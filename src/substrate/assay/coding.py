@@ -24,6 +24,7 @@ oracle error) is a follow-up axis, not claimed away as "ground truth".
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -90,12 +91,32 @@ def coding_oracle(*, timeout: float = 120.0) -> ExternalGraderOracle:
         # whose addopts fakes a collect-only pass (firewall grade-time isolation, review fold).
         artifacts = {**sanitize_candidate_artifacts(parse_artifacts(response)), **problem.grading_tests}
         result = run_gate(artifacts, problem.grading_command, timeout=timeout)
+        # exit code 0 ALONE is forgeable: a candidate can `os._exit(0)` (or sys.exit(0)) at import to make
+        # the gate process exit clean WITHOUT the held-out tests ever running. Require POSITIVE evidence —
+        # pytest reported the expected number of held-out tests passed (a gamed exit prints no summary).
+        expected = sum(t.count("def test_") for t in problem.grading_tests.values())
+        resolved = result.passed and _held_out_actually_passed(result.summary, expected)
         return (
-            result.passed,
-            f"held-out grade: {'resolved' if result.passed else 'not resolved'} (rc={result.returncode})",
+            resolved,
+            f"held-out grade: {'resolved' if resolved else 'not resolved'} (rc={result.returncode}; "
+            f"need >= {expected} held-out tests reported passed)",
         )
 
     return ExternalGraderOracle(grader=grader, metric="resolved")
+
+
+_PASSED_RE = re.compile(r"(\d+)\s+passed")
+
+
+def _held_out_actually_passed(summary: str, expected: int) -> bool:
+    """POSITIVE-evidence check on the gate output: pytest must report at least `expected` tests passed,
+    with no failures or errors. Defeats exit-code gaming (an `os._exit(0)` at import exits clean but
+    prints no 'N passed' line) — a clean exit is necessary but not sufficient for 'resolved'."""
+    low = summary.lower()
+    if expected <= 0 or " failed" in low or " error" in low:
+        return False
+    m = _PASSED_RE.search(summary)
+    return m is not None and int(m.group(1)) >= expected
 
 
 def _task(problem: CodingProblem) -> CodingTask:
