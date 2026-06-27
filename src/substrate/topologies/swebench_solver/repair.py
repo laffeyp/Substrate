@@ -55,15 +55,18 @@ def build_repair_prompt(spec: str, edit_context: str, failures: str) -> str:
     return "\n".join(parts)
 
 
-def repair_drafter_factory(responders: list[Responder], spec: str, edit_context: str) -> _Factory:
+def repair_drafter_factory(responders: list[Responder], spec: str, edit_context: str = "") -> _Factory:
     """The model drafter — one responder per slot (the best-of-N ensemble). Emits the metered usage then
-    the Candidate (the raw SEARCH/REPLACE text)."""
+    the Candidate (the raw SEARCH/REPLACE text). `edit_context` (the localized files' content) is read
+    from the trigger INPUT when present (the full topology builds it at runtime from LOCALIZE's targets);
+    the constructor arg is the standalone-test fallback. `Draft.context` carries correction failures only."""
 
     async def draft(inp: Any) -> AsyncIterator[Any]:
         rnd = int(inp.get("round", 1)) if hasattr(inp, "get") else 1
         slot = int(inp.get("slot", 0)) if hasattr(inp, "get") else 0
         failures = str(inp.get("context", "")) if hasattr(inp, "get") else ""
-        prompt = build_repair_prompt(spec, edit_context, failures)
+        ctx = (str(inp.get("edit_context", "")) if hasattr(inp, "get") else "") or edit_context
+        prompt = build_repair_prompt(spec, ctx, failures)
         response, usage = await call_responder_metered(responders[slot % len(responders)], prompt)
         yield usage
         yield Candidate(round=rnd, slot=slot, response=response)
