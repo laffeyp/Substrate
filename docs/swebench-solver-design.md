@@ -17,7 +17,7 @@ adoption — OpenAI used it for GPT-4o/o1; arxiv 2407.01489):
 
 ```
 LOCALIZE            REPAIR                       SELECT
-repo tree skeleton  best-of-N SEARCH/REPLACE     run regression tests (repo's PASS_TO_PASS-eligible set)
+repo tree skeleton  best-of-N SEARCH/REPLACE     run regression (repo-DERIVED set, NOT the PASS_TO_PASS field)
   -> suspect files    apply to a repo clone       + a generated reproduction test
   -> suspect elems    git diff -> candidate patch  rerank candidates -> one model_patch
   -> edit locations   (N candidates)
@@ -84,8 +84,14 @@ record; across instances it fans out (the assay Route).
   "best-of-N + correction loop" as one nested topology that the swebench `Repairer`, `coding_flow`, and
   the EA all NEST — re-rolling the loop a third time is three places for the currency-gate / determinism
   bugs to diverge.
-- **Bus / record**: every stage's output is a typed record; the solve is replayable from it (modulo the
-  run-and-observe test seam, §4).
+- **Bus / record**: every stage's output is a typed record. "Replayable from the record" means
+  **re-derivable (L1/L2), not re-executable** — the MODEL calls (LOCALIZE, REPAIR) are themselves
+  run-and-observe (non-deterministic), exactly like `coding_flow`; the test-execution seam (§4) is the
+  same. The record is the honest L1/L2 trace, not a promise of byte-identical re-execution.
+- **Metering**: every phase emits **ModelUsage onto the record from the first commit** — LOCALIZE, each
+  REPAIR candidate, SELECT (calls/tokens/time). The coding run shipped with an all-zero compute axis
+  because ModelUsage didn't persist; this is new code, so the matched-compute discipline (§6) is wired
+  in from day one, not backfilled.
 - **Views**: `localization` (suspect set), `candidates` (the N patches + apply/test status),
   `verdict` (selected patch + why).
 - **Predicates / Triggers**: "N candidates present -> run SELECT"; "candidate failed to apply ->
@@ -108,14 +114,35 @@ emulation on arm64; native x86 on a cloud box):
    emits `TestResults` onto the record with `replayable=False` (captured once), exactly the oracle's
    class — positioned inside the chain. Selection LOGIC stays pure/replayable; test EXECUTION is the
    recorded run-and-observe seam. The record stays honest about what is reproducible.
-   - Firewall scope: run the regression set as an **allowlist of the repo's pre-existing tests**, not
-     "run everything" — never let it sweep in a file that `test_patch` later turns into a `FAIL_TO_PASS`.
-     Treat the reproduction test as the solver's own recorded artifact.
+   - Firewall scope: the solver **DERIVES its regression set from the repo at `base_commit`** (the
+     existing suite, or tests in/near the suspect files) and must NOT consult the instance's
+     `PASS_TO_PASS` list — that list is grade metadata, and handing it to the solver is a subtle
+     grade-metadata channel (a real solver in the wild has no `PASS_TO_PASS`; the assay solver must not
+     either). Run it as an allowlist (never "run everything", which could sweep in a file `test_patch`
+     later turns into a `FAIL_TO_PASS`). Treat the reproduction test as the solver's own recorded artifact.
 2. **The final grade** — the swebench oracle (already working), entirely after and outside the solver.
 
 This is why containerization is required for the SWE-bench path (see `docs/swebench-bridge-mapping.md`):
 not just the grade, but the solver's own test-based selection needs the instance environment. The
 local-arm64-emulated path works for development; the reportable run belongs on x86.
+
+## 4b. The REPAIR applier contract (pin before code — review #54 P1, highest mechanical risk)
+
+The whole REPAIR phase rests on applying LLM-emitted edits to a clone and emitting a clean diff. If the
+applier is ambiguous, whitespace/CRLF-fragile, or mishandles overlapping edits, candidates fail to APPLY
+for MECHANICAL reasons unrelated to model quality — confounding every number the assay produces (you
+can't tell "model wrote a bad fix" from "applier dropped a good one"). This is the one component where a
+v1 shortcut poisons the measurement rather than just lowering it. The committed contract (re-implemented,
+NOT reused from the prompt-factory):
+- **Unique-match-or-reject**: each SEARCH block must match exactly once in the target file; zero or
+  multiple matches -> reject that candidate with a structured reason (fed back to the correction loop).
+- **Overlap handling**: resolve all blocks against the ORIGINAL file, splice in one pass; overlapping
+  spans -> reject (a worker error, not a silent mis-apply).
+- **Whitespace / CRLF**: detect and preserve the file's line endings; normalize for matching, restore on
+  write.
+- **Atomic, all-or-nothing**: a candidate's blocks all apply or none do; never a half-applied tree.
+- **Output is `git diff` on the clone, NEVER hand-built hunks**: apply edits to the checked-out repo,
+  then `git diff` produces `model_patch`. This is the committed rule, not a diagram aside.
 
 ## 5. v1 cut lines (what's deliberately minimal — but instrumented)
 
@@ -130,6 +157,9 @@ local-arm64-emulated path works for development; the reportable run belongs on x
   attributable to localization vs repair instead of an un-ablated dead end.
 - N small (e.g., 3-5 candidates, not 40). The assay measures whether N helps; don't assume.
 - Reproduction test: single generation, not 40 samples. Selection leans on regression + majority vote.
+  Its **reliability is itself a measured number** — bank how often the self-generated repro test agrees
+  with the eventual grade, so "repro as tiebreak" is evidenced, not assumed. (Selecting on a repro test
+  inferred from the issue is legitimate — it IS the task — not a leak.)
 - Python repos only (SWE-bench is Python). The Swift-bound `codebase_grepper`/`preflight`/`drafter`
   ideas (verify-against-real-API) are the SDD-solver v2 layer, rebuilt on Python AST.
 
@@ -141,14 +171,44 @@ measured oracle-error band, matched compute across arms (tokens/calls/time), and
 any "reached SOTA / matched agent X" verdict. The solver design is upstream of that; the headline must
 not outrun those gates.
 
-## 7. Review #53 fold status
+## 7. SDD adherence — how the solver is BUILT (not just what it does)
 
-- P1 (firewall, §2): FOLDED — `FAIL_TO_PASS` named as the held-out set (regression is present/used); the
-  per-instance `files(patch) ∩ files(test_patch) == ∅` assertion added; SWE-bench_Verified preferred; the
-  ~7.8% grader-error axis recorded.
-- P2 (mapping, §3): FOLDED — best-of-N + correction loop factored as a nested sub-topology reused by
-  coding_flow / swebench / code_evolution; LOCALIZE kept as a sequential chain.
-- P3 (localization recall, §5): FOLDED — file-level recall@k is a measured number gating the
-  embedding-arm cut.
-- P4 (SELECT Docker, §4): FOLDED — test execution inside the topology as a run-and-observe Producer seam
-  (replayable=False), selection logic pure, regression scoped to a pre-existing-tests allowlist.
+The solver is built under the same SDD discipline that governs the rest of substrate (catalog:
+`sdd-kit-2/TECHNIQUES.md`). The runtime SDD layer (verify-against-real-API, dual-contract self-grade)
+is the v2 SDD-solver; this is about the BUILD process adhering to SDD:
+
+- **Vocabulary-first (#1, #2, #4-#6).** The solver's records are a typed vocabulary designed BEFORE code,
+  reviewed like a schema: `SuspectFiles` -> `SuspectElements` -> `EditLocations` -> `CandidatePatch` ×N
+  -> `TestResults` -> `SelectedPatch`, plus `ModelUsage` per phase. Categories align with the phases
+  (LOCALIZE / REPAIR / SELECT), not files (#5). Payloads are minimal-but-complete — exactly enough to
+  reconstruct the decision (#6): recall@k inputs, the apply/test status, the compute. Substrate's typed
+  records enforce schema-at-the-mouth natively (#2).
+- **Chain-of-small-sprints (#12, #17), architecture-then-functional (#14).** Built as ≤2-file sprints:
+  (a) the vocabulary + topology skeleton (architecture, plan-mode), (b) the SEARCH/REPLACE applier
+  (its contract is §4b), (c) Localizer, (d) the nested best-of-N+correction sub-topology, (e) Selector +
+  the test seam, (f) the swebench-oracle wiring. Each closes clean before the next.
+- **Dual + observation contract (#23, #24) — load-bearing here.** The solver is behavior-heavy (it runs
+  models AND Docker), so every behavior-touching sprint carries an **observation contract** run FOR REAL,
+  not green-on-wiring: localize on a real instance and check recall@k against the gold files; repair
+  produces a patch that actually applies + `git diff`s; select runs real tests in the real container.
+  Green is not proven (the "be your own skeptic" rule) — the gold-patch smoke (flask-4045 RESOLVED on
+  arm64) is the first confirmed-good fixture (#38), reused as a regression fixture.
+- **Typed halts, no silent decisions (#28, #29).** The firewall disjointness check (§2), an instance that
+  fails it, a candidate that won't apply, a budget exhaustion — each is a typed status / flagged
+  exclusion, never a silent pass. TerminationPolicy never hangs.
+- **The assay arm structure IS techniques #39 + #40.** #39 names SWE-bench Verified as the carrier
+  benchmark and demands the dimensions (quality / speed / reliability / compute) be reported SEPARATELY —
+  which the assay layer + the matched-compute axis already do. #40 (the fidelity test: prose-context arm
+  vs signal/discipline-context arm) is EXACTLY the eventual vanilla-solver-vs-SDD-solver comparison — the
+  clean way to show whether the SDD discipline lifts resolution rate. The pre-registration + contamination
+  + matched-compute cautions (#41) are the cargo-cult gates from reviews #2-#3.
+- **Additive, originals untouched (#36, #37).** This doc is additive; the prompt-factory is reference-only
+  and never edited.
+
+## 8. Fold status
+
+Review #53: P1 firewall §2 FOLDED · P2 mapping §3 FOLDED · P3 localization-recall §5 FOLDED · P4
+SELECT-Docker §4 FOLDED.
+Review #54 (CONFIRMED): P1 applier contract §4b PINNED · P2 SELECT allowlist repo-derived (NOT
+PASS_TO_PASS) §4 FOLDED · P3 per-phase ModelUsage §3 FOLDED · lower notes (replay precision §3,
+reproduction-test reliability §5) FOLDED.
