@@ -33,8 +33,6 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
-from msgspec import Struct
-
 from ... import api
 from ...reference._models import (
     DeterministicResponder,
@@ -43,50 +41,26 @@ from ...reference._models import (
     Responder,
     call_responder_metered,
 )
+
+# The shared best-of-N + correction records live in their CANONICAL home (best_of_n.contracts) — moved
+# there (review #61) so the shared loop doesn't import them from this consumer (the layering inversion /
+# latent cycle the #43 migration would hit). Re-exported here for backward compatibility.
+from ..best_of_n.contracts import Candidate, Draft, Exhausted, Solved, Verdict
 from .gate import parse_artifacts, run_gate, sanitize_candidate_artifacts
 from .task import CodingTask, kvstore_task
 
+__all__ = [
+    "Draft",
+    "Candidate",
+    "Verdict",
+    "Solved",
+    "Exhausted",
+    "coding_flow_topology",
+    "ci_responders",
+    "walkthrough_responders",
+]
+
 _Factory = Callable[[], Any]
-
-
-class Draft(Struct, frozen=True):
-    """A request to draft a candidate. `context` is "" for the seed round, or the prior round's gate
-    failures for a correction round."""
-
-    round: int
-    slot: int
-    context: str
-
-
-class Candidate(Struct, frozen=True):
-    """A drafter's output — the raw `# path:`-headed artifact text the validator parses + writes."""
-
-    round: int
-    slot: int
-    response: str
-
-
-class Verdict(Struct, frozen=True):
-    """The gate's verdict on one candidate. `passed` is exit-code truth; `summary` the normalized log."""
-
-    round: int
-    slot: int
-    passed: bool
-    returncode: int
-    summary: str
-
-
-class Solved(Struct, frozen=True):
-    """A passing candidate was selected — the success terminal."""
-
-    round: int
-    slot: int
-
-
-class Exhausted(Struct, frozen=True):
-    """Every round's candidates failed the gate and the round budget is spent — the give-up terminal."""
-
-    rounds: int
 
 
 def _seeder_factory(n: int) -> _Factory:

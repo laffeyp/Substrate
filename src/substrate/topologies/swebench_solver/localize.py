@@ -58,8 +58,8 @@ def localizer_factory(
     responder: Responder,
     issue: str,
     repo_skeleton: str,
+    known_files: set[str],
     *,
-    known_files: set[str] | None = None,
     top_k: int = 5,
 ) -> _Factory:
     """The file-level localizer (one model call). Emits the metered usage, the SuspectFiles (top-k), and
@@ -76,8 +76,17 @@ def localizer_factory(
     return lambda: localize
 
 
-def recall_at_k(suspect_files: tuple[str, ...] | list[str], gold_files: set[str]) -> bool:
-    """The localization observable: did the suspect set CONTAIN every gold-patch file (gold subset of
-    suspect)? This is the hard ceiling on the whole pipeline — you cannot repair a file you never
-    localized (design §5). Banked per instance so the embedding-arm cut is a data decision."""
+def full_recall_at_k(suspect_files: tuple[str, ...] | list[str], gold_files: set[str]) -> bool:
+    """Did the suspect set contain EVERY gold-patch file (gold subset of suspect)? The strict
+    'all-found@k' / full-recall boolean — the hard ceiling on the whole pipeline (you cannot repair a
+    file you never localized, design §5). Banked per instance so the embedding-arm cut is a data decision."""
     return gold_files.issubset(set(suspect_files))
+
+
+def recall_at_k(suspect_files: tuple[str, ...] | list[str], gold_files: set[str]) -> float:
+    """The fractional recall@k — |gold ∩ suspect| / |gold|, the consensus IR/localization metric.
+    Near-miss vs total-miss localization is more diagnostic than the boolean for attributing a low resolve
+    rate to localization vs repair (review #61). Empty gold -> 1.0 (vacuously fully localized)."""
+    if not gold_files:
+        return 1.0
+    return len(gold_files & set(suspect_files)) / len(gold_files)

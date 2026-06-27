@@ -15,10 +15,9 @@ import enum
 
 from msgspec import Struct
 
-# The shared 3-consumer best-of-N + correction contract. Canonical home: coding_flow (until the sprint-4
-# Wave-0 extraction moves it to a shared module and updates both importers). Re-exported here so the
-# swebench topology reads them from its own namespace.
-from ..coding_flow import Candidate, Draft, Exhausted, Solved, Verdict
+# The shared 3-consumer best-of-N + correction contract, from its CANONICAL home (best_of_n.contracts;
+# review #61). Re-exported here so the swebench topology reads them from its own namespace.
+from ..best_of_n.contracts import Candidate, Draft, Exhausted, Solved, Verdict
 
 __all__ = [
     "Draft",

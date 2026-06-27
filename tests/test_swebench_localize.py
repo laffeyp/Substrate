@@ -5,6 +5,7 @@ from substrate import api
 from substrate.api import Runtime, read_record
 from substrate.reference._models import DeterministicResponder, ModelUsage
 from substrate.topologies.swebench_solver.localize import (
+    full_recall_at_k,
     localizer_factory,
     parse_suspect_files,
     recall_at_k,
@@ -18,9 +19,15 @@ def test_parse_suspect_files_filters_to_known_and_dedupes() -> None:
     assert parse_suspect_files(resp, known) == ["src/app.py", "src/util.py"]  # filtered, deduped, ordered
 
 
-def test_recall_at_k_is_the_localization_ceiling() -> None:
-    assert recall_at_k(("a.py", "b.py", "c.py"), {"a.py", "b.py"}) is True
-    assert recall_at_k(("a.py", "c.py"), {"a.py", "b.py"}) is False  # missed b.py -> can't repair it
+def test_full_recall_at_k_is_the_localization_ceiling() -> None:
+    assert full_recall_at_k(("a.py", "b.py", "c.py"), {"a.py", "b.py"}) is True
+    assert full_recall_at_k(("a.py", "c.py"), {"a.py", "b.py"}) is False  # missed b.py -> can't repair it
+
+
+def test_recall_at_k_is_fractional() -> None:
+    assert recall_at_k(("a.py", "c.py"), {"a.py", "b.py"}) == 0.5  # found 1 of 2 gold files
+    assert recall_at_k(("a.py", "b.py"), {"a.py", "b.py"}) == 1.0
+    assert recall_at_k((), {"a.py"}) == 0.0
 
 
 async def test_localizer_emits_suspects_and_edit_locations(tmp_path) -> None:  # type: ignore[no-untyped-def]
@@ -49,5 +56,5 @@ async def test_localizer_emits_suspects_and_edit_locations(tmp_path) -> None:  #
     locs = [e["payload"] for e in events if e["kind"] == "EditLocations"]
     assert len(suspects) == 1 and suspects[0]["files"] == ["src/app.py", "src/util.py"]
     assert len(locs) == 1 and locs[0]["targets"] == ["src/app.py", "src/util.py"]
-    # recall@k against a gold set (app.py is the gold-patch file) — the suspect set contains it.
-    assert recall_at_k(tuple(suspects[0]["files"]), {"src/app.py"}) is True
+    # full recall against a gold set (app.py is the gold-patch file) — the suspect set contains it.
+    assert full_recall_at_k(tuple(suspects[0]["files"]), {"src/app.py"}) is True
