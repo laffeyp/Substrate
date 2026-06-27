@@ -109,36 +109,43 @@ def _leading_ws(s: str) -> str:
     return s[: len(s) - len(s.lstrip())]
 
 
-def _locate(original: str, search: str) -> tuple[int, int] | str:
-    """Return the (start, end) char span of the UNIQUE occurrence of `search` in `original`, or a string
-    reason on failure ('not_found' / 'ambiguous'). Tiered: exact bytes first; then a leading-whitespace-
-    flexible LINE match, accepted only if still unique; never fuzzy."""
-    # Tier 1 — exact.
-    count = original.count(search)
-    if count == 1:
-        start = original.index(search)
-        return (start, start + len(search))
-    if count > 1:
-        return "ambiguous"
-
-    # Tier 2 — leading-whitespace-flexible, line-based, still-unique-or-reject.
+def _locate(original: str, search: str) -> tuple[int, int, bool] | str:
+    """Return `(start, end, reindent)` of the UNIQUE LINE-ANCHORED occurrence of `search` in `original`,
+    or a reason ('not_found' / 'ambiguous'). Every match is WHOLE-LINE (SEARCH/REPLACE blocks are
+    whole-line by format) — a mid-line substring is NEVER a match (matching a prefix of a longer line
+    silently corrupts its tail: `y = 1` must not match `y = 1234`). Tier 1: exact lines (`reindent=False`).
+    Tier 2: leading-whitespace-flexible lines, still-unique (`reindent=True`). Never fuzzy/similarity."""
     o_lines = original.split("\n")
     s_lines = search.split("\n")
-    if not s_lines:
-        return "not_found"
     window = len(s_lines)
-    s_stripped = [ln.strip() for ln in s_lines]
-    matches: list[int] = []
-    for start_ln in range(0, len(o_lines) - window + 1):
-        if all(o_lines[start_ln + k].strip() == s_stripped[k] for k in range(window)):
-            matches.append(start_ln)
-    if len(matches) != 1:
-        return "not_found" if not matches else "ambiguous"
-    start_ln = matches[0]
-    # char span of the matched line window (exclusive of the trailing newline after the last line)
-    start_char = sum(len(o_lines[k]) + 1 for k in range(start_ln))
-    end_char = start_char + sum(len(o_lines[start_ln + k]) + 1 for k in range(window)) - 1
-    return (start_char, end_char)
+    if window == 0 or window > len(o_lines):
+        return "not_found"
+
+    def span_at(start_ln: int) -> tuple[int, int]:
+        # +1 per line for the "\n"; the last-line over-count is absorbed by the slice (end<=len).
+        start = sum(len(o_lines[k]) + 1 for k in range(start_ln))
+        end = start + sum(len(o_lines[start_ln + k]) + 1 for k in range(window)) - 1
+        return (start, end)
+
+    # Tier 1 — exact whole-line match.
+    exact = [i for i in range(len(o_lines) - window + 1) if o_lines[i : i + window] == s_lines]
+    if len(exact) == 1:
+        s, e = span_at(exact[0])
+        return (s, e, False)
+    if len(exact) > 1:
+        return "ambiguous"
+
+    # Tier 2 — leading-whitespace-flexible whole-line match, still-unique-or-reject.
+    s_strip = [ln.strip() for ln in s_lines]
+    flex = [
+        i
+        for i in range(len(o_lines) - window + 1)
+        if [o_lines[i + k].strip() for k in range(window)] == s_strip
+    ]
+    if len(flex) == 1:
+        s, e = span_at(flex[0])
+        return (s, e, True)
+    return "ambiguous" if flex else "not_found"
 
 
 def _reindent(replace: str, search: str, original_region: str) -> str:
@@ -180,8 +187,8 @@ def _resolve_file(original: str | None, blocks: list[_Block], relpath: str) -> t
         if isinstance(loc, str):
             reason = "SEARCH text not found" if loc == "not_found" else "SEARCH text matches multiple locations (ambiguous)"
             return f"{relpath} block {idx}: {reason}; add surrounding context to make it unique"
-        start, end = loc
-        replacement = b.replace if original.count(b.search) == 1 else _reindent(b.replace, b.search, original[start:end])
+        start, end, reindent = loc
+        replacement = _reindent(b.replace, b.search, original[start:end]) if reindent else b.replace
         spans.append((start, end, replacement))
 
     # Overlap check, then single-pass splice from the original.
@@ -202,7 +209,12 @@ def _resolve_file(original: str | None, blocks: list[_Block], relpath: str) -> t
 def apply_candidate(text: str, repo_dir: str, *, base_ref: str = "HEAD") -> ApplyResult:
     """Apply a candidate's SEARCH/REPLACE blocks to the git working tree at `repo_dir` (a clone at the
     instance's base_commit), atomically, and return the `git diff` as `model_patch`. All-or-nothing:
-    on any block failure, nothing is written and `error` carries the structured reason."""
+    on any block failure, nothing is written and `error` carries the structured reason.
+
+    PRECONDITION (the topology's contract, sprint 5): `repo_dir` is a PRISTINE clone at the instance's
+    base_commit and `base_ref` names that commit (the `HEAD` default assumes HEAD==base_commit). A
+    correction loop reusing one clone across rounds MUST `git reset --hard base_ref` between candidates,
+    else the diff accumulates the prior rounds' edits."""
     import os
 
     try:
@@ -211,6 +223,14 @@ def apply_candidate(text: str, repo_dir: str, *, base_ref: str = "HEAD") -> Appl
         return ApplyResult(applied=False, error=f"parse failed: {exc}")
     if not files:
         return ApplyResult(applied=False, error="no SEARCH/REPLACE blocks found")
+
+    # Containment: reject any path that escapes the clone (absolute, or via `..`). A model can emit an
+    # escaping relative path even non-adversarially; an adversarial one would write outside the tree.
+    repo_real = os.path.realpath(repo_dir)
+    for relpath in files:
+        target = os.path.realpath(os.path.join(repo_dir, relpath))
+        if os.path.isabs(relpath) or (target != repo_real and not target.startswith(repo_real + os.sep)):
+            return ApplyResult(applied=False, error=f"path escapes the repo: {relpath!r}")
 
     # Resolve EVERY file first (atomic): compute new content for all before writing any.
     resolved: dict[str, tuple[str, bool, bool]] = {}  # relpath -> (new_content_lf, creates_file, uses_crlf)
@@ -243,4 +263,8 @@ def apply_candidate(text: str, repo_dir: str, *, base_ref: str = "HEAD") -> Appl
     diff = subprocess.run(
         ["git", "-C", repo_dir, "diff", "--cached", base_ref], capture_output=True, text=True, check=False
     )
+    # Verdict.passed = applied cleanly AND git-diffs NON-EMPTY (locked vocab). A no-op candidate (or an
+    # edit that nets to nothing) would otherwise be submitted as an EMPTY patch = a silent not-resolve.
+    if diff.stdout.strip() == "":
+        return ApplyResult(applied=False, error="no-op: candidate produced an empty diff")
     return ApplyResult(applied=True, model_patch=diff.stdout, creates_file=creates_any)

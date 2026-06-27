@@ -70,11 +70,62 @@ def test_ambiguous_rejects():
 
 
 def test_overlapping_blocks_reject():
-    d = _repo({"m.py": b"abcdef\n"})
-    text = _block("m.py", "abc", "X") + _block("m.py", "bcd", "Y")  # spans [0,3) and [1,4) overlap
+    # two whole-line blocks whose line-spans overlap (both touch "b = 2").
+    d = _repo({"m.py": b"a = 1\nb = 2\nc = 3\n"})
+    text = _block("m.py", "a = 1\nb = 2", "X = 1\nY = 2") + _block("m.py", "b = 2\nc = 3", "Y = 2\nZ = 3")
     r = apply_candidate(text, d)
     assert not r.applied and r.error is not None and "overlap" in r.error
-    assert (Path(d) / "m.py").read_text() == "abcdef\n"  # untouched
+    assert (Path(d) / "m.py").read_text() == "a = 1\nb = 2\nc = 3\n"  # untouched
+
+
+def test_within_line_match_rejects():
+    # HIGH-1 (review #59): "y = 1" must NOT match a PREFIX of "y = 1234" — a mid-line splice corrupts the
+    # tail and produces a plausible-but-wrong patch (the hollow number). Line-anchoring rejects it.
+    d = _repo({"m.py": b"y = 1234\n"})
+    r = apply_candidate(_block("m.py", "y = 1", "y = 5"), d)
+    assert not r.applied and r.error is not None and "not found" in r.error
+    assert (Path(d) / "m.py").read_text() == "y = 1234\n"  # uncorrupted
+
+
+def test_path_traversal_rejects():
+    # HIGH-2 (review #59): a path escaping the clone is rejected; nothing is written outside the tree.
+    d = _repo({"m.py": b"x = 1\n"})
+    r = apply_candidate(_block("../escaped.py", "", "PWNED = 1\n"), d)
+    assert not r.applied and r.error is not None and "escapes" in r.error
+    assert not (Path(d).parent / "escaped.py").exists()
+
+
+def test_absolute_path_rejects():
+    d = _repo({"m.py": b"x = 1\n"})
+    r = apply_candidate(_block("/tmp/swebench_escape.py", "", "X = 1\n"), d)
+    assert not r.applied and r.error is not None and "escapes" in r.error
+
+
+def test_noop_empty_diff_rejects():
+    # MEDIUM-3 (review #59): SEARCH==REPLACE nets to nothing -> empty diff -> applied=False, never a
+    # silent empty patch submitted as "applied".
+    d = _repo({"m.py": b"k = 1\n"})
+    r = apply_candidate(_block("m.py", "k = 1", "k = 1"), d)
+    assert not r.applied and r.error is not None and "no-op" in r.error
+
+
+def test_eof_no_trailing_newline():
+    # the last line of a file with no trailing newline edits correctly (the span +1 is absorbed by the slice).
+    d = _repo({"m.py": b"a = 1\nb = 2"})  # no trailing newline
+    r = apply_candidate(_block("m.py", "b = 2", "b = 3"), d)
+    assert r.applied, r.error
+    assert (Path(d) / "m.py").read_bytes() == b"a = 1\nb = 3"
+
+
+def test_tab_space_tier2_limitation_documented():
+    # KNOWN v1 LIMITATION (review #59): tier-2 matches via strip(), so a tab-indented file matches a
+    # space-indented SEARCH, but _reindent can't bridge tab<->space — it applies SPACE indentation into a
+    # TAB file. This LOWERS success on tab repos (downstream validation catches the inconsistency); it does
+    # NOT poison the measurement. Documented as a deliberate, measured cut — not a silent gap.
+    d = _repo({"m.py": b"def f():\n\treturn 1\n"})  # tab-indented body
+    r = apply_candidate(_block("m.py", "def f():\n    return 1", "def f():\n    return 2"), d)
+    assert r.applied  # it applies (tier-2 strip match) ...
+    assert "    return 2" in (Path(d) / "m.py").read_text()  # ... but with spaces (the documented limitation)
 
 
 def test_file_creation_empty_search():
