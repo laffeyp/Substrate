@@ -23,3 +23,12 @@ process/bench_results/
 /logs/
 process/swebench_smoke/
 /gold.goldsmoke.json
+# Assay/SWE-bench run artifacts (predictions + harness reports) — generated, not source.
+/process/assay_smoke/
+/process/assay_ws_gate/
+/process/assay_host/
+/process/assay_run/
+/process/flask_solve/
+/process/solve_runs/
+substrate-*.json
+substrate-coding-flow.*.json
