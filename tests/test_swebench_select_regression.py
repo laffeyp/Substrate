@@ -96,15 +96,17 @@ def test_planner_builds_per_candidate_firewall_clean_command() -> None:
     repo_tests = ["tests/test_basic.py", "tests/test_blueprints.py", "tests/test_json.py"]
     exclude = {"tests/test_basic.py", "tests/test_blueprints.py"}  # held-out test_patch files
     plan = make_regression_planner(_SPEC, repo_tests, exclude=exclude)
-    cmd = plan(_FLASK_PATCH)  # the patch touches src/flask/blueprints.py
+    run = plan(_FLASK_PATCH)  # the patch touches src/flask/blueprints.py
     # only the issue-unrelated, non-held-out test runs, under the repo's own install + runner.
-    assert cmd.endswith("pytest -rA --continue-on-collection-errors tests/test_json.py")
-    assert "python -m pip install -e ." in cmd
+    assert run.command.endswith("pytest -rA --continue-on-collection-errors tests/test_json.py")
+    assert "python -m pip install -e ." in run.command
+    assert run.files == frozenset({"tests/test_json.py"})  # the scope, for the vanished-test check (#70)
 
 
 def test_planner_empty_command_when_everything_excluded() -> None:
     plan = make_regression_planner(_SPEC, ["tests/test_basic.py"], exclude={"tests/test_basic.py"})
-    assert plan(_FLASK_PATCH) == ""  # nothing left -> empty (no vacuous all-pass)
+    run = plan(_FLASK_PATCH)
+    assert run.command == "" and run.files == frozenset()  # nothing left -> empty (no vacuous all-pass)
 
 
 def test_exclude_delta_zero_when_proximity_already_catches() -> None:
@@ -123,7 +125,10 @@ def test_exclude_delta_names_the_harness_assist() -> None:
 
 
 def test_resolve_regression_static_vs_planner() -> None:
-    # a static string is the same for every patch; a planner tailors per patch.
-    assert resolve_regression("REG", "any patch") == "REG"
+    # a static string is the same for every patch with no scope; a planner tailors command + scope per patch.
+    static = resolve_regression("REG", "any patch")
+    assert static.command == "REG" and static.files is None
     plan = make_regression_planner(_SPEC, ["tests/test_json.py"], exclude=set())
-    assert resolve_regression(plan, _FLASK_PATCH).endswith("pytest -rA --continue-on-collection-errors tests/test_json.py")
+    run = resolve_regression(plan, _FLASK_PATCH)
+    assert run.command.endswith("pytest -rA --continue-on-collection-errors tests/test_json.py")
+    assert run.files == frozenset({"tests/test_json.py"})

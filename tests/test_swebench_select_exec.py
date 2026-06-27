@@ -45,6 +45,18 @@ def test_regression_held_charges_only_new_failures() -> None:
     assert regression_held(base, "ERROR tests/test_other.py::test_z\n") is False
 
 
+def test_regression_held_scope_aware_vanished_test_is_charged() -> None:
+    # the hole review #70 found+reproduced: a base-passing test VANISHES (patch broke its module collection)
+    # while others still pass. Unscoped, the old check missed it; scope-aware, it's charged.
+    base = {"tests/test_json.py::test_a", "tests/test_views.py::test_b"}
+    # patched: test_json reappears+passes, test_views VANISHED (its file was in scope but no line emitted).
+    patched = "PASSED tests/test_json.py::test_a\n1 passed\n"
+    in_scope = frozenset({"tests/test_json.py", "tests/test_views.py"})
+    assert regression_held(base, patched, in_scope) is False  # the vanished in-scope base-pass is charged
+    # but a base-passing test in a file the candidate did NOT run is legitimately absent, not charged.
+    assert regression_held(base, patched, frozenset({"tests/test_json.py"})) is True
+
+
 def test_regression_passed_requires_positive_evidence() -> None:
     assert regression_passed(0, "3 passed in 0.1s") is True
     assert regression_passed(1, "3 passed") is False  # non-zero exit

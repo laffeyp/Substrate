@@ -30,9 +30,20 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, NamedTuple
 
 from .select_docker import build_regression_command
+
+
+class RegressionRun(NamedTuple):
+    """A candidate's firewall-clean regression run: the in-container `command` plus the test `files` it
+    actually runs (its scope). `files` lets the passed-at-base check be SCOPE-AWARE — a base-passing test
+    that VANISHES from a file the candidate DID run is a regression (collection break, #70), while a
+    base-passing test in a file the candidate didn't run is legitimately absent, not charged. `files=None`
+    means an unscoped/static command (tests only)."""
+
+    command: str
+    files: frozenset[str] | None
 
 
 def is_test_module(path: str) -> bool:
@@ -142,7 +153,7 @@ def make_regression_planner(
     repo_test_files: list[str] | set[str],
     *,
     exclude: set[str],
-) -> Callable[[str], str]:
+) -> Callable[[str], RegressionRun]:
     """A PER-CANDIDATE regression planner: given a candidate's `model_patch`, pick the proximity regression
     set (repo tests minus the ones this patch is near, minus the held-out `exclude`) and build the
     firewall-clean in-container command from the repo `spec` (env-setup + test runner only). Each candidate
@@ -150,9 +161,9 @@ def make_regression_planner(
     touches'). `repo_test_files` + the patch both come from the checkout — never PASS_TO_PASS."""
     files = list(repo_test_files)
 
-    def plan(model_patch: str) -> str:
+    def plan(model_patch: str) -> RegressionRun:
         touched = patch_touched_files(model_patch)
         regression = proximity_regression_files(files, touched, exclude=exclude)
-        return build_regression_command(spec, regression)
+        return RegressionRun(build_regression_command(spec, regression), frozenset(regression))
 
     return plan

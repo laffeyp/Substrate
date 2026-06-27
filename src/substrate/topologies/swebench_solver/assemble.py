@@ -34,7 +34,7 @@ from .records import (
 from .repair import repair_drafter_factory, repair_validate_factory
 from .reproduction import repro_generator_factory
 from .select import select_patch
-from .select_exec import TestRunner, resolve_regression, run_one
+from .select_exec import TestRunner, run_one
 
 _Factory = Callable[[], Any]
 
@@ -65,7 +65,7 @@ def _round_applied(ctx: api.TriggerContext, rnd: int) -> list[dict[str, Any]]:
 
 def _select_exec_factory(
     runner: TestRunner,
-    regression: str | Callable[[str], str],
+    regression: str | Callable[[str], Any],
     passed_at_base: frozenset[str] | None,
 ) -> _Factory:
     """Triggered on Solved: run the tests for EVERY applied patch of the solved round, concurrently; yield
@@ -83,7 +83,7 @@ def _select_exec_factory(
             *[
                 run_one(
                     runner,
-                    resolve_regression(regression, str(p["model_patch"])),
+                    regression,
                     repro_code,
                     int(p["slot"]),
                     str(p["model_patch"]),
@@ -140,7 +140,7 @@ def swebench_solver_topology(
     repo_skeleton: str,
     known_files: set[str],
     runner: TestRunner,
-    regression_command: str | Callable[[str], str],
+    regression_command: str | Callable[[str], Any],
     passed_at_base: frozenset[str] | None = None,
     n: int = 3,
     max_rounds: int = 2,

@@ -24,6 +24,7 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any, Protocol
 
 from .records import Reproduction, TestResults
+from .select_regression import RegressionRun
 
 _Factory = Callable[[], Any]
 
@@ -73,17 +74,28 @@ def regression_passed(returncode: int, output: str) -> bool:
     return m is not None and int(m.group(1)) >= 1
 
 
-def regression_held(passed_at_base: set[str], patched_output: str) -> bool:
-    """The firewall-clean regression signal when the repo has pre-existing base failures: NO test that
-    PASSED AT BASE may now fail. Compares per-test outcomes — a test failing in BOTH runs (env/deprecation
-    noise) is not charged to the candidate; only a base-pass -> patched-non-pass is a regression. Requires
-    positive evidence: at least one base-passing test actually ran and still passes (so a patch that breaks
-    collection / runs nothing can't vacuously 'hold')."""
+def regression_held(
+    passed_at_base: set[str], patched_output: str, in_scope_files: frozenset[str] | None = None
+) -> bool:
+    """The firewall-clean regression signal when the repo has pre-existing base failures: every base-passing
+    test the candidate RAN must REAPPEAR and pass. A test failing in BOTH runs (env/deprecation noise) is not
+    charged; only a base-pass -> patched-non-pass (a flip-to-fail OR a VANISH — the patch broke that test's
+    module collection so it silently dropped, #70) is a regression.
+
+    `in_scope_files` (the candidate's regression test files) makes the VANISH check correct under per-candidate
+    proximity: a base-passing test whose file the candidate RAN but that's absent from the output regressed;
+    a base-passing test in a file the candidate DIDN'T run is legitimately absent, not charged. None ->
+    unscoped (static command, tests): only flip-to-fail among tests that reappeared is checked. Requires
+    positive evidence: at least one in-scope base-passing test exists (a patch that runs nothing can't
+    vacuously 'hold')."""
     outcomes = parse_test_outcomes(patched_output)
-    ran_base_passing = [tid for tid in outcomes if tid in passed_at_base]
-    if not ran_base_passing:
-        return False  # nothing from the base-passing set ran -> no evidence the patch didn't break it
-    return all(outcomes[tid] == "passed" for tid in ran_base_passing)
+    if in_scope_files is None:
+        ran = [tid for tid in passed_at_base if tid in outcomes]
+        return bool(ran) and all(outcomes[tid] == "passed" for tid in ran)
+    in_scope = {tid for tid in passed_at_base if tid.split("::")[0] in in_scope_files}
+    if not in_scope:
+        return False  # the candidate ran none of the base-passing tests -> no evidence
+    return all(outcomes.get(tid) == "passed" for tid in in_scope)
 
 
 def reproduction_status(output: str) -> Reproduction:
@@ -98,7 +110,7 @@ def reproduction_status(output: str) -> Reproduction:
 
 async def run_one(
     runner: TestRunner,
-    regression_command: str,
+    regression: str | Callable[[str], Any],
     repro_code: str,
     slot: int,
     model_patch: str,
@@ -106,12 +118,18 @@ async def run_one(
     passed_at_base: frozenset[str] | None = None,
 ) -> TestResults:
     """Run one applied patch's tests -> one TestResults. The single per-patch primitive (the assembly's
-    fan-out and the standalone factory both call it). `regression_command` MUST be repo-derived (NOT the
-    PASS_TO_PASS field — firewall); `repro_code` is the solver's generated reproduction test ("" to skip).
-    `passed_at_base` (the instance's base-passing test ids) switches the signal to `regression_held` — the
-    honest filter on repos with pre-existing base failures; None falls back to the whole-run `regression_passed`."""
-    rc, out = await asyncio.to_thread(runner.run, model_patch, regression_command)
-    reg_ok = regression_held(set(passed_at_base), out) if passed_at_base is not None else regression_passed(rc, out)
+    fan-out and the standalone factory both call it). `regression` is a static command OR a per-candidate
+    planner (model_patch -> RegressionRun); either way repo-derived (NOT the PASS_TO_PASS field — firewall).
+    `repro_code` is the solver's generated reproduction test ("" to skip). `passed_at_base` (the instance's
+    base-passing test ids) switches the signal to the scope-aware `regression_held` — the honest filter on
+    repos with pre-existing base failures; None falls back to the whole-run `regression_passed`."""
+    run = resolve_regression(regression, model_patch)
+    rc, out = await asyncio.to_thread(runner.run, model_patch, run.command)
+    reg_ok = (
+        regression_held(set(passed_at_base), out, run.files)
+        if passed_at_base is not None
+        else regression_passed(rc, out)
+    )
     repro, repro_out = Reproduction.OTHER, ""
     if repro_code:
         _, repro_out = await asyncio.to_thread(runner.run, model_patch, "python /sol/repro.py", {"repro.py": repro_code})
@@ -124,25 +142,31 @@ async def run_one(
     )
 
 
-def resolve_regression(regression: str | Callable[[str], str], model_patch: str) -> str:
-    """The regression command for a candidate: a static string runs the same set for every patch (tests);
-    a planner (Callable[model_patch -> command]) tailors the firewall-clean set to what THAT patch touches
-    (the proximity picker, review #65). One seam so the assembly fan-out and the standalone factory agree."""
-    return regression(model_patch) if callable(regression) else regression
+def resolve_regression(regression: str | Callable[[str], Any], model_patch: str) -> RegressionRun:
+    """The regression RUN for a candidate: a static string runs the same set for every patch with no scope
+    (tests); a planner (Callable[model_patch -> RegressionRun]) tailors the firewall-clean set + scope to
+    what THAT patch touches (the proximity picker, review #65). One seam so the assembly fan-out and the
+    standalone factory agree."""
+    if callable(regression):
+        return regression(model_patch)  # type: ignore[no-any-return]
+    return RegressionRun(regression, None)
 
 
 def select_exec_validate_factory(
     runner: TestRunner,
-    regression: str | Callable[[str], str],
+    regression: str | Callable[[str], Any],
     repro_code: str = "",
+    *,
+    passed_at_base: frozenset[str] | None = None,
 ) -> _Factory:
     """Per AppliedPatch (input carries `slot` + `model_patch`): run the tests via `run_one`, emit one
-    TestResults. `regression` is a static command OR a per-candidate planner (see `resolve_regression`).
-    Host in a producer with `deterministic=False`."""
+    TestResults. `regression` is a static command OR a per-candidate planner (see `resolve_regression`);
+    `passed_at_base` switches SELECT to the scope-aware regression_held. Host in a producer with
+    `deterministic=False`."""
 
     async def select_exec(inp: Any) -> AsyncIterator[TestResults]:
         slot = int(inp.get("slot", 0)) if hasattr(inp, "get") else 0
         patch = str(inp.get("model_patch", "")) if hasattr(inp, "get") else ""
-        yield await run_one(runner, resolve_regression(regression, patch), repro_code, slot, patch)
+        yield await run_one(runner, regression, repro_code, slot, patch, passed_at_base=passed_at_base)
 
     return lambda: select_exec
