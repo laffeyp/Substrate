@@ -132,6 +132,99 @@ def _selector_factory() -> _Factory:
     return lambda: select
 
 
+def _first_patch_selector_factory() -> _Factory:
+    """The SIMPLE select: emit the patch that APPLIED. The judge's Solved event already names the first
+    slot whose candidate applied cleanly; pick that AppliedPatch and emit it as the SelectedPatch. No
+    test-running, no regression, no reproduction — the model emits edits, the validator applies them and
+    produces the git diff, and we submit it. (The brittle test-picker SELECT is intentionally removed.)"""
+
+    async def select(inp: Any) -> AsyncIterator[SelectedPatch]:
+        slot = int(inp.get("slot", 0)) if hasattr(inp, "get") else 0
+        applied = list(inp.get("applied", [])) if hasattr(inp, "get") else []
+        chosen = next((a for a in applied if int(a["slot"]) == slot), applied[0] if applied else None)
+        if chosen is not None:
+            yield SelectedPatch(slot=int(chosen["slot"]), model_patch=str(chosen["model_patch"]),
+                                reason="first-applyable")
+
+    return lambda: select
+
+
+def swebench_repair_topology(
+    *,
+    responders: list[Responder],
+    base_checkout: str,
+    issue: str,
+    repo_skeleton: str,
+    known_files: set[str],
+    n: int = 3,
+    max_rounds: int = 2,
+    top_k: int = 5,
+    watchdog_seconds: float = 600.0,
+) -> Callable[[api.TopologyBuilder], None]:
+    """The SIMPLE coding topology: LOCALIZE -> best-of-N REPAIR -> emit the first patch that applied. A real
+    substrate topology (drafters/validator/judge are producers) that emits a `SelectedPatch` (a git diff),
+    with NONE of the test-running SELECT apparatus. `responders[0]` localizes; `responders` (per slot) draft
+    SEARCH/REPLACE edits; the validator clones `base_checkout` per candidate, applies, and emits the diff.
+    Terminates on SelectedPatch or Exhausted."""
+
+    def topo(b: api.TopologyBuilder) -> None:
+        b.producer_kind("localizer", schemas=[SuspectFiles, EditLocations, ModelUsage], schema_version=1,
+                        factory=localizer_factory(responders[0], issue, repo_skeleton, known_files, top_k=top_k),
+                        deterministic=False)
+        b.initial("localizer", input=None)
+        b.view("edit_locations", api.KindBuffer("EditLocations"))
+        b.view("verdicts", api.KindBuffer("Verdict"))
+        b.view("applied", api.KindBuffer("AppliedPatch"))
+        b.view("solved", api.KindBuffer("Solved"))
+
+        b.producer_kind("seeder", schemas=[Draft], schema_version=1, factory=seeder_factory(n), deterministic=False)
+        b.producer_kind("drafter", schemas=[Candidate, ModelUsage], schema_version=1,
+                        factory=repair_drafter_factory(responders, spec=issue), deterministic=False)
+        b.producer_kind("validator", schemas=[Verdict, AppliedPatch], schema_version=1,
+                        factory=repair_validate_factory(base_checkout), deterministic=False)
+        b.producer_kind("judge", schemas=[Solved, Draft, Exhausted], schema_version=1,
+                        factory=select_first_judge_factory(n, max_rounds), deterministic=False)
+        b.producer_kind("selector", schemas=[SelectedPatch], schema_version=1,
+                        factory=_first_patch_selector_factory(), deterministic=False)
+
+        b.trigger("seed", subscription=api.Subscription(kinds=frozenset({"EditLocations"})),
+                  predicate=lambda ctx: True, starts="seeder", input_builder=lambda ctx: None, policy=api.PerEvent())
+        b.trigger("draft", subscription=api.Subscription(kinds=frozenset({"Draft"})), predicate=lambda ctx: True,
+                  starts="drafter",
+                  input_builder=lambda ctx: {
+                      "round": int(ctx.event.payload["round"]),
+                      "slot": int(ctx.event.payload["slot"]),
+                      "context": ctx.event.payload["context"],
+                      "edit_context": _build_edit_context(
+                          base_checkout,
+                          tuple(ctx.views["edit_locations"].value()[-1]["targets"]) if ctx.views["edit_locations"].value() else (),
+                      ),
+                  }, policy=api.PerEvent())
+        b.trigger("validate", subscription=api.Subscription(kinds=frozenset({"Candidate"})), predicate=lambda ctx: True,
+                  starts="validator",
+                  input_builder=lambda ctx: {"round": int(ctx.event.payload["round"]), "slot": int(ctx.event.payload["slot"]), "response": ctx.event.payload["response"]},
+                  policy=api.PerEvent())
+        b.trigger("judge", subscription=api.Subscription(kinds=frozenset({"Verdict"})),
+                  predicate=lambda ctx: len(_round_verdicts(ctx, int(ctx.event.payload["round"]))) >= n, starts="judge",
+                  input_builder=lambda ctx: {"round": int(ctx.event.payload["round"]), "verdicts": _round_verdicts(ctx, int(ctx.event.payload["round"]))},
+                  policy=api.PerEvent())
+        # SELECT (simple): the first applyable patch — on Solved, emit the AppliedPatch at the solved slot.
+        b.trigger("selector", subscription=api.Subscription(kinds=frozenset({"Solved"})), predicate=lambda ctx: True,
+                  starts="selector",
+                  input_builder=lambda ctx: {
+                      "slot": int(ctx.event.payload["slot"]),
+                      "applied": _round_applied(ctx, int(ctx.event.payload["round"])),
+                  }, policy=api.PerEvent())
+
+        b.termination(api.any_of(
+            api.threshold_count("SelectedPatch", 1),
+            api.threshold_count("Exhausted", 1),
+            api.quiescence_with_watchdog(seconds=watchdog_seconds),
+        ))
+
+    return topo
+
+
 def swebench_solver_topology(
     *,
     responders: list[Responder],

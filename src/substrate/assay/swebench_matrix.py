@@ -15,17 +15,20 @@ measured (it times the whole solve). Wiring metered calls is a later refinement.
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from collections.abc import AsyncIterator, Callable, Sequence
 from typing import Any
 
 from .. import api
-from ..reference._models import OllamaResponder
+from ..reference._models import OllamaResponder, Responder
+from ..topologies.swebench_solver.assemble import swebench_repair_topology
 from ..topologies.swebench_solver.records import SelectedPatch
 from .suite import Arm, Case, Suite
 from .swebench import swebench_record_oracle
 from .swebench_agent import solve_in_container
 from .swebench_host import solve_on_host
 from .swebench_suite import safe_case_id
+from .swebench_workspace import host_clone
 
 _Factory = Callable[[], Any]
 
@@ -73,6 +76,26 @@ def container_arm(name: str, role: str, *, model: str, max_steps: int = 8, max_t
     return Arm(name=name, role=role, build=build)
 
 
+def repair_arm(name: str, role: str, *, model: str, n: int = 3, max_rounds: int = 2,
+               max_tokens: int = 2048) -> Arm:
+    """A REAL substrate coding topology as an Arm: localize -> best-of-N SEARCH/REPLACE repair -> emit the
+    first patch that applied (`swebench_repair_topology`). The substrate producers DO the coding — this is
+    not a function in a shell. `build` clones the repo at base_commit (I/O at build, env-gated) and wires
+    the topology; the per-candidate validator clones from it and produces the git diff."""
+    def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
+        inst = case.ground_truth
+        clone = host_clone(f"https://github.com/{inst['repo']}", inst["base_commit"])
+        files = subprocess.run(
+            ["git", "-C", clone, "ls-files"], capture_output=True, text=True
+        ).stdout.split()
+        responders: list[Responder] = [OllamaResponder(model, max_tokens=max_tokens) for _ in range(n)]
+        return swebench_repair_topology(
+            responders=responders, base_checkout=clone, issue=str(inst["problem_statement"]),
+            repo_skeleton="\n".join(files), known_files=set(files), n=n, max_rounds=max_rounds,
+        )
+    return Arm(name=name, role=role, build=build)
+
+
 def swebench_matrix_suite(
     instances: Sequence[dict[str, Any]],
     arms: Sequence[Arm],
@@ -104,4 +127,4 @@ def swebench_matrix_suite(
     )
 
 
-__all__ = ["host_arm", "container_arm", "swebench_matrix_suite"]
+__all__ = ["host_arm", "container_arm", "repair_arm", "swebench_matrix_suite"]
