@@ -13,6 +13,7 @@ Usage: uv run python scripts/solve_instance.py [instance_id] [model]
 """
 
 import asyncio
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -120,11 +121,17 @@ def main() -> None:
 
     print("\ngrading the chosen patch with the swebench oracle (Docker)...", flush=True)
     pred = make_prediction(IID, selected[0]["model_patch"], model_name="substrate-solver")
+    # run_id MUST be unique per (model, patch): the swebench harness caches by run_id+model+instance and
+    # SKIPS re-evaluation if that dir exists ("1 instances already run, skipping") -> a constant run_id makes
+    # a second run silently REUSE the first run's verdict (caught reading the harness log #154). Hash the
+    # patch so distinct patches grade fresh and an identical re-run still caches correctly.
+    patch_hash = hashlib.sha1(selected[0]["model_patch"].encode()).hexdigest()[:8]
+    run_id = f"solve-{MODEL.split(':')[0].replace('/', '_')}-{patch_hash}"
     rdir = Path("process/solve_runs") / IID
-    run_swebench([pred], dataset_name="princeton-nlp/SWE-bench_Lite", run_id="solve",
+    run_swebench([pred], dataset_name="princeton-nlp/SWE-bench_Lite", run_id=run_id,
                  instance_ids=[IID], report_dir=rdir, max_workers=1)
-    resolved = read_resolved(rdir, "solve", "substrate-solver", IID)
-    print(f"\n=== RESOLVED: {resolved} ===  (real model {MODEL}, exploratory, n={N})", flush=True)
+    resolved = read_resolved(rdir, run_id, "substrate-solver", IID)
+    print(f"\n=== RESOLVED: {resolved} ===  (real model {MODEL}, exploratory, n={N}, run_id={run_id})", flush=True)
 
 
 if __name__ == "__main__":
