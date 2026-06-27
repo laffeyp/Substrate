@@ -33,6 +33,8 @@ __all__ = [
     "Reproduction",
     "TestResults",
     "SelectedPatch",
+    "RepairOutcome",
+    "RepairSummary",
 ]
 
 
@@ -112,3 +114,31 @@ class SelectedPatch(Struct, frozen=True):
     slot: int
     model_patch: str
     reason: str
+
+
+# --- TERMINAL OUTCOME (the always-emit summary) ---
+
+
+class RepairOutcome(enum.Enum):
+    """Why a repair run terminated — the ENUMERATED terminal states (technique #53), so the record SAYS why
+    a run produced no patch instead of leaving it implicit in the absence of other events. The judge only
+    declares success when a candidate APPLIES, so the no-patch case splits by whether localization
+    happened. Enforced at the speaker's mouth (#2), not a string convention."""
+
+    SELECTED = "selected"  # a candidate applied cleanly and was selected (the success path)
+    NO_LOCALIZATION = "no_localization"  # localize picked no edit target -> the drafters had no file to edit
+    NO_APPLICABLE_EDIT = "no_applicable_edit"  # drafts were produced but none applied (the model's SEARCH
+    #                                            text did not match the file) -> nothing to submit
+
+
+class RepairSummary(Struct, frozen=True):
+    """The ALWAYS-EMIT terminal summary of a repair run (technique #51): the enumerated `outcome` plus the
+    per-stage counts, so a reader (or the assay runner) learns WHAT HAPPENED from ONE typed event rather
+    than reconstructing it from the presence/absence of others. Emitted on every terminal path; the
+    topology terminates on it. `selected_slot` is the chosen slot, or -1 when no patch was selected."""
+
+    outcome: RepairOutcome
+    localized: int  # number of edit targets localization produced
+    drafted: int  # number of candidate drafts the model produced
+    applied: int  # number of drafts that applied cleanly
+    selected_slot: int

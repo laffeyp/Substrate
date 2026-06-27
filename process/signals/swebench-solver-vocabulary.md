@@ -51,6 +51,13 @@ SELECT (after the loop):
 | `TestResults` | `slot:int, regression_passed:bool, reproduction:Reproduction, summary:str` | the solver's own validation of one applied patch: repo-derived regression result + reproduction-test status. **`replayable=False`** — a run-and-observe Docker seam (§4), captured once. `Reproduction` is a typed 3-state enum (`REPRODUCED`/`RESOLVED`/`OTHER`) — enforced at the speaker's mouth (#2 poka-yoke), not by string convention. | select / incident-or-event |
 | `SelectedPatch` | `slot:int, model_patch:str, reason:str` | the final submitted patch + why it won (majority vote / regression / reproduction). The topology's output to the swebench oracle. | select / summary |
 
+TERMINAL OUTCOME (the always-emit summary — technique #51; added for `swebench_repair_topology`):
+
+| Record | Locked fields | Meaning | Category / stratum |
+|---|---|---|---|
+| `RepairOutcome` | enum: `SELECTED` / `NO_LOCALIZATION` / `NO_APPLICABLE_EDIT` | the ENUMERATED terminal states (#53) — why a run produced no patch instead of leaving it implicit in the absence of other events. The judge only declares success when a candidate APPLIES, so the no-patch case splits by whether localization happened. Enforced at the speaker's mouth (#2), like `Reproduction`. | outcome / enum |
+| `RepairSummary` | `outcome:RepairOutcome, localized:int, drafted:int, applied:int, selected_slot:int` | the ALWAYS-EMIT terminal summary (#51): the enumerated `outcome` + the per-stage counts, so a reader learns WHAT HAPPENED from ONE typed event, not by reconstructing it. Emitted on every terminal path; `swebench_repair_topology` terminates on it. `selected_slot` = the chosen slot, or `-1`. | outcome / summary |
+
 ## C. #25 dual-contract audit — every behavior record has a record-observable
 
 Per the project's record-as-view-side override: each behavior record pairs with a record-observable
@@ -67,6 +74,7 @@ these (#24/#38), flask-4045 seeded.
 | `TestResults` | `replayable=False`; the regression set is repo-DERIVED (NOT the `PASS_TO_PASS` field — §4); the allowlist excludes `test_patch` files. |
 | `SelectedPatch` | deterministic GIVEN the recorded `TestResults` (best-status pick; regression-only fallback fires when no candidate passes reproduction); IS the submitted `model_patch`. |
 | `Solved` / `Exhausted` | the loop terminal; reuses coding_flow's proven observation. |
+| `RepairSummary` | emitted exactly ONCE on every terminal path (always-emit, #51); `outcome==SELECTED` iff a `SelectedPatch` was emitted (chained after it); on `Exhausted`, `outcome` is `NO_LOCALIZATION` iff `localized==0` else `NO_APPLICABLE_EDIT`; counts match the record (`drafted`==#Candidate, `applied`==#AppliedPatch). Observation contract: the three outcomes are seeded in `test_swebench_solver.py`. |
 | `ModelUsage` | metering, not behavior — no behavior-observable required; one per drafter call (LOCALIZE / each REPAIR candidate / SELECT), summed for the matched-compute axis (#3). |
 
 ## D. Open items for later sprints (named, not deferred-silently)

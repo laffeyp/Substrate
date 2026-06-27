@@ -35,9 +35,12 @@ N = int(sys.argv[2]) if len(sys.argv) > 2 else 3
 LIMIT = int(sys.argv[3]) if len(sys.argv) > 3 else 0
 
 
-async def _solve_and_grade(inst, oracle, root: Path) -> tuple[bool, str]:
-    """Clone at base_commit, run the repair topology, grade the emitted patch; clean the clone. Returns
-    (resolved, detail). Any internal failure raises to the caller, which records it as an error."""
+async def _solve_and_grade(inst, oracle, root: Path) -> tuple[str, str]:
+    """Clone at base_commit, run the repair topology, classify the outcome from the TYPED terminal record
+    (`RepairSummary`), and — only if a patch was selected — grade it. Returns (status, detail). The status
+    is the topology's own enumerated outcome (no reconstruction from event kinds): `resolved` / `wrong_patch`
+    (a patch was submitted, graded pass/fail), or the no-patch reason (`no_applicable_edit` / `no_localization`),
+    or `timed_out` (no terminal summary -> the run hit its watchdog). Any internal failure raises -> 'error'."""
     clone = host_clone(f"https://github.com/{inst['repo']}", inst["base_commit"])
     try:
         files = subprocess.run(["git", "-C", clone, "ls-files"], capture_output=True, text=True).stdout.split()
@@ -47,8 +50,15 @@ async def _solve_and_grade(inst, oracle, root: Path) -> tuple[bool, str]:
             repo_skeleton="\n".join(files), known_files=set(files), n=N, max_rounds=2,
         )
         await Runtime(root).run(topo)
-        result = oracle.grade(list(read_record(root)), inst)
-        return result.passed, result.detail
+        record = list(read_record(root))
+        summary = next((e["payload"] for e in record if e["kind"] == "RepairSummary"), None)
+        if summary is None:
+            return "timed_out", "no RepairSummary — the run hit its time limit before reaching an outcome"
+        diag = f"localized={summary['localized']} drafted={summary['drafted']} applied={summary['applied']}"
+        if summary["outcome"] != "selected":
+            return summary["outcome"], diag  # no patch -> the typed outcome IS the status; nothing to grade
+        result = oracle.grade(record, inst)  # a patch was selected -> grade it
+        return ("resolved" if result.passed else "wrong_patch"), f"{result.detail} | {diag}"
     finally:
         shutil.rmtree(clone, ignore_errors=True)
 
@@ -80,8 +90,7 @@ def main() -> None:
             continue
         fw_ok, _ = firewall_check(inst)
         try:
-            resolved, detail = asyncio.run(_solve_and_grade(inst, oracle, base / f"c{i}"))
-            status = "resolved" if resolved else "unresolved"
+            status, detail = asyncio.run(_solve_and_grade(inst, oracle, base / f"c{i}"))
         except Exception as exc:  # noqa: BLE001 — an instance that blows up is recorded, not fatal
             status, detail = "error", f"{type(exc).__name__}: {str(exc)[:160]}"
         rec = {"instance_id": iid, "repo": inst["repo"], "status": status,
@@ -92,18 +101,25 @@ def main() -> None:
         n_res = sum(1 for s in done.values() if s == "resolved")
         print(f"[{len(done)}/{len(ds)}] {iid} -> {status} | resolved so far: {n_res}", flush=True)
 
-    # final tally from the checkpoint (authoritative, survives restarts).
+    # final tally from the checkpoint (authoritative, survives restarts), broken down by the TYPED outcome.
+    from collections import Counter
     rows = [json.loads(line) for line in ckpt.read_text().splitlines() if line.strip()]
-    res = sum(1 for r in rows if r["status"] == "resolved")
-    unres = sum(1 for r in rows if r["status"] == "unresolved")
-    err = sum(1 for r in rows if r["status"] == "error")
+    counts = Counter(r["status"] for r in rows)
+    res = counts["resolved"]
     elapsed = int(time.monotonic() - started)
     print("\n==================== FULL SWE-BENCH RESULT (repair topology) ====================", flush=True)
     print(f"model={MODEL} n={N} | processed {len(rows)}/{len(ds)} | {elapsed}s this session", flush=True)
-    print(f"RESOLVED {res} | UNRESOLVED {unres} | ERROR {err}  ->  rate {res}/{len(rows)} "
-          f"({100*res/max(len(rows),1):.1f}%)", flush=True)
-    print(f"errors broke down by repo: "
-          f"{sorted({r['repo'] for r in rows if r['status']=='error'})}", flush=True)
+    print(f"RESOLVED {res}/{len(rows)} ({100*res/max(len(rows),1):.1f}%)", flush=True)
+    # the breakdown a person can read: resolved (fixed it) vs wrong_patch (model's fix didn't pass) vs
+    # no_applicable_edit (the model's edits didn't match the file — OUR concern if high) vs no_localization
+    # (no file picked) vs timed_out (hit the watchdog) vs error (couldn't even run — clone/grade crash).
+    for label in ("resolved", "wrong_patch", "no_applicable_edit", "no_localization", "timed_out", "error"):
+        print(f"  {label:<20} {counts[label]}", flush=True)
+    errs = [r for r in rows if r["status"] == "error"]
+    if errs:
+        print(f"errors by repo: {Counter(r['repo'] for r in errs)}", flush=True)
+        for r in errs[:10]:
+            print(f"    {r['instance_id']}: {r['detail']}", flush=True)
     print(f"checkpoint: {ckpt}", flush=True)
 
 

@@ -25,6 +25,8 @@ from .localize import localizer_factory
 from .records import (
     AppliedPatch,
     EditLocations,
+    RepairOutcome,
+    RepairSummary,
     Reproduction,
     ReproductionTest,
     SelectedPatch,
@@ -149,6 +151,41 @@ def _first_patch_selector_factory() -> _Factory:
     return lambda: select
 
 
+def _outcome_factory() -> _Factory:
+    """The ALWAYS-EMIT terminal summary (technique #51): on SelectedPatch -> RepairSummary(SELECTED); on
+    Exhausted -> RepairSummary classified by whether localization happened (NO_LOCALIZATION vs the model's
+    edits not applying). Chained AFTER SelectedPatch (not on Solved) so the patch is on the log before this
+    triggers termination — no race that could cancel the selector. The enum decision lives here, at the
+    speaker's mouth (#2)."""
+
+    async def outcome(inp: Any) -> AsyncIterator[RepairSummary]:
+        is_selected = bool(inp.get("is_selected", False)) if hasattr(inp, "get") else False
+        localized = int(inp.get("localized", 0)) if hasattr(inp, "get") else 0
+        drafted = int(inp.get("drafted", 0)) if hasattr(inp, "get") else 0
+        applied = int(inp.get("applied", 0)) if hasattr(inp, "get") else 0
+        slot = int(inp.get("slot", -1)) if hasattr(inp, "get") else -1
+        if is_selected:
+            oc, sel = RepairOutcome.SELECTED, slot
+        elif localized == 0:
+            oc, sel = RepairOutcome.NO_LOCALIZATION, -1
+        else:
+            oc, sel = RepairOutcome.NO_APPLICABLE_EDIT, -1
+        yield RepairSummary(outcome=oc, localized=localized, drafted=drafted, applied=applied, selected_slot=sel)
+
+    return lambda: outcome
+
+
+def _outcome_input(ctx: api.TriggerContext, *, is_selected: bool) -> dict[str, Any]:
+    el = ctx.views["edit_locations"].value()
+    return {
+        "is_selected": is_selected,
+        "slot": int(ctx.event.payload["slot"]) if is_selected else -1,
+        "localized": len(el[-1]["targets"]) if el else 0,
+        "drafted": len(ctx.views["verdicts"].value()),
+        "applied": len(ctx.views["applied"].value()),
+    }
+
+
 def swebench_repair_topology(
     *,
     responders: list[Responder],
@@ -165,7 +202,7 @@ def swebench_repair_topology(
     substrate topology (drafters/validator/judge are producers) that emits a `SelectedPatch` (a git diff),
     with NONE of the test-running SELECT apparatus. `responders[0]` localizes; `responders` (per slot) draft
     SEARCH/REPLACE edits; the validator clones `base_checkout` per candidate, applies, and emits the diff.
-    Terminates on SelectedPatch or Exhausted."""
+    ALWAYS emits a terminal `RepairSummary` (the enumerated outcome + stage counts) and terminates on it."""
 
     def topo(b: api.TopologyBuilder) -> None:
         b.producer_kind("localizer", schemas=[SuspectFiles, EditLocations, ModelUsage], schema_version=1,
@@ -186,6 +223,8 @@ def swebench_repair_topology(
                         factory=select_first_judge_factory(n, max_rounds), deterministic=False)
         b.producer_kind("selector", schemas=[SelectedPatch], schema_version=1,
                         factory=_first_patch_selector_factory(), deterministic=False)
+        b.producer_kind("outcome", schemas=[RepairSummary], schema_version=1,
+                        factory=_outcome_factory(), deterministic=False)
 
         b.trigger("seed", subscription=api.Subscription(kinds=frozenset({"EditLocations"})),
                   predicate=lambda ctx: True, starts="seeder", input_builder=lambda ctx: None, policy=api.PerEvent())
@@ -215,10 +254,17 @@ def swebench_repair_topology(
                       "slot": int(ctx.event.payload["slot"]),
                       "applied": _round_applied(ctx, int(ctx.event.payload["round"])),
                   }, policy=api.PerEvent())
+        # OUTCOME (always-emit summary, #51): on SelectedPatch -> SELECTED (chained AFTER the patch lands, so
+        # termination can't race the selector); on Exhausted -> the failure classification.
+        b.trigger("outcome-ok", subscription=api.Subscription(kinds=frozenset({"SelectedPatch"})),
+                  predicate=lambda ctx: True, starts="outcome",
+                  input_builder=lambda ctx: _outcome_input(ctx, is_selected=True), policy=api.PerEvent())
+        b.trigger("outcome-fail", subscription=api.Subscription(kinds=frozenset({"Exhausted"})),
+                  predicate=lambda ctx: True, starts="outcome",
+                  input_builder=lambda ctx: _outcome_input(ctx, is_selected=False), policy=api.PerEvent())
 
         b.termination(api.any_of(
-            api.threshold_count("SelectedPatch", 1),
-            api.threshold_count("Exhausted", 1),
+            api.threshold_count("RepairSummary", 1),
             api.quiescence_with_watchdog(seconds=watchdog_seconds),
         ))
 

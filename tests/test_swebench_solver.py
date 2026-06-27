@@ -7,7 +7,10 @@ import tempfile
 from pathlib import Path
 
 from substrate.api import Runtime, read_record
-from substrate.topologies.swebench_solver.assemble import swebench_solver_topology
+from substrate.topologies.swebench_solver.assemble import (
+    swebench_repair_topology,
+    swebench_solver_topology,
+)
 
 _FIX = "# path: m.py\n<<<<<<< SEARCH\n    return x\n=======\n    return x + 1\n>>>>>>> REPLACE\n"
 
@@ -97,6 +100,65 @@ async def test_passed_at_base_routes_select_through_regression_held(tmp_path) ->
     results = [e["payload"] for e in events if e["kind"] == "TestResults"]
     assert results and all(r["regression_passed"] for r in results)
     assert len([e for e in events if e["kind"] == "SelectedPatch"]) == 1
+
+
+def _repair(responders, base, n=2):
+    return swebench_repair_topology(
+        responders=responders, base_checkout=base, issue="make f(x) return x + 1",
+        repo_skeleton="m.py\nREADME.md", known_files={"m.py", "README.md"}, n=n, max_rounds=1,
+        watchdog_seconds=20.0,
+    )
+
+
+def _summary(events):
+    s = [e["payload"] for e in events if e["kind"] == "RepairSummary"]
+    return s[0] if s else None
+
+
+async def test_repair_topology_emits_selected_outcome(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    # the always-emit RepairSummary (#51): a clean fix -> SELECTED, with a SelectedPatch + the counts.
+    await Runtime(tmp_path / "run").run(_repair([_SolverResponder() for _ in range(2)], _fixture_repo()))
+    events = list(read_record(tmp_path / "run"))
+    selected = [e["payload"] for e in events if e["kind"] == "SelectedPatch"]
+    summary = _summary(events)
+    assert len(selected) == 1 and "+    return x + 1" in selected[0]["model_patch"]
+    assert summary is not None and summary["outcome"] == "selected"
+    assert summary["selected_slot"] >= 0 and summary["applied"] >= 1 and summary["localized"] == 1
+
+
+class _BadEditResponder:
+    """Localizes m.py but its SEARCH text doesn't match the file -> nothing applies."""
+
+    def respond(self, prompt: str) -> str:
+        if "suspect file" in prompt:
+            return "m.py\n"
+        return "# path: m.py\n<<<<<<< SEARCH\nNOPE NOT IN FILE\n=======\nx\n>>>>>>> REPLACE\n"
+
+
+async def test_repair_topology_no_applicable_edit_outcome(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    # localization happened but the model's edits didn't match -> NO_APPLICABLE_EDIT (enumerated, not implicit).
+    await Runtime(tmp_path / "run").run(_repair([_BadEditResponder() for _ in range(2)], _fixture_repo()))
+    events = list(read_record(tmp_path / "run"))
+    summary = _summary(events)
+    assert summary is not None and summary["outcome"] == "no_applicable_edit"
+    assert summary["localized"] == 1 and summary["applied"] == 0 and summary["selected_slot"] == -1
+    assert not any(e["kind"] == "SelectedPatch" for e in events)
+
+
+class _NoLocResponder:
+    """Localizes nothing (no real file path); with no target the edit can't match -> nothing applies. The
+    ONLY difference from _BadEditResponder is the localize output, so the outcome enum splits on it."""
+
+    def respond(self, prompt: str) -> str:
+        if "suspect file" in prompt:
+            return "no idea which file\n"
+        return "# path: m.py\n<<<<<<< SEARCH\nNOPE NOT IN FILE\n=======\nx\n>>>>>>> REPLACE\n"
+
+
+async def test_repair_topology_no_localization_outcome(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    await Runtime(tmp_path / "run").run(_repair([_NoLocResponder() for _ in range(2)], _fixture_repo()))
+    summary = _summary(list(read_record(tmp_path / "run")))
+    assert summary is not None and summary["outcome"] == "no_localization" and summary["localized"] == 0
 
 
 class _FlakyRunner:
