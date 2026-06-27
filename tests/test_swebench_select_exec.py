@@ -32,21 +32,22 @@ class _StubRunner:
     def __init__(self, outcomes: dict[str, tuple[int, str]]) -> None:
         self._outcomes = outcomes
 
-    def run(self, model_patch: str, test_command: str) -> tuple[int, str]:
+    def run(self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None) -> tuple[int, str]:
         return self._outcomes[test_command]
 
 
 async def test_select_exec_emits_test_results() -> None:
-    runner = _StubRunner({"REG": (0, "3 passed in 0.1s"), "REPRO": (0, "Issue resolved")})
-    validate = select_exec_validate_factory(runner, "REG", "REPRO")()
+    # the reproduction test runs as "python /sol/repro.py" (the generated code goes in via extra_files).
+    runner = _StubRunner({"REG": (0, "3 passed in 0.1s"), "python /sol/repro.py": (0, "Issue resolved")})
+    validate = select_exec_validate_factory(runner, "REG", repro_code="print('Issue resolved')")()
     results = [r async for r in validate({"slot": 2, "model_patch": "diff"})]
     assert len(results) == 1
     tr = results[0]
     assert tr.slot == 2 and tr.regression_passed is True and tr.reproduction == Reproduction.RESOLVED
 
 
-async def test_select_exec_no_reproduction_command() -> None:
+async def test_select_exec_no_reproduction() -> None:
     runner = _StubRunner({"REG": (1, "1 failed")})
-    validate = select_exec_validate_factory(runner, "REG", None)()
+    validate = select_exec_validate_factory(runner, "REG", repro_code="")()  # no reproduction test
     results: list[Any] = [r async for r in validate({"slot": 0, "model_patch": "diff"})]
     assert results[0].regression_passed is False and results[0].reproduction == Reproduction.OTHER

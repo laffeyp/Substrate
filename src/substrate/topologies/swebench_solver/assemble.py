@@ -22,8 +22,17 @@ from ...reference._models import ModelUsage, Responder
 from ..best_of_n import seeder_factory, select_first_judge_factory
 from ..best_of_n.contracts import Candidate, Draft, Exhausted, Solved, Verdict
 from .localize import localizer_factory
-from .records import AppliedPatch, EditLocations, Reproduction, SelectedPatch, SuspectFiles, TestResults
+from .records import (
+    AppliedPatch,
+    EditLocations,
+    Reproduction,
+    ReproductionTest,
+    SelectedPatch,
+    SuspectFiles,
+    TestResults,
+)
 from .repair import repair_drafter_factory, repair_validate_factory
+from .reproduction import repro_generator_factory
 from .select import select_patch
 from .select_exec import TestRunner, run_one
 
@@ -54,18 +63,20 @@ def _round_applied(ctx: api.TriggerContext, rnd: int) -> list[dict[str, Any]]:
     return [a for a in ctx.views["applied"].value() if int(a["round"]) == rnd]
 
 
-def _select_exec_factory(runner: TestRunner, regression_command: str, reproduction_command: str | None) -> _Factory:
+def _select_exec_factory(runner: TestRunner, regression_command: str) -> _Factory:
     """Triggered on Solved: run the tests for EVERY applied patch of the solved round, concurrently; yield
-    a TestResults per patch. The run-and-observe Docker seam (deterministic=False). ALWAYS yields exactly
+    a TestResults per patch. The run-and-observe Docker seam (deterministic=False). The generated
+    reproduction test (`repro_code`, from the input) is run per patch too. ALWAYS yields exactly
     len(patches): a single patch's runner failure (the real DockerTestRunner WILL raise — container error,
     OOM, timeout) becomes a FAILED TestResults, never an unraised gather exception that emits ZERO results
-    and WEDGES the barrier (review #62)."""
+    and stalls the barrier (review #62)."""
 
     async def run_all(inp: Any) -> AsyncIterator[TestResults]:
         patches = list(inp.get("applied", [])) if hasattr(inp, "get") else []
+        repro_code = str(inp.get("repro_code", "")) if hasattr(inp, "get") else ""
         outcomes = await asyncio.gather(
             *[
-                run_one(runner, regression_command, reproduction_command, int(p["slot"]), str(p["model_patch"]))
+                run_one(runner, regression_command, repro_code, int(p["slot"]), str(p["model_patch"]))
                 for p in patches
             ],
             return_exceptions=True,
@@ -118,7 +129,6 @@ def swebench_solver_topology(
     known_files: set[str],
     runner: TestRunner,
     regression_command: str,
-    reproduction_command: str | None = None,
     n: int = 3,
     max_rounds: int = 2,
     top_k: int = 5,
@@ -133,6 +143,12 @@ def swebench_solver_topology(
                         factory=localizer_factory(responders[0], issue, repo_skeleton, known_files, top_k=top_k),
                         deterministic=False)
         b.initial("localizer", input=None)
+        # the reproduction-test generator runs once at the start (it only needs the issue); SELECT reads
+        # its output to check which patches resolve the issue.
+        b.producer_kind("repro_gen", schemas=[ReproductionTest, ModelUsage], schema_version=1,
+                        factory=repro_generator_factory(responders[0], issue), deterministic=False)
+        b.initial("repro_gen", input=None)
+        b.view("reproduction", api.KindBuffer("ReproductionTest"))
         b.view("edit_locations", api.KindBuffer("EditLocations"))
         b.view("verdicts", api.KindBuffer("Verdict"))
         b.view("applied", api.KindBuffer("AppliedPatch"))
@@ -150,7 +166,7 @@ def swebench_solver_topology(
 
         # SELECT
         b.producer_kind("select_exec", schemas=[TestResults], schema_version=1,
-                        factory=_select_exec_factory(runner, regression_command, reproduction_command),
+                        factory=_select_exec_factory(runner, regression_command),
                         deterministic=False)
         b.producer_kind("selector", schemas=[SelectedPatch], schema_version=1, factory=_selector_factory(),
                         deterministic=False)
@@ -181,7 +197,12 @@ def swebench_solver_topology(
         # Solved -> run tests for every applied patch of that round
         b.trigger("select_exec", subscription=api.Subscription(kinds=frozenset({"Solved"})), predicate=lambda ctx: True,
                   starts="select_exec",
-                  input_builder=lambda ctx: {"round": int(ctx.event.payload["round"]), "applied": _round_applied(ctx, int(ctx.event.payload["round"]))},
+                  input_builder=lambda ctx: {
+                      "round": int(ctx.event.payload["round"]),
+                      "applied": _round_applied(ctx, int(ctx.event.payload["round"])),
+                      "repro_code": (ctx.views["reproduction"].value()[-1]["code"]
+                                     if ctx.views["reproduction"].value() else ""),
+                  },
                   policy=api.PerEvent())
         # all TestResults in for the round -> rerank
         b.trigger("selector", subscription=api.Subscription(kinds=frozenset({"TestResults"})),

@@ -44,10 +44,15 @@ class DockerTestRunner:
         self.platform = platform
         self.timeout = timeout
 
-    def run(self, model_patch: str, test_command: str) -> tuple[int, str]:
+    def run(self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None) -> tuple[int, str]:
         with tempfile.TemporaryDirectory() as d:
             with open(os.path.join(d, "patch.diff"), "w") as fh:
                 fh.write(model_patch)
+            # extra files (e.g. the generated reproduction test) land in /sol alongside the patch, so the
+            # test_command can reference them (`python /sol/repro.py`).
+            for rel, content in (extra_files or {}).items():
+                with open(os.path.join(d, rel), "w") as fh:
+                    fh.write(content)
             # apply the patch, then run the tests; `&&` so a failed apply short-circuits to non-zero.
             script = f"cd {self.testbed} && git apply -v /sol/patch.diff && {test_command}"
             try:

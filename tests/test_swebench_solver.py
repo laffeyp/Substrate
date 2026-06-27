@@ -38,7 +38,7 @@ class _SolverResponder:
 class _StubRunner:
     """Regression passes; the reproduction test reports the issue resolved."""
 
-    def run(self, model_patch: str, test_command: str) -> tuple[int, str]:
+    def run(self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None) -> tuple[int, str]:
         return (0, "1 passed in 0.1s") if test_command == "REG" else (0, "Issue resolved")
 
 
@@ -52,7 +52,6 @@ async def test_swebench_solver_end_to_end_on_a_fixture(tmp_path) -> None:  # typ
         known_files={"m.py", "README.md"},
         runner=_StubRunner(),
         regression_command="REG",
-        reproduction_command="REPRO",
         n=2,
         max_rounds=1,
         watchdog_seconds=20.0,
@@ -76,7 +75,7 @@ class _FlakyRunner:
     def __init__(self) -> None:
         self.calls = 0
 
-    def run(self, model_patch: str, test_command: str) -> tuple[int, str]:
+    def run(self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None) -> tuple[int, str]:
         self.calls += 1
         if self.calls == 1:
             raise RuntimeError("container OOM")
@@ -89,7 +88,7 @@ async def test_runner_failure_does_not_wedge(tmp_path) -> None:  # type: ignore[
         responders=[_SolverResponder() for _ in range(2)],
         base_checkout=base, issue="make f(x) return x + 1", repo_skeleton="m.py\nREADME.md",
         known_files={"m.py", "README.md"}, runner=_FlakyRunner(),
-        regression_command="REG", reproduction_command="REPRO", n=2, max_rounds=1, watchdog_seconds=5.0,
+        regression_command="REG", n=2, max_rounds=1, watchdog_seconds=5.0,
     )
     await Runtime(tmp_path / "run").run(topo)
     events = list(read_record(tmp_path / "run"))
@@ -114,7 +113,7 @@ async def test_drafter_model_error_does_not_wedge(tmp_path) -> None:  # type: ig
         responders=[_DyingDrafter() for _ in range(2)],
         base_checkout=base, issue="make f(x) return x + 1", repo_skeleton="m.py\nREADME.md",
         known_files={"m.py", "README.md"}, runner=_StubRunner(),
-        regression_command="REG", reproduction_command="REPRO", n=2, max_rounds=1, watchdog_seconds=5.0,
+        regression_command="REG", n=2, max_rounds=1, watchdog_seconds=5.0,
     )
     await Runtime(tmp_path / "run").run(topo)
     events = list(read_record(tmp_path / "run"))
@@ -137,7 +136,7 @@ async def test_localizer_model_error_does_not_wedge(tmp_path) -> None:  # type: 
         responders=[_DyingLocalizer() for _ in range(2)],
         base_checkout=base, issue="make f(x) return x + 1", repo_skeleton="m.py\nREADME.md",
         known_files={"m.py", "README.md"}, runner=_StubRunner(),
-        regression_command="REG", reproduction_command="REPRO", n=2, max_rounds=1, watchdog_seconds=5.0,
+        regression_command="REG", n=2, max_rounds=1, watchdog_seconds=5.0,
     )
     await Runtime(tmp_path / "run").run(topo)
     events = list(read_record(tmp_path / "run"))

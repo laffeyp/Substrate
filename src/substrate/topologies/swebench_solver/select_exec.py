@@ -29,10 +29,11 @@ _Factory = Callable[[], Any]
 
 
 class TestRunner(Protocol):
-    """Apply `model_patch` in the instance environment and run `test_command`; return (returncode, output).
-    The real implementation runs in the per-instance Docker container; a stand-in is used in tests."""
+    """Apply `model_patch` in the instance environment, optionally drop `extra_files` (e.g. the generated
+    reproduction test) alongside, and run `test_command`; return (returncode, output). The real
+    implementation runs in the per-instance Docker container; a stand-in is used in tests."""
 
-    def run(self, model_patch: str, test_command: str) -> tuple[int, str]: ...
+    def run(self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None) -> tuple[int, str]: ...
 
 
 _PASSED = re.compile(r"(\d+)\s+passed")
@@ -64,16 +65,16 @@ def reproduction_status(output: str) -> Reproduction:
 
 
 async def run_one(
-    runner: TestRunner, regression_command: str, reproduction_command: str | None, slot: int, model_patch: str
+    runner: TestRunner, regression_command: str, repro_code: str, slot: int, model_patch: str
 ) -> TestResults:
-    """Run one applied patch's tests -> one TestResults. The single per-patch primitive — the SINGLE
-    implementation of 'run tests for a patch' (the assembly's fan-out and the standalone factory both call
-    it). `regression_command` MUST be repo-derived (NOT the PASS_TO_PASS field — firewall)."""
+    """Run one applied patch's tests -> one TestResults. The single per-patch primitive (the assembly's
+    fan-out and the standalone factory both call it). `regression_command` MUST be repo-derived (NOT the
+    PASS_TO_PASS field — firewall); `repro_code` is the solver's generated reproduction test ("" to skip)."""
     rc, out = await asyncio.to_thread(runner.run, model_patch, regression_command)
     reg_ok = regression_passed(rc, out)
     repro, repro_out = Reproduction.OTHER, ""
-    if reproduction_command:
-        _, repro_out = await asyncio.to_thread(runner.run, model_patch, reproduction_command)
+    if repro_code:
+        _, repro_out = await asyncio.to_thread(runner.run, model_patch, "python /sol/repro.py", {"repro.py": repro_code})
         repro = reproduction_status(repro_out)
     return TestResults(
         slot=slot,
@@ -86,7 +87,7 @@ async def run_one(
 def select_exec_validate_factory(
     runner: TestRunner,
     regression_command: str,
-    reproduction_command: str | None,
+    repro_code: str = "",
 ) -> _Factory:
     """Per AppliedPatch (input carries `slot` + `model_patch`): run the tests via `run_one`, emit one
     TestResults. Host in a producer with `deterministic=False`."""
@@ -94,6 +95,6 @@ def select_exec_validate_factory(
     async def select_exec(inp: Any) -> AsyncIterator[TestResults]:
         slot = int(inp.get("slot", 0)) if hasattr(inp, "get") else 0
         patch = str(inp.get("model_patch", "")) if hasattr(inp, "get") else ""
-        yield await run_one(runner, regression_command, reproduction_command, slot, patch)
+        yield await run_one(runner, regression_command, repro_code, slot, patch)
 
     return lambda: select_exec

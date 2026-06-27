@@ -116,13 +116,13 @@ def main() -> None:
             return ("\n".join(gold_list) + "\n") if "suspect file" in prompt else sr
 
     class _PassRunner:
-        def run(self, model_patch: str, test_command: str) -> tuple[int, str]:
+        def run(self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None) -> tuple[int, str]:
             return (0, "1 passed in 0.0s")
 
     topo = swebench_solver_topology(
         responders=[_GoldResponder()],
         base_checkout=base, issue=inst["problem_statement"][:4000], repo_skeleton=skeleton,
-        known_files=known, runner=_PassRunner(), regression_command="true", reproduction_command=None,
+        known_files=known, runner=_PassRunner(), regression_command="true",
         n=1, max_rounds=1, watchdog_seconds=30.0,
     )
     rundir = Path(tempfile.mkdtemp(prefix="solve-")) / "run"
