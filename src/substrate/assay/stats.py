@@ -45,6 +45,19 @@ SUPERIOR = "superior"
 EQUIVALENT = "equivalent"
 INFERIOR = "inferior"
 INCONCLUSIVE = "inconclusive"
+UNDERPOWERED = "underpowered"  # would read equivalent, but too few cases for THIS margin to claim it
+
+
+def equivalence_power_floor(margin: float) -> int:
+    """Minimum paired cases to be ALLOWED to claim equivalence within ±margin. Equivalence sample size
+    scales ~1/δ²; this yields ~90 / 160 / 360 at margin 0.20 / 0.15 / 0.10 (the figures the power
+    analysis fixed). A looser margin needs fewer cases — which is exactly WHY the margin must be
+    pre-registered, not chosen after seeing the data (the report binds it to the run's recorded config).
+    The floor only stops an underpowered run from PRINTING equivalence; it never blocks a real
+    difference (superior/inferior fire regardless of n)."""
+    if margin <= 0:
+        return 10**9
+    return math.ceil(3.6 / (margin * margin))
 
 
 @dataclass(frozen=True)
@@ -121,19 +134,22 @@ def bootstrap_delta_pass_k(
     le = sum(1 for d in deltas if d <= 0) / n_boot
     ge = sum(1 for d in deltas if d >= 0) / n_boot
     p = min(1.0, 2 * min(le, ge))
-    return DeltaCI(
-        point, lo, hi, p, equivalence_verdict(tost_lo, tost_hi, margin=margin), len(cases), k, n_boot, margin
-    )
+    verdict = equivalence_verdict(tost_lo, tost_hi, margin=margin, n_pairs=len(cases))
+    return DeltaCI(point, lo, hi, p, verdict, len(cases), k, n_boot, margin)
 
 
-def equivalence_verdict(ci_low: float, ci_high: float, *, margin: float) -> str:
-    """Margin-proper verdict from a CI on Δ against a pre-specified equivalence margin. The CI passed
-    here should be the EQUIVALENCE interval (the 90% CI for a 5% TOST — two one-sided tests — NOT the
-    95% difference CI; see `bootstrap_delta_pass_k`).
+def equivalence_verdict(ci_low: float, ci_high: float, *, margin: float, n_pairs: int) -> str:
+    """Margin-proper verdict from a CI on Δ against a pre-specified equivalence margin, GATED on power.
+    The CI passed here should be the EQUIVALENCE interval (the 90% CI for a 5% TOST — two one-sided
+    tests — NOT the 95% difference CI; see `bootstrap_delta_pass_k`).
 
-      - equivalent: whole CI inside (-margin, margin) — a REAL 'no meaningful difference', not mere
-        non-significance.
+      - equivalent: whole CI inside (-margin, margin) AND `n_pairs` >= the margin's power floor — a REAL
+        'no meaningful difference', with enough cases to mean it.
+      - underpowered: the CI sits inside ±margin but there are TOO FEW cases for this margin — the
+        cargo-cult trap (a tight-looking CI, or a margin loose enough to swallow a wide CI, on a thin
+        run); must NOT read as a real tie.
       - superior / inferior: whole CI clears +margin / -margin — a difference EXCEEDING the margin.
+        Fires regardless of n (detecting a real difference needs less power than proving a tie).
       - inconclusive: the CI straddles a margin boundary (underpowered for either claim), OR is
         degenerate (zero width — an all-identical bootstrap cannot support an equivalence claim; the
         false-EQUIVALENT-at-[0,0] trap the power analysis warned about).
@@ -151,7 +167,7 @@ def equivalence_verdict(ci_low: float, ci_high: float, *, margin: float) -> str:
     # artifact of few/identical cases, not power — it falls through to INCONCLUSIVE. (A zero-width CI
     # that CLEARS a margin, e.g. [1,1] or [-1,-1], is a genuine maximal difference and is caught above.)
     if -margin <= ci_low and ci_high <= margin and ci_low != ci_high:
-        return EQUIVALENT
+        return EQUIVALENT if n_pairs >= equivalence_power_floor(margin) else UNDERPOWERED
     return INCONCLUSIVE
 
 

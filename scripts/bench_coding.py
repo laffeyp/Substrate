@@ -33,11 +33,10 @@ import time
 from pathlib import Path
 
 from substrate import api
-from substrate.assay import build_report, run_arm_on_case
+from substrate.assay import run_arm_on_case
 from substrate.assay.coding import coding_suite
 from substrate.assay.coding_problems import coding_problem_bank
-from substrate.assay.oracle import EXTERNAL_GRADER, Result
-from substrate.assay.run import CaseResult, UsageTotals
+from substrate.assay.run import UsageTotals
 from substrate.assay.suite import Arm, Case, Suite
 
 STRONG_MODEL = os.environ.get("BENCH_STRONG", "qwen3-coder:480b-cloud")
@@ -111,16 +110,6 @@ def _row(arm: Arm, case: Case, trial: int, passed: bool, source: str, u: UsageTo
     }
 
 
-def _to_caseresult(r: dict[str, object]) -> CaseResult:
-    p = bool(r["passed"])
-    return CaseResult(
-        arm=str(r["arm"]), role=str(r["role"]), case_id=str(r["case_id"]), trial=int(r["trial"]),  # type: ignore[arg-type]
-        result=Result(passed=p, score=1.0 if p else 0.0, metric="resolved-held-out",
-                      oracle_class=EXTERNAL_GRADER, replayable=False, detail=str(r.get("source", ""))),
-        usage=UsageTotals(prompt_tokens=int(r.get("prompt_tokens") or 0), completion_tokens=int(r.get("completion_tokens") or 0),  # type: ignore[arg-type]
-                          inference_ms=int(r.get("inference_ms") or 0), model_calls=int(r.get("model_calls") or 0), estimated=bool(r.get("estimated", False))),  # type: ignore[arg-type]
-        elapsed_ms=int(r.get("elapsed_ms") or 0), root=str(r.get("root", "")),  # type: ignore[arg-type]
-    )
 
 
 _ZERO = UsageTotals(0, 0, 0, 0, False)
@@ -128,40 +117,56 @@ _RUN_ID = ""  # set in main(); stamped on every cell for provenance
 _CONFIG_FP = ""  # config fingerprint; the resume guard refuses to mix configs in one file
 
 
-def _print_report(suite: Suite) -> None:
-    rows = _load_rows()
-    report = build_report(suite, [_to_caseresult(r) for r in rows.values()])
-    n_run = sum(1 for r in rows.values() if r.get("source") == "run")
-    n_salv = sum(1 for r in rows.values() if r.get("source") == "salvage")
-    n_fail = sum(1 for r in rows.values() if r.get("source") == "fail")
-    trials = (max((int(r["trial"]) for r in rows.values()), default=0) + 1) if rows else 0
-    print(f"\n=== {report.suite}  primary={report.primary_metric}  control={report.control_arm} ===")
-    print(f"cells: {len(rows)} ({n_run} run, {n_salv} salvaged, {n_fail} failed/timeout)  "
-          f"control-ran: {report.control_check.state}  margin=±{MARGIN}  trials={trials}")
-    print(f"  TWO CURRENCIES, never spliced: reliable = pass^{trials} (a problem counts only if ALL "
-          f"{trials} trials pass); per-trial = pass@1 (mean attempt). flake = per-trial − reliable.")
+def _print_report() -> None:
+    # The report is ALWAYS derived from the recorded cells + meta (cells.report_from_cells), so the
+    # margin is BOUND to the run's pre-registered config — never the env at report time (gate 3: no
+    # post-hoc margin). A differing BENCH_MARGIN is ignored, with a note.
+    from substrate.assay.cells import read_rows, report_from_cells
+    from substrate.assay.stats import equivalence_power_floor
+
+    if not CELLS.exists():
+        print(f"no cells file at {CELLS}")
+        return
+    report, meta = report_from_cells(CELLS)
+    rows = read_rows(CELLS)
+    rec_margin = float(meta.get("margin", 0.1))
+    floor = equivalence_power_floor(rec_margin)
+    env_margin = os.environ.get("BENCH_MARGIN")
+    if env_margin is not None and abs(float(env_margin) - rec_margin) > 1e-9:
+        print(f"  NOTE: BENCH_MARGIN={env_margin} IGNORED — the report uses the run's RECORDED margin "
+              f"±{rec_margin}. A post-hoc margin is not allowed; re-margining is a NEW pre-registered run.")
+    n_run = sum(1 for r in rows if r.get("source") == "run")
+    n_salv = sum(1 for r in rows if r.get("source") == "salvage")
+    n_fail = sum(1 for r in rows if r.get("source") == "fail")
+    trials = (max((int(r["trial"]) for r in rows), default=0) + 1) if rows else 0
+    print(f"\n=== {report.suite}  control={report.control_arm}  margin=±{rec_margin} (recorded)  "
+          f"equivalence needs >= {floor} problems at this margin ===")
+    print(f"cells: {len(rows)} ({n_run} run, {n_salv} salvaged, {n_fail} failed)  "
+          f"control-ran: {report.control_check.state}  trials={trials}")
     for a in report.arms:
         flake = a.pass_at_1 - a.pass_rate
         line = (f"  {a.arm:22s} reliable {a.passes}/{a.n_cases}={a.pass_rate:.3f}  "
                 f"per-trial={a.pass_at_1:.3f}  flake={flake:+.3f}")
-        if a.delta_vs_control is not None:  # harsher, same currency as the count
+        if a.arm == report.control_arm:
+            pass  # the bar — no self-comparison
+        elif not a.complete:
+            line += "  | INCOMPLETE — no verdict (did not grade every problem)"
+        elif a.delta_vs_control is not None:
             line += f"  | Δreliable={a.delta_vs_control:+.3f}"
             if a.p_value is not None:
                 line += f"(McNemar p={a.p_value:.3f})"
-        if a.delta_pass_k is not None:
-            line += (f"  | Δpass@1={a.delta_pass_k:+.3f} CI95=[{a.ci_low:+.3f},{a.ci_high:+.3f}]"
-                     f" margin-verdict={a.equivalence} fdr={a.fdr_significant}")
+            line += (f"  | Δpass@1={a.delta_pass_k:+.3f} CI=[{a.ci_low:+.3f},{a.ci_high:+.3f}]"
+                     f" verdict={a.equivalence} fdr={a.fdr_significant}")
         print(line)
-    print(f"\nread it honestly: 'reliable' (pass^{trials}) and 'per-trial' (pass@1) are DIFFERENT "
-          "statistics — quote ONE. 'margin-verdict' is the TOST at ±margin: 'significantly worse' "
-          "(CI excludes 0) is NOT 'inferior' (CI clears -margin). A large `flake` means the arm "
-          "solves sometimes but not reliably — the gap pass@1 hides.")
+    print(f"\nverdicts: superior/inferior = a real difference beyond ±{rec_margin}; equivalent = a real "
+          f"tie (only with >= {floor} problems at this margin); underpowered = looks tied but too few "
+          "problems to claim it; inconclusive = can't tell. An incomplete arm gets NO verdict.")
 
 
 async def main() -> None:
     suite = _suite()
     if len(sys.argv) > 1 and sys.argv[1] == "report":
-        _print_report(suite)
+        _print_report()
         return
 
     global _CONFIG_FP, _RUN_ID
@@ -231,7 +236,7 @@ async def main() -> None:
                     print(f"  ... {progress['n']}/{len(todo)}  ({rate * 60:.0f}/min, ~{eta / 60:.1f} min left)", flush=True)
 
     await asyncio.gather(*(cell(a, c, t) for a, c, t in todo))
-    _print_report(suite)
+    _print_report()
 
 
 if __name__ == "__main__":

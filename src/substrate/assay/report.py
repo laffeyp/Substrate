@@ -55,6 +55,7 @@ class ArmReport:
     passes: int
     pass_rate: float  # pass^k-COLLAPSED reliable-solve rate (a cell counts only if ALL trials passed)
     pass_at_1: float  # per-trial (pass@1) success rate — the OTHER currency; the gap to pass_rate is flakiness
+    complete: bool  # graded EVERY suite Case — a verdict is gated on this (no claim off a partial run)
     delta_vs_control: float | None  # pass^k-collapsed Δ (same currency as `passes`) — the harsher, honest one
     discordant_control_only: int | None  # b: control passed, arm failed
     discordant_arm_only: int | None  # c: control failed, arm passed
@@ -106,6 +107,7 @@ class _Mid:
     passes: int
     pass_rate: float
     pass_at_1: float
+    complete: bool
     delta_vs_control: float | None
     b: int | None
     c: int | None
@@ -147,6 +149,9 @@ def build_report(suite: Suite, results: Sequence[CaseResult]) -> Report:
     control_bools = (
         _arm_trial_bools(results, suite.control_arm, case_ids) if check.state == PASS else {}
     )
+    # ARM-COMPLETENESS gate (review): a verdict needs every Case graded in BOTH the arm AND the control
+    # — a half-finished run (the live sweep) must not yield a confirmatory delta/CI/verdict.
+    control_complete = check.state == PASS and all(control_map.get(cid) is not None for cid in case_ids)
 
     mids: list[_Mid] = []
     for arm in suite.arms:
@@ -154,6 +159,7 @@ def build_report(suite: Suite, results: Sequence[CaseResult]) -> Report:
         graded = [cid for cid in case_ids if cells[cid] is not None]
         passes = sum(1 for cid in graded if cells[cid])
         n = len(graded)
+        arm_complete = n == len(case_ids)  # this arm graded every Case in the suite
         arm_results = [r for r in results if r.arm == arm.name]
 
         delta_vs_control: float | None = None
@@ -161,8 +167,10 @@ def build_report(suite: Suite, results: Sequence[CaseResult]) -> Report:
         c_val: int | None = None
         p_val: float | None = None
         dci: DeltaCI | None = None
-        # GATE: a delta exists only if the control ran on every Case (check PASS) and this is not it.
-        if check.state == PASS and arm.name != suite.control_arm:
+        # GATE: a delta/verdict exists only if the control ran on every Case (check PASS), this is not
+        # the control, AND both this arm and the control graded every Case (completeness — no verdict
+        # off a partial run).
+        if check.state == PASS and arm.name != suite.control_arm and arm_complete and control_complete:
             # McNemar on the pass^k-collapsed cells — PAIRED over the Cases both arms graded.
             b = c = control_passes = arm_passes = paired = 0
             for cid in case_ids:
@@ -199,6 +207,7 @@ def build_report(suite: Suite, results: Sequence[CaseResult]) -> Report:
                 pass_at_1=(sum(1 for r in arm_results if r.result.passed) / len(arm_results))
                 if arm_results
                 else 0.0,
+                complete=arm_complete,
                 delta_vs_control=delta_vs_control,
                 b=b_val,
                 c=c_val,
@@ -225,6 +234,7 @@ def build_report(suite: Suite, results: Sequence[CaseResult]) -> Report:
             passes=m.passes,
             pass_rate=m.pass_rate,
             pass_at_1=m.pass_at_1,
+            complete=m.complete,
             delta_vs_control=m.delta_vs_control,
             discordant_control_only=m.b,
             discordant_arm_only=m.c,

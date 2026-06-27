@@ -14,8 +14,10 @@ from substrate.assay.stats import (
     INCONCLUSIVE,
     INFERIOR,
     SUPERIOR,
+    UNDERPOWERED,
     benjamini_hochberg,
     bootstrap_delta_pass_k,
+    equivalence_power_floor,
     equivalence_verdict,
     pass_hat_k,
 )
@@ -38,22 +40,32 @@ def test_pass_hat_k_subset_estimator():
 
 def test_equivalence_verdict_tost():
     m = 0.1
-    # SUPERIOR / INFERIOR require the CI to CLEAR the margin — not merely to exclude 0.
-    assert equivalence_verdict(0.15, 0.30, margin=m) == SUPERIOR  # CI clears +margin
-    assert equivalence_verdict(-0.30, -0.15, margin=m) == INFERIOR  # CI clears -margin
-    assert equivalence_verdict(-0.05, 0.05, margin=m) == EQUIVALENT  # whole CI inside ±margin
-    # THE CRUX the headline got wrong: 'significantly worse/better' (CI excludes 0) is NOT 'inferior/
-    # superior' (CI beyond the margin). A CI that excludes 0 but straddles a margin boundary is
-    # margin-INCONCLUSIVE, not a margin verdict.
-    assert equivalence_verdict(0.05, 0.20, margin=m) == INCONCLUSIVE  # sig. better, below +margin floor
-    assert equivalence_verdict(-0.18, -0.06, margin=m) == INCONCLUSIVE  # sig. worse — the full pass@1 case
-    assert equivalence_verdict(-0.30, 0.30, margin=m) == INCONCLUSIVE  # wide, non-significant
-    assert equivalence_verdict(-0.15, 0.02, margin=m) == INCONCLUSIVE
-    # degenerate zero-width bootstrap: WITHIN the margin it is the false-equivalence trap -> inconclusive
-    # (never equivalent); CLEARING the margin it is a genuine maximal difference.
-    assert equivalence_verdict(0.0, 0.0, margin=m) == INCONCLUSIVE  # [0,0] must NOT read equivalent
-    assert equivalence_verdict(1.0, 1.0, margin=m) == SUPERIOR  # genuine maximal superiority
-    assert equivalence_verdict(-1.0, -1.0, margin=m) == INFERIOR  # genuine maximal inferiority
+    big = equivalence_power_floor(m)  # cases needed to CLAIM equivalence at this margin (~360)
+    # SUPERIOR / INFERIOR require the CI to CLEAR the margin — not merely exclude 0. Fire regardless of n.
+    assert equivalence_verdict(0.15, 0.30, margin=m, n_pairs=10) == SUPERIOR
+    assert equivalence_verdict(-0.30, -0.15, margin=m, n_pairs=10) == INFERIOR
+    # EQUIVALENT needs the whole CI inside ±margin AND enough cases for the margin (the power gate).
+    assert equivalence_verdict(-0.05, 0.05, margin=m, n_pairs=big) == EQUIVALENT
+    # THE CARGO-CULT TRAP: same tight CI, too few cases -> underpowered, NOT a manufactured tie.
+    assert equivalence_verdict(-0.05, 0.05, margin=m, n_pairs=big - 1) == UNDERPOWERED
+    assert equivalence_verdict(-0.05, 0.05, margin=m, n_pairs=59) == UNDERPOWERED
+    # 'significantly worse/better' (excludes 0) is NOT a margin verdict if it straddles the boundary.
+    assert equivalence_verdict(0.05, 0.20, margin=m, n_pairs=big) == INCONCLUSIVE
+    assert equivalence_verdict(-0.18, -0.06, margin=m, n_pairs=big) == INCONCLUSIVE  # the full pass@1 case
+    assert equivalence_verdict(-0.30, 0.30, margin=m, n_pairs=big) == INCONCLUSIVE
+    # degenerate zero-width: within the margin -> the false-equivalence trap -> inconclusive; clearing it
+    # -> a genuine maximal difference (n-independent).
+    assert equivalence_verdict(0.0, 0.0, margin=m, n_pairs=big) == INCONCLUSIVE
+    assert equivalence_verdict(1.0, 1.0, margin=m, n_pairs=10) == SUPERIOR
+    assert equivalence_verdict(-1.0, -1.0, margin=m, n_pairs=10) == INFERIOR
+
+
+def test_equivalence_power_floor_scales_with_margin():
+    # a TIGHTER equivalence claim needs MORE cases; the figures match the power analysis (~90/160/360).
+    assert equivalence_power_floor(0.20) == 90
+    assert equivalence_power_floor(0.15) == 160
+    assert equivalence_power_floor(0.10) == 360
+    assert equivalence_power_floor(0.20) < equivalence_power_floor(0.10)
 
 
 def test_bootstrap_delta_is_repeatable_and_directional():
@@ -68,12 +80,13 @@ def test_bootstrap_delta_is_repeatable_and_directional():
     assert a.ci_low > 0 and a.verdict == SUPERIOR
 
 
-def test_bootstrap_equal_arms_not_called_superior():
-    # identical arms -> delta ~ 0; must NOT be superior, and with a generous margin reads equivalent.
+def test_bootstrap_equal_arms_not_called_superior_or_equivalent_on_few_cases():
+    # identical arms -> delta ~ 0; must NOT be superior. And on only 10 cases it must NOT print a real
+    # tie either — the power gate makes it underpowered (or inconclusive), never a manufactured EQUIVALENT.
     same = {f"c{i}": [True, False] for i in range(10)}
     d = bootstrap_delta_pass_k(same, dict(same), k=1, margin=0.25, n_boot=2000, seed=1)
     assert d.delta == pytest.approx(0.0, abs=1e-9)
-    assert d.verdict in (EQUIVALENT, INCONCLUSIVE) and d.verdict != SUPERIOR
+    assert d.verdict in (UNDERPOWERED, INCONCLUSIVE) and d.verdict not in (SUPERIOR, EQUIVALENT)
 
 
 def test_bootstrap_degenerate_zero_variance_is_inconclusive_not_equivalent():
