@@ -67,9 +67,16 @@ def localizer_factory(
     refinement, design §5)."""
 
     async def localize(_inp: Any) -> AsyncIterator[Any]:
-        response, usage = await call_responder_metered(responder, build_localize_prompt(issue, repo_skeleton))
-        yield usage
-        files = parse_suspect_files(response, known_files)[:top_k]
+        try:
+            response, usage = await call_responder_metered(responder, build_localize_prompt(issue, repo_skeleton))
+            yield usage
+            files = parse_suspect_files(response, known_files)[:top_k]
+        except Exception:  # noqa: BLE001 — the localizer is the INITIAL producer; its death wedges the
+            # WHOLE instance (no EditLocations -> the seed trigger never fires -> the loop never starts).
+            # Emit empty localization so the loop seeds, drafts blind, and reaches a clean Exhausted
+            # (errors-as-observations, symmetric to the drafter — review #63). Every model-call producer
+            # gets this; audit them as a SET, not one at a time (KIT_DIARY 16).
+            files = []
         yield SuspectFiles(files=tuple(files))
         yield EditLocations(targets=tuple(files))
 

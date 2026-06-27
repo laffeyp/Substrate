@@ -121,3 +121,27 @@ async def test_drafter_model_error_does_not_wedge(tmp_path) -> None:  # type: ig
     # the failed drafts don't apply -> all fail -> Exhausted CLEANLY (not a watchdog wedge); no patch.
     assert any(e["kind"] == "Exhausted" for e in events)
     assert not any(e["kind"] == "SelectedPatch" for e in events)
+
+
+class _DyingLocalizer:
+    """The localizer model call dies — the WORST wedge (the localizer is the INITIAL producer; its death
+    means no EditLocations -> the loop never even starts). Must degrade to empty localization, not hang."""
+
+    def respond(self, prompt: str) -> str:
+        raise RuntimeError("localizer model died")
+
+
+async def test_localizer_model_error_does_not_wedge(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    base = _fixture_repo()
+    topo = swebench_solver_topology(
+        responders=[_DyingLocalizer() for _ in range(2)],
+        base_checkout=base, issue="make f(x) return x + 1", repo_skeleton="m.py\nREADME.md",
+        known_files={"m.py", "README.md"}, runner=_StubRunner(),
+        regression_command="REG", reproduction_command="REPRO", n=2, max_rounds=1, watchdog_seconds=5.0,
+    )
+    await Runtime(tmp_path / "run").run(topo)
+    events = list(read_record(tmp_path / "run"))
+    # localizer error -> empty SuspectFiles -> the loop still seeds + drafts blind -> clean Exhausted.
+    assert any(e["kind"] == "SuspectFiles" and e["payload"]["files"] == [] for e in events)
+    assert any(e["kind"] == "Exhausted" for e in events)
+    assert not any(e["kind"] == "SelectedPatch" for e in events)
