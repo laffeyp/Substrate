@@ -15,11 +15,15 @@ don't over-engineer; make a model picker a MEASURED upgrade later, same recall@k
   - its name stem matches a touched source file's stem (test_blueprints.py ~ src/flask/blueprints.py) — the
     common test<->module pairing, the signal directory alone misses when tests live in a separate tree.
 
-THE FIREWALL: the candidate `model_patch` and the repo `test_files` both come from the CHECKOUT — never the
-instance's PASS_TO_PASS field (grade metadata). The held-out `test_patch` files are dropped via `exclude`,
-so a FAIL_TO_PASS test that happens to live in a pre-existing file can never enter the regression set. A
-separate runtime filter (passed-at-base) is applied where the tests actually run; this module only chooses
-WHICH test files are eligible.
+THE FIREWALL (precise — review #69): this is firewall-clean on test SELECTION-BY-CONTENT and on the solver's
+localize/repair — the candidate `model_patch` and the repo `test_files` come from the CHECKOUT, never the
+PASS_TO_PASS field, and the eval_script's test selection is never reused. It is HARNESS-ASSISTED on the
+regression FILE-SET: `exclude` is the held-out `test_patch` file PATHS (grade metadata — path-only, never
+reaching the solver, so not a teach-to-the-test leak), used to drop issue-related test files that PROXIMITY
+MISSES (non-co-located). That modestly spares a correct patch from a test a self-contained solver couldn't
+know to skip. `exclude_delta` measures exactly how often that assist bites per instance, so the advantage is
+disclosed, not silent (don't report a flat "firewall-clean" rate). A separate runtime filter (passed-at-base)
+is applied where the tests actually run; this module only chooses WHICH test files are eligible.
 """
 
 from __future__ import annotations
@@ -82,6 +86,18 @@ def proximity_regression_files(
     CHECKOUT — never PASS_TO_PASS."""
     related = related_test_files(test_files, touched)
     return sorted(tf for tf in test_files if tf not in related and tf not in exclude)
+
+
+def exclude_delta(
+    test_files: list[str] | set[str], touched: set[str], *, exclude: set[str]
+) -> list[str]:
+    """The harness-assist `exclude` actually provides for this instance (review #69): the test files that
+    proximity would have KEPT in the regression set but `exclude` (held-out test_patch paths) drops. Empty
+    => proximity already caught the issue tests and the test_patch metadata changed nothing; non-empty =>
+    these are correct-patch-sparing drops a self-contained solver couldn't know to make. Bank it alongside
+    recall so any harness advantage in the resolve rate is disclosed with a number, never silent."""
+    proximity_kept = set(test_files) - related_test_files(test_files, touched)
+    return sorted(proximity_kept & set(exclude))
 
 
 def make_regression_planner(

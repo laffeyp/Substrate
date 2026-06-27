@@ -42,6 +42,18 @@ def repo_test_spec(repo: str, version: str) -> Mapping[str, Any]:
     return MAP_REPO_VERSION_TO_SPECS[repo][version]  # type: ignore[no-any-return]
 
 
+def cmd_takes_paths(test_cmd: str) -> bool:
+    """Does the repo's runner take FILE PATHS as args, so appending picked test files forms a valid command?
+    True for pytest-style runners (flask: `pytest -rA <files>`). FALSE for module-LABEL runners — django's
+    `./tests/runtests.py --settings=...` wants `module.Class` labels, not paths, so appending paths makes a
+    malformed/empty regression run (review #69, the per-repo guard before going past flask). Unknown ->
+    False (conservative: don't silently emit a broken command for an uncatalogued runner)."""
+    low = test_cmd.lower()
+    if "pytest" in low or "py.test" in low:
+        return True
+    return False
+
+
 def build_regression_command(
     spec: Mapping[str, Any], regression_files: list[str], *, activate: str = TESTBED_ACTIVATE
 ) -> str:
@@ -49,11 +61,19 @@ def build_regression_command(
     install (`spec['install']`, e.g. `python -m pip install -e .` so the candidate's source change takes
     effect) then the repo's OWN test runner (`spec['test_cmd']`, e.g. `pytest -rA`) over the chosen
     `regression_files`. `regression_files` come from the proximity picker over the checkout — NEVER the
-    eval_script's selection / PASS_TO_PASS. Empty if there's nothing to run (no vacuous all-pass)."""
+    eval_script's selection / PASS_TO_PASS. Empty if there's nothing to run (no vacuous all-pass).
+
+    Raises ValueError if the repo's `test_cmd` is NOT a path-taking runner (django-style) while files are
+    given — fail loud rather than append paths to a module-label runner and silently run nothing (#69)."""
     if not regression_files:
         return ""
-    install = str(spec["install"]).strip()
     test_cmd = str(spec["test_cmd"]).strip()
+    if not cmd_takes_paths(test_cmd):
+        raise ValueError(
+            f"test_cmd {test_cmd!r} is not a path-taking runner; appending file paths would malform the "
+            "regression command. Add a per-repo command adapter (e.g. paths->module labels) before this repo."
+        )
+    install = str(spec["install"]).strip()
     return f"{activate} && {install} && {test_cmd} {' '.join(regression_files)}".strip()
 
 

@@ -5,6 +5,7 @@ unrelated test like test_json.py stays IN the regression set."""
 
 from substrate.topologies.swebench_solver.select_exec import resolve_regression
 from substrate.topologies.swebench_solver.select_regression import (
+    exclude_delta,
     make_regression_planner,
     patch_touched_files,
     proximity_regression_files,
@@ -74,6 +75,21 @@ def test_planner_builds_per_candidate_firewall_clean_command() -> None:
 def test_planner_empty_command_when_everything_excluded() -> None:
     plan = make_regression_planner(_SPEC, ["tests/test_basic.py"], exclude={"tests/test_basic.py"})
     assert plan(_FLASK_PATCH) == ""  # nothing left -> empty (no vacuous all-pass)
+
+
+def test_exclude_delta_zero_when_proximity_already_catches() -> None:
+    # the issue test is co-located (stem match) -> proximity already drops it -> exclude adds nothing.
+    test_files = ["tests/test_blueprints.py", "tests/test_json.py"]
+    touched = {"src/flask/blueprints.py"}
+    assert exclude_delta(test_files, touched, exclude={"tests/test_blueprints.py"}) == []
+
+
+def test_exclude_delta_names_the_harness_assist() -> None:
+    # the issue test is NOT co-located (other dir, no stem match) -> proximity keeps it -> exclude is what
+    # drops it: that drop is the harness assist, and exclude_delta names it.
+    test_files = ["other/test_weird.py", "tests/test_json.py"]
+    touched = {"src/flask/blueprints.py"}
+    assert exclude_delta(test_files, touched, exclude={"other/test_weird.py"}) == ["other/test_weird.py"]
 
 
 def test_resolve_regression_static_vs_planner() -> None:
