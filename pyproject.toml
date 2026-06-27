@@ -41,6 +41,10 @@ packages = ["src/substrate"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# The suite is FUNCTION-tests only (def test_*, with underscore-prefixed helper classes). Disable
+# class-based collection so a DOMAIN record whose name starts with "Test" (e.g. the locked vocabulary
+# record `TestResults`) isn't mistaken for a test class when imported into a test module.
+python_classes = []
 markers = [
   # real-model demos run a topology against a LIVE local LLM (Ollama) and verify the claim from the
   # record. Self-skip when the models are absent (so CI / other machines stay green); run here.
