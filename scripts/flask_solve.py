@@ -80,13 +80,24 @@ def main() -> None:
     if not result.applied:
         print(f"ERROR: {result.error}")
         sys.exit(2)
-    # the produced patch should touch the same files as the known fix
-    produced_files = {ln[6:] for ln in result.model_patch.splitlines() if ln.startswith("+++ b/")}
     gold_files = {ln[6:] for ln in inst["patch"].splitlines() if ln.startswith("+++ b/")}
-    print(f"produced model_patch touches: {sorted(produced_files)}")
-    print(f"matches the known fix's files: {produced_files == gold_files}")
-    print("\n--- produced model_patch (head) ---")
-    print("\n".join(result.model_patch.splitlines()[:8]))
+
+    # normalized-CONTENT equivalence (review #64): file-set match is too weak — it would pass a patch that
+    # touches the right file with WRONG/partial content. Compare the actual +/- change bodies (as a set, so
+    # git's hunk regrouping doesn't matter) and HALT loudly on any converter mangle BEFORE grading, so a
+    # gold-fed run is self-verifying across instances.
+    def _changes(d: str) -> list[str]:
+        return sorted(
+            ln.rstrip() for ln in d.splitlines()
+            if (ln.startswith("+") or ln.startswith("-")) and not ln.startswith(("+++", "---"))
+        )
+
+    if _changes(result.model_patch) != _changes(inst["patch"]):
+        print("ERROR: produced patch is NOT content-equivalent to the gold fix (converter mangle)")
+        print("  produced:", _changes(result.model_patch)[:6])
+        print("  gold:    ", _changes(inst["patch"])[:6])
+        sys.exit(2)
+    print("produced patch is content-equivalent to the gold fix (self-verified)")
 
     # === STAGE 2: run the full pipeline with the known fix, then grade with the oracle ===
     import asyncio
