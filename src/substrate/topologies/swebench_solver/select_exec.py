@@ -39,12 +39,31 @@ class TestRunner(Protocol):
 _PASSED = re.compile(r"(\d+)\s+passed")
 _FAILED = re.compile(r"\d+\s+failed")
 _ERRORS = re.compile(r"\d+\s+error")
+# the per-test lines pytest emits under `-rA` (the repo test_cmd already carries -rA): "PASSED path::test",
+# "FAILED path::test - reason", "ERROR path::test", etc. The status is the first token, the id the second.
+_OUTCOME = re.compile(r"^(PASSED|FAILED|ERROR|SKIPPED|XFAIL|XPASS)\s+(\S+)", re.MULTILINE)
+
+
+def parse_test_outcomes(output: str) -> dict[str, str]:
+    """Per-test outcomes from a `pytest -rA` run: {test_id: status_lowercased}. The grain the passed-at-base
+    filter needs — a whole-run pass/fail count can't tell a NEW failure from a PRE-EXISTING one."""
+    return {tid: status.lower() for status, tid in _OUTCOME.findall(output)}
+
+
+def passed_tests(output: str) -> set[str]:
+    """The test ids that PASSED in a `pytest -rA` run (the base-passing set is computed from this)."""
+    return {tid for tid, status in parse_test_outcomes(output).items() if status == "passed"}
 
 
 def regression_passed(returncode: int, output: str) -> bool:
     """The repo-derived regression set passed: exit 0 AND positive evidence (>= 1 passed, no failed/error).
     The same positive-evidence discipline as the held-out grade — a clean exit alone is forgeable (a patch
-    that breaks collection can exit non-zero, or an `os._exit(0)` can exit clean with nothing run)."""
+    that breaks collection can exit non-zero, or an `os._exit(0)` can exit clean with nothing run).
+
+    NOTE: this whole-run bool is only honest when EVERY test passes at base. On repos that don't (flask runs
+    warnings-as-errors and the pinned env emits deprecations -> ~133 unrelated base failures, proven by the
+    real-runner smoke #69), use `regression_held` against a passed-at-base set instead — a pre-existing
+    failure must not be charged to the candidate."""
     if returncode != 0:
         return False
     low = output.lower()
@@ -52,6 +71,19 @@ def regression_passed(returncode: int, output: str) -> bool:
         return False
     m = _PASSED.search(output)
     return m is not None and int(m.group(1)) >= 1
+
+
+def regression_held(passed_at_base: set[str], patched_output: str) -> bool:
+    """The firewall-clean regression signal when the repo has pre-existing base failures: NO test that
+    PASSED AT BASE may now fail. Compares per-test outcomes — a test failing in BOTH runs (env/deprecation
+    noise) is not charged to the candidate; only a base-pass -> patched-non-pass is a regression. Requires
+    positive evidence: at least one base-passing test actually ran and still passes (so a patch that breaks
+    collection / runs nothing can't vacuously 'hold')."""
+    outcomes = parse_test_outcomes(patched_output)
+    ran_base_passing = [tid for tid in outcomes if tid in passed_at_base]
+    if not ran_base_passing:
+        return False  # nothing from the base-passing set ran -> no evidence the patch didn't break it
+    return all(outcomes[tid] == "passed" for tid in ran_base_passing)
 
 
 def reproduction_status(output: str) -> Reproduction:
@@ -65,13 +97,21 @@ def reproduction_status(output: str) -> Reproduction:
 
 
 async def run_one(
-    runner: TestRunner, regression_command: str, repro_code: str, slot: int, model_patch: str
+    runner: TestRunner,
+    regression_command: str,
+    repro_code: str,
+    slot: int,
+    model_patch: str,
+    *,
+    passed_at_base: frozenset[str] | None = None,
 ) -> TestResults:
     """Run one applied patch's tests -> one TestResults. The single per-patch primitive (the assembly's
     fan-out and the standalone factory both call it). `regression_command` MUST be repo-derived (NOT the
-    PASS_TO_PASS field — firewall); `repro_code` is the solver's generated reproduction test ("" to skip)."""
+    PASS_TO_PASS field — firewall); `repro_code` is the solver's generated reproduction test ("" to skip).
+    `passed_at_base` (the instance's base-passing test ids) switches the signal to `regression_held` — the
+    honest filter on repos with pre-existing base failures; None falls back to the whole-run `regression_passed`."""
     rc, out = await asyncio.to_thread(runner.run, model_patch, regression_command)
-    reg_ok = regression_passed(rc, out)
+    reg_ok = regression_held(set(passed_at_base), out) if passed_at_base is not None else regression_passed(rc, out)
     repro, repro_out = Reproduction.OTHER, ""
     if repro_code:
         _, repro_out = await asyncio.to_thread(runner.run, model_patch, "python /sol/repro.py", {"repro.py": repro_code})

@@ -98,8 +98,11 @@ class DockerTestRunner:
             for rel, content in (extra_files or {}).items():
                 with open(os.path.join(d, rel), "w") as fh:
                     fh.write(content)
-            # apply the patch, then run the tests; `&&` so a failed apply short-circuits to non-zero.
-            script = f"cd {self.testbed} && git apply -v /sol/patch.diff && {test_command}"
+            # apply the patch, then run the tests; `&&` so a failed apply short-circuits to non-zero. An
+            # EMPTY patch means "run on base_commit" (the passed-at-base run) — skip git apply, which errors
+            # on an empty file ("No valid patches in input", rc 128) and would short-circuit the test run.
+            apply = "" if not model_patch.strip() else "git apply -v /sol/patch.diff && "
+            script = f"cd {self.testbed} && {apply}{test_command}"
             try:
                 p = subprocess.run(
                     ["docker", "run", "--rm", "--platform", self.platform, "-v", f"{d}:/sol:ro",

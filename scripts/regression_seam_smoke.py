@@ -19,7 +19,7 @@ from substrate.topologies.swebench_solver.select_docker import (
     instance_image,
     repo_test_spec,
 )
-from substrate.topologies.swebench_solver.select_exec import regression_passed
+from substrate.topologies.swebench_solver.select_exec import passed_tests, regression_held
 from substrate.topologies.swebench_solver.select_regression import (
     discover_test_modules,
     exclude_delta,
@@ -72,16 +72,24 @@ def main() -> None:
     picked = cmd.split("pytest -rA ", 1)[1] if "pytest -rA " in cmd else "(none)"
     print(f"  regression set (issue-unrelated): {picked[:200]}{'...' if len(picked) > 200 else ''}", flush=True)
 
-    # 4. run the REAL regression command through the REAL runner with the gold patch applied
-    print("\nrunning the firewall-clean regression command in-container (slow)...", flush=True)
+    # 4. BASE run (no patch) -> the base-passing set. flask has pre-existing base failures (warnings-as-
+    # errors), so the signal is "no base-passing test now fails", not "all pass" (#69 NET #2, #149 finding).
     runner = DockerTestRunner(img, timeout=1800)
-    rc, out = runner.run(inst["patch"], cmd)
-    print(f"\nrc={rc}\n--- tail ---\n{out[-1800:]}", flush=True)
-    passed = regression_passed(rc, out)
-    print(f"\nregression_passed = {passed}  (the gold patch passes the issue-UNRELATED regression set)", flush=True)
-    # the gold patch is correct, so the unrelated regression set must hold; a False here means the SEAM is
-    # broken (env setup, command shape, or the runner), not the patch.
-    sys.exit(0 if passed else 3)
+    print("\nrunning the regression set at BASE (no patch) to get the base-passing set (slow)...", flush=True)
+    _, base_out = runner.run("", cmd)  # empty patch -> git apply no-op -> base_commit
+    base_pass = passed_tests(base_out)
+    print(f"  base-passing tests: {len(base_pass)} (of the issue-unrelated set)", flush=True)
+
+    # 5. run the SAME set WITH the gold patch; regression holds iff no base-passing test now fails.
+    print("running the SAME regression set WITH the gold patch (slow)...", flush=True)
+    _, out = runner.run(inst["patch"], cmd)
+    held = regression_held(base_pass, out)
+    print(f"\n--- tail ---\n{out[-1200:]}", flush=True)
+    print(f"\nregression_held = {held}  (no test that passed at base regressed under the correct gold patch)",
+          flush=True)
+    # the gold patch is correct, so every base-passing test must still pass; a False means the SEAM is
+    # broken (env setup, command shape, parsing, or the runner), not the patch.
+    sys.exit(0 if held else 3)
 
 
 if __name__ == "__main__":

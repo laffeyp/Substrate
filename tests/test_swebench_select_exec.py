@@ -6,10 +6,43 @@ from typing import Any
 
 from substrate.topologies.swebench_solver.records import Reproduction
 from substrate.topologies.swebench_solver.select_exec import (
+    parse_test_outcomes,
+    passed_tests,
+    regression_held,
     regression_passed,
     reproduction_status,
     select_exec_validate_factory,
 )
+
+# a realistic pytest -rA summary tail: some pass, some fail (one is a pre-existing/env failure).
+_RA_OUTPUT = """\
+PASSED tests/test_json.py::test_dump
+PASSED tests/test_json.py::test_load
+FAILED tests/test_views.py::test_deprecated - DeprecationWarning
+ERROR tests/test_cli.py::test_x
+======= 2 passed, 1 failed, 1 error =======
+"""
+
+
+def test_parse_test_outcomes_and_passed() -> None:
+    outcomes = parse_test_outcomes(_RA_OUTPUT)
+    assert outcomes["tests/test_json.py::test_dump"] == "passed"
+    assert outcomes["tests/test_views.py::test_deprecated"] == "failed"
+    assert outcomes["tests/test_cli.py::test_x"] == "error"
+    assert passed_tests(_RA_OUTPUT) == {"tests/test_json.py::test_dump", "tests/test_json.py::test_load"}
+
+
+def test_regression_held_charges_only_new_failures() -> None:
+    base = passed_tests(_RA_OUTPUT)  # the two test_json tests
+    # patched run: a base-passing test still passes, and a test that FAILED at base still fails (env noise) ->
+    # held (the pre-existing failure is not charged to the candidate).
+    patched_ok = "PASSED tests/test_json.py::test_dump\nFAILED tests/test_views.py::test_deprecated - x\n"
+    assert regression_held(base, patched_ok) is True
+    # patched run where a base-PASSING test now fails -> a real regression -> not held.
+    patched_bad = "FAILED tests/test_json.py::test_dump - broke\n"
+    assert regression_held(base, patched_bad) is False
+    # nothing from the base-passing set ran (collection broke) -> no positive evidence -> not held.
+    assert regression_held(base, "ERROR tests/test_other.py::test_z\n") is False
 
 
 def test_regression_passed_requires_positive_evidence() -> None:
