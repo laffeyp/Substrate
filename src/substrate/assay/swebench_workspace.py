@@ -27,7 +27,17 @@ import tempfile
 # utilities), so a directory match would false-drop legitimate fixes. The authoritative drop set is
 # `graded_test_files`; this filename match only backstops pre-existing test files test_patch doesn't touch.
 _TEST_FILE = re.compile(r"(^|/)(test_[^/]*\.py|[^/]*_test\.py|tests?\.py|conftest\.py)$")
-_DIFF_HEADER = re.compile(r"^diff --git a/(\S+) b/(\S+)")
+# the `diff --git` header b-side path, both forms git emits: bare `a/X b/Y` and, for paths with spaces or
+# special chars, the C-quoted `"a/X" "b/Y"`. A header that matches NEITHER is treated as unparseable.
+_HDR_BARE = re.compile(r'^diff --git a/(\S+) b/(\S+)$')
+_HDR_QUOTED = re.compile(r'^diff --git "a/(.+)" "b/(.+)"$')
+
+
+def _section_b_path(header_line: str) -> str | None:
+    """The b-side path of a `diff --git` header, or None if the header can't be parsed (caller fails safe)."""
+    line = header_line.rstrip("\n")
+    m = _HDR_BARE.match(line) or _HDR_QUOTED.match(line)
+    return m.group(2) if m else None
 
 
 def is_test_file(path: str) -> bool:
@@ -62,10 +72,11 @@ def filter_diff(diff: str, *, drop_files: frozenset[str] = frozenset()) -> str:
     out: list[str] = []
     keep = True
     for line in diff.splitlines(keepends=True):
-        m = _DIFF_HEADER.match(line)
-        if m:
-            path = m.group(2)
-            keep = path not in drop_files and not is_test_file(path)
+        if line.startswith("diff --git "):
+            path = _section_b_path(line)
+            # FAIL SAFE: an UNPARSEABLE header (e.g. a quoted path we didn't anticipate) DROPS the section
+            # — never inherit the previous keep-state, which would let a graded-test edit survive (review #71).
+            keep = path is not None and path not in drop_files and not is_test_file(path)
         if keep:
             out.append(line)
     return "".join(out)

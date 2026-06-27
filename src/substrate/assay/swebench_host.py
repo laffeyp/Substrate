@@ -16,7 +16,8 @@ import shutil
 from typing import Any, Protocol
 
 from ..topologies.swebench_solver.applier import apply_candidate
-from .swebench_workspace import host_clone, graded_test_files, workspace_diff
+from .swebench import firewall_check
+from .swebench_workspace import graded_test_files, host_clone, workspace_diff
 
 
 class _Responder(Protocol):
@@ -51,6 +52,12 @@ def solve_on_host(instance: dict[str, Any], responder: _Responder) -> str:
     a file, reads it, emits edits → apply into the clone → `workspace_diff`. Returns "" if no file is chosen
     or nothing applies (graded not-resolved). The clone is removed afterward."""
     import subprocess
+
+    # precondition: the instance must be firewall-screened (no held-out test reachable in the base repo the
+    # model reads). Selection screens it; re-assert here so a standalone call can't silently leak (#71 NET 3).
+    ok, reason = firewall_check(instance)
+    if not ok:
+        raise ValueError(f"instance {instance.get('instance_id')} is not firewall-screened: {reason}")
 
     clone = host_clone(f"https://github.com/{instance['repo']}", instance["base_commit"])
     try:

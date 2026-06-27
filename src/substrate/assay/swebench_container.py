@@ -5,12 +5,15 @@ alive, and route a topology's read/edit/bash actions into it via `docker exec`. 
 in-container — the same seam as the host backend, just produced inside the container. For agents that run
 tests/bash while solving (where the host backend's static clone can't help them).
 
-CONTAMINATION LOCKDOWN (review): inside the eval image the agent could reach the network (`pip install` the
-already-fixed package version) or the git remotes / future-commit history (the fixing commit is reachable).
-Guards: `--network none` (no fetch, no pip-from-index) and strip all git remotes at startup. (`/testbed`'s
-local history still contains the fix as a descendant of base_commit — `git log` from HEAD shows only
-ancestors, but `git log --all` could surface it; network-off + no-remotes closes the high-value vectors,
-and the deeper guard is to not give the agent a reason to do git archaeology.)
+CONTAMINATION LOCKDOWN (reviews #69/#71): inside the eval image an agent with bash could reach the network
+(`pip install` the fixed package version) or LOCAL git history (the fixing commit is a descendant of
+base_commit, reachable via `git log --all` / `git show <sha>`). Guards, all at `start()`:
+  - `--network none` — no fetch, no pip-from-index.
+  - strip all git remotes — no `git fetch`.
+  - NEUTER LOCAL HISTORY — detach HEAD at base, delete every branch/tag ref, expire the reflog, so no ref
+    reaches the fix; `git log --all` then shows only base + its ancestors (#71 NET 2).
+Residual (documented, not silent): the fix's loose objects still exist until gc, so an agent that already
+KNEW the exact fix SHA could `git show` it — but it has no way to learn the SHA once no ref points to it.
 """
 
 from __future__ import annotations
@@ -51,16 +54,24 @@ class ContainerWorkspace:
         self.stop()
 
     def start(self) -> None:
-        """Run the eval image detached with `--network none` (contamination lockdown), then strip git
-        remotes so a `git fetch` of the fix is impossible even if the network ever came back."""
+        """Run the eval image detached with `--network none`, then lock down contamination: strip remotes
+        AND neuter local git history so no ref reaches the fixing commit (a descendant of base_commit)."""
         p = subprocess.run(
             ["docker", "run", "-d", "--rm", "--network", "none", "--platform", self.platform,
              self.image, "sleep", "infinity"],
             capture_output=True, text=True, check=True,
         )
         self._cid = p.stdout.strip()
-        # strip every remote (belt-and-suspenders with --network none).
-        self.exec("git remote 2>/dev/null | xargs -r -n1 git remote remove")
+        # contamination lockdown (#71 NET 2): strip remotes, detach HEAD at the current commit (base),
+        # delete every branch/tag ref, and expire the reflog — now `git log --all` reaches only base + its
+        # ancestors, so the fix (a descendant) is unreachable. (git diff against HEAD still works for the
+        # patch — HEAD is the detached base commit.)
+        self.exec(
+            "git remote 2>/dev/null | xargs -r -n1 git remote remove; "
+            "git checkout -q --detach 2>/dev/null; "
+            "git for-each-ref --format='%(refname)' | xargs -r -n1 git update-ref -d; "
+            "git reflog expire --all --expire=now 2>/dev/null || true"
+        )
 
     def exec(self, command: str) -> tuple[int, str]:
         """Run `command` in the container at `/testbed` (login shell, so the conda testbed env is active).

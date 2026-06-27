@@ -63,6 +63,29 @@ def test_filter_diff_drops_test_sections_keeps_source():
     assert "tests/test_app.py" not in out and "assert x == 2" not in out  # test section dropped
 
 
+def test_filter_diff_handles_quoted_test_path():
+    # git quotes paths with spaces; a quoted TEST path (test_*.py with a space) must still be dropped,
+    # not inherit the previous section's keep-state (review #71 NET 1).
+    diff = (
+        'diff --git "a/tests/test_weird thing.py" "b/tests/test_weird thing.py"\n@@ -1 +1 @@\n-a\n+b\n'
+        "diff --git a/src/app.py b/src/app.py\n@@ -1 +1 @@\n-x\n+y\n"
+    )
+    out = filter_diff(diff)
+    assert "src/app.py" in out and "+y" in out  # source kept
+    assert "test_weird thing.py" not in out  # quoted test path dropped
+
+
+def test_filter_diff_drops_unparseable_header_fail_safe():
+    # a header matching NEITHER form -> FAIL SAFE (drop), never inherit the prior keep-state.
+    diff = (
+        "diff --git a/src/keep.py b/src/keep.py\n@@ -1 +1 @@\n-x\n+y\n"
+        "diff --git mangled-header-no-paths\n@@ -1 +1 @@\n-secret\n+leak\n"
+    )
+    out = filter_diff(diff)
+    assert "src/keep.py" in out and "+y" in out  # the parseable source section is kept
+    assert "+leak" not in out  # the unparseable section is dropped, not inherited-keep
+
+
 def _git_repo(tmp_path) -> Path:
     d = tmp_path / "repo"
     d.mkdir()

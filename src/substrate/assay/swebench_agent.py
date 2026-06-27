@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 from typing import Any, Protocol
 
+from .swebench import firewall_check
 from .swebench_container import ContainerWorkspace
 from .swebench_workspace import graded_test_files
 
@@ -79,6 +80,9 @@ def solve_in_container(
 ) -> str:
     """Run the agent loop in the instance container and return the model_patch (`git diff` in-container,
     graded-test edits dropped). "" if nothing applied. Env-gated (Docker + the eval image + a live model)."""
+    ok, reason = firewall_check(instance)  # precondition: firewall-screened (#71 NET 3)
+    if not ok:
+        raise ValueError(f"instance {instance.get('instance_id')} is not firewall-screened: {reason}")
     with ContainerWorkspace(instance["instance_id"]) as ws:
         _, skeleton = ws.exec("git ls-files | head -400")
         issue = str(instance["problem_statement"])
