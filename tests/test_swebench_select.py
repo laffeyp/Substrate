@@ -40,6 +40,16 @@ def test_majority_vote_lowest_slot_tiebreak() -> None:
     assert sel is not None and sel.model_patch == "SAME" and sel.slot == 1  # 2 votes, lowest-slot tiebreak
 
 
+def test_tie_breaks_deterministically_regardless_of_order() -> None:
+    # two DISTINCT patches tie on vote count (1 each); the lowest slot wins, INDEPENDENT of input order
+    # (the old most_common(1) resolved the tie by bus order -> a non-reproducible verdict, review #62).
+    applied = [_ap(0, "A"), _ap(1, "B")]
+    results = {0: _tr(0, True, Reproduction.OTHER), 1: _tr(1, True, Reproduction.OTHER)}
+    a = select_patch(applied, results)
+    b = select_patch(list(reversed(applied)), results)
+    assert a is not None and b is not None and a.slot == 0 and b.slot == 0  # same winner both orders
+
+
 def test_fallback_when_none_pass_regression() -> None:
     applied = [_ap(0, "A"), _ap(1, "B")]
     results = {0: _tr(0, False, Reproduction.OTHER), 1: _tr(1, False, Reproduction.OTHER)}

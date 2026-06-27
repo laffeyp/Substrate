@@ -67,8 +67,15 @@ def repair_drafter_factory(responders: list[Responder], spec: str, edit_context:
         failures = str(inp.get("context", "")) if hasattr(inp, "get") else ""
         ctx = (str(inp.get("edit_context", "")) if hasattr(inp, "get") else "") or edit_context
         prompt = build_repair_prompt(spec, ctx, failures)
-        response, usage = await call_responder_metered(responders[slot % len(responders)], prompt)
-        yield usage
+        try:
+            response, usage = await call_responder_metered(responders[slot % len(responders)], prompt)
+            yield usage
+        except Exception as exc:  # noqa: BLE001 — a model error must not kill the slot's coroutine
+            # If the drafter died here, this slot would emit no Candidate -> no Verdict -> the round never
+            # reaches n verdicts -> the judge never fires -> the run wedges to the watchdog (review #62).
+            # Emit a FAILED candidate instead: the validator rejects it -> failed Verdict -> the round
+            # completes and the correction loop proceeds. Errors-as-observations, as everywhere else.
+            response = f"(drafter model error: {type(exc).__name__}: {str(exc)[:120]})"
         yield Candidate(round=rnd, slot=slot, response=response)
 
     return lambda: draft

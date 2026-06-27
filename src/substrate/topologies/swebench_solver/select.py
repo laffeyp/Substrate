@@ -43,12 +43,16 @@ def select_patch(applied: list[AppliedPatch], results: dict[int, TestResults]) -
     candidates = resolved or pool
     norm = {a.slot: normalize_patch(a.model_patch) for a in candidates}
     counts = Counter(norm.values())
-    top = counts.most_common(1)[0][0]
-    winner = min((a for a in candidates if norm[a.slot] == top), key=lambda a: a.slot)
+    max_count = max(counts.values())
+    # Deterministic across ALL max-count groups: the lowest slot among every candidate whose patch ties
+    # for the most votes — NOT `most_common(1)` (which resolves a tie between two DISTINCT patches by
+    # Counter insertion order = the non-deterministic bus order, flipping the resolve verdict across runs,
+    # review #62). The lowest-slot rule applied over the full tie set is order-independent.
+    winner = min((a for a in candidates if counts[norm[a.slot]] == max_count), key=lambda a: a.slot)
     r = results.get(winner.slot)
     reason = (
         f"regression={'pass' if winner in reg_ok else 'none-passed-fallback'}; "
         f"reproduction={r.reproduction.value if r is not None else 'n/a'}; "
-        f"votes={counts[top]}/{len(candidates)}"
+        f"votes={counts[norm[winner.slot]]}/{len(candidates)}"
     )
     return SelectedPatch(slot=winner.slot, model_patch=winner.model_patch, reason=reason)

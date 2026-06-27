@@ -67,3 +67,57 @@ async def test_swebench_solver_end_to_end_on_a_fixture(tmp_path) -> None:  # typ
     assert len([e for e in events if e["kind"] == "TestResults"]) == 2
     selected = [e["payload"] for e in events if e["kind"] == "SelectedPatch"]
     assert len(selected) == 1 and "+    return x + 1" in selected[0]["model_patch"]
+
+
+class _FlakyRunner:
+    """Raises on the first call (a real container failure: OOM/timeout), then behaves — proves one patch's
+    runner failure becomes a RECORDED not-resolved, not a gather-wedge that emits zero results (review #62)."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def run(self, model_patch: str, test_command: str) -> tuple[int, str]:
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("container OOM")
+        return (0, "1 passed in 0.1s") if test_command == "REG" else (0, "Issue resolved")
+
+
+async def test_runner_failure_does_not_wedge(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    base = _fixture_repo()
+    topo = swebench_solver_topology(
+        responders=[_SolverResponder() for _ in range(2)],
+        base_checkout=base, issue="make f(x) return x + 1", repo_skeleton="m.py\nREADME.md",
+        known_files={"m.py", "README.md"}, runner=_FlakyRunner(),
+        regression_command="REG", reproduction_command="REPRO", n=2, max_rounds=1, watchdog_seconds=5.0,
+    )
+    await Runtime(tmp_path / "run").run(topo)
+    events = list(read_record(tmp_path / "run"))
+    # always exactly N=2 TestResults (one a recorded runner-error), and a SelectedPatch still comes out.
+    assert len([e for e in events if e["kind"] == "TestResults"]) == 2
+    assert len([e for e in events if e["kind"] == "SelectedPatch"]) == 1
+
+
+class _DyingDrafter:
+    """Localizes fine, but the DRAFT model call dies — proves the drafter emits a failed Candidate so the
+    round completes (-> Exhausted), never wedging the run on a dead coroutine (review #62)."""
+
+    def respond(self, prompt: str) -> str:
+        if "suspect file" in prompt:
+            return "m.py\n"
+        raise RuntimeError("model died")
+
+
+async def test_drafter_model_error_does_not_wedge(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    base = _fixture_repo()
+    topo = swebench_solver_topology(
+        responders=[_DyingDrafter() for _ in range(2)],
+        base_checkout=base, issue="make f(x) return x + 1", repo_skeleton="m.py\nREADME.md",
+        known_files={"m.py", "README.md"}, runner=_StubRunner(),
+        regression_command="REG", reproduction_command="REPRO", n=2, max_rounds=1, watchdog_seconds=5.0,
+    )
+    await Runtime(tmp_path / "run").run(topo)
+    events = list(read_record(tmp_path / "run"))
+    # the failed drafts don't apply -> all fail -> Exhausted CLEANLY (not a watchdog wedge); no patch.
+    assert any(e["kind"] == "Exhausted" for e in events)
+    assert not any(e["kind"] == "SelectedPatch" for e in events)

@@ -25,7 +25,7 @@ from .localize import localizer_factory
 from .records import AppliedPatch, EditLocations, Reproduction, SelectedPatch, SuspectFiles, TestResults
 from .repair import repair_drafter_factory, repair_validate_factory
 from .select import select_patch
-from .select_exec import TestRunner, regression_passed, reproduction_status
+from .select_exec import TestRunner, run_one
 
 _Factory = Callable[[], Any]
 
@@ -54,29 +54,32 @@ def _round_applied(ctx: api.TriggerContext, rnd: int) -> list[dict[str, Any]]:
     return [a for a in ctx.views["applied"].value() if int(a["round"]) == rnd]
 
 
-async def _one_result(
-    runner: TestRunner, regression_command: str, reproduction_command: str | None, patch: dict[str, Any]
-) -> TestResults:
-    rc, out = await asyncio.to_thread(runner.run, str(patch["model_patch"]), regression_command)
-    reg_ok = regression_passed(rc, out)
-    repro = Reproduction.OTHER
-    if reproduction_command:
-        _, repro_out = await asyncio.to_thread(runner.run, str(patch["model_patch"]), reproduction_command)
-        repro = reproduction_status(repro_out)
-    return TestResults(slot=int(patch["slot"]), regression_passed=reg_ok, reproduction=repro, summary=out[-400:].strip())
-
-
 def _select_exec_factory(runner: TestRunner, regression_command: str, reproduction_command: str | None) -> _Factory:
-    """Triggered on Solved: run the regression + reproduction tests for EVERY applied patch of the solved
-    round, concurrently; yield a TestResults per patch. The run-and-observe Docker seam (deterministic=False)."""
+    """Triggered on Solved: run the tests for EVERY applied patch of the solved round, concurrently; yield
+    a TestResults per patch. The run-and-observe Docker seam (deterministic=False). ALWAYS yields exactly
+    len(patches): a single patch's runner failure (the real DockerTestRunner WILL raise — container error,
+    OOM, timeout) becomes a FAILED TestResults, never an unraised gather exception that emits ZERO results
+    and WEDGES the barrier (review #62)."""
 
     async def run_all(inp: Any) -> AsyncIterator[TestResults]:
         patches = list(inp.get("applied", [])) if hasattr(inp, "get") else []
-        results = await asyncio.gather(
-            *[_one_result(runner, regression_command, reproduction_command, p) for p in patches]
+        outcomes = await asyncio.gather(
+            *[
+                run_one(runner, regression_command, reproduction_command, int(p["slot"]), str(p["model_patch"]))
+                for p in patches
+            ],
+            return_exceptions=True,
         )
-        for tr in results:
-            yield tr
+        for p, res in zip(patches, outcomes):
+            if isinstance(res, BaseException):
+                yield TestResults(
+                    slot=int(p["slot"]),
+                    regression_passed=False,
+                    reproduction=Reproduction.OTHER,
+                    summary=f"runner error: {type(res).__name__}: {str(res)[:160]}",
+                )
+            else:
+                yield res
 
     return lambda: run_all
 
