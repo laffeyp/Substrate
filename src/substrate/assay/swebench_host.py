@@ -16,7 +16,7 @@ import shutil
 from typing import Any, Protocol
 
 from ..topologies.swebench_solver.applier import apply_candidate
-from .swebench_workspace import host_clone, workspace_diff
+from .swebench_workspace import host_clone, graded_test_files, workspace_diff
 
 
 class _Responder(Protocol):
@@ -65,7 +65,10 @@ def solve_on_host(instance: dict[str, Any], responder: _Responder) -> str:
             content = fh.read()
         edits = _edit(responder, issue, path, content)
         apply_candidate(edits, clone)  # writes the edits into the clone (or no-ops if SEARCH doesn't match)
-        return workspace_diff(clone)
+        # drop edits to the GRADE's test files (from test_patch — harness-side, never shown to the model):
+        # a collision with the held-out test_patch is a false fail; a weakened graded test is a false pass.
+        drop = frozenset(graded_test_files(str(instance.get("test_patch", ""))))
+        return workspace_diff(clone, drop_files=drop)
     finally:
         shutil.rmtree(clone, ignore_errors=True)
 

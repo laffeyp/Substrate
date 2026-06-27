@@ -7,10 +7,13 @@ fresh container, so the diff STRING is the only thing that crosses the boundary.
 workspace and both end here at `workspace_diff`: a host clone (`host_clone`, this module) and a live
 instance container (later). The topology never needs to know anything about SWE-bench.
 
-DROP TEST-FILE EDITS (the sharp gotcha): the grader re-applies the held-out `test_patch` ON TOP of the
-model_patch; if the patch touches a test file the test_patch also touches, the apply collides and the
-instance errors out as a FALSE not-resolved. So a SWE-bench patch must never carry a topology's edits to
-test files. (Build/config edits are KEPT — a real fix may legitimately touch setup.py/pyproject.)
+DROP THE GRADE'S TEST FILES (the sharp gotcha + the inflation guard): the grader re-applies the held-out
+`test_patch` ON TOP of the model_patch and re-runs the graded tests. A topology's edit to a graded test
+file is BANNED two ways: (1) a file `test_patch` also touches collides at apply time → false not-resolved;
+(2) a file holding a graded test could be WEAKENED → a false resolve. The SEMANTIC drop set is the files
+`test_patch` touches (`graded_test_files`); a name-based `is_test_file` is a backstop for pre-existing test
+files the model shouldn't touch (incl. Django's bare `tests.py`). Build/config edits are KEPT —
+a real fix may legitimately touch setup.py/pyproject. Dropping only ever DEFLATES a patch, never fakes one.
 """
 
 from __future__ import annotations
@@ -19,20 +22,41 @@ import re
 import subprocess
 import tempfile
 
-# pytest test files: test_*.py, *_test.py, conftest.py (at any directory depth).
-_TEST_FILE = re.compile(r"(^|/)(test_[^/]*\.py|[^/]*_test\.py|conftest\.py)$")
+# pytest + unittest/django test FILES at any depth: test_*.py, *_test.py, tests.py/test.py, conftest.py.
+# NB: deliberately NOT "anything under tests/" — django ships `django/test/` as SOURCE (the test-framework
+# utilities), so a directory match would false-drop legitimate fixes. The authoritative drop set is
+# `graded_test_files`; this filename match only backstops pre-existing test files test_patch doesn't touch.
+_TEST_FILE = re.compile(r"(^|/)(test_[^/]*\.py|[^/]*_test\.py|tests?\.py|conftest\.py)$")
 _DIFF_HEADER = re.compile(r"^diff --git a/(\S+) b/(\S+)")
 
 
 def is_test_file(path: str) -> bool:
-    """A pytest test file whose edits must be dropped from the model_patch (the grader re-applies the
-    held-out test_patch on top — a collision there is a false not-resolved)."""
+    """A test file whose edits are dropped from the model_patch — a NAME-BASED backstop (a collision with
+    the held-out test_patch is a false not-resolved; weakening a graded test is a false resolve). Catches
+    pytest names AND django's bare `tests.py`. The authoritative drop set is `graded_test_files`; this guards
+    pre-existing test files test_patch doesn't touch."""
     return _TEST_FILE.search(path) is not None
 
 
-def filter_diff(diff: str) -> str:
-    """Drop the per-file sections of a unified git diff that touch TEST files. A git diff is a sequence of
-    `diff --git a/<p> b/<p>` sections; keep only the sections whose path is not a test file."""
+def graded_test_files(test_patch: str) -> set[str]:
+    """The files the held-out `test_patch` touches — the SEMANTIC, ground-truth set of graded-test files the
+    model_patch must not carry edits to (so the harness's apply of test_patch never collides, and the model
+    can't have weakened a graded test). Parsed from the diff's `--- a/` / `+++ b/` headers (`/dev/null`
+    dropped). This is harness-side, path-only metadata — the solver never sees it."""
+    out: set[str] = set()
+    for ln in test_patch.splitlines():
+        for prefix in ("--- a/", "+++ b/"):
+            if ln.startswith(prefix):
+                p = ln[len(prefix):].strip()
+                if p and p != "dev/null":
+                    out.add(p)
+    return out
+
+
+def filter_diff(diff: str, *, drop_files: frozenset[str] = frozenset()) -> str:
+    """Drop the per-file sections of a unified git diff that touch a graded-test file: any path in
+    `drop_files` (the test_patch set — authoritative) OR matching `is_test_file` (the name backstop). A git
+    diff is a sequence of `diff --git a/<p> b/<p>` sections; keep only the non-test sections."""
     if not diff.strip():
         return diff
     out: list[str] = []
@@ -40,22 +64,26 @@ def filter_diff(diff: str) -> str:
     for line in diff.splitlines(keepends=True):
         m = _DIFF_HEADER.match(line)
         if m:
-            keep = not is_test_file(m.group(2))
+            path = m.group(2)
+            keep = path not in drop_files and not is_test_file(path)
         if keep:
             out.append(line)
     return "".join(out)
 
 
-def workspace_diff(repo_dir: str, *, base_ref: str = "HEAD") -> str:
+def workspace_diff(
+    repo_dir: str, *, base_ref: str = "HEAD", drop_files: frozenset[str] = frozenset()
+) -> str:
     """The model_patch from a changed checkout: `git add -A` (so new files show) then `git diff --cached`
-    against `base_ref`, with test-file sections dropped. Empty string if nothing (non-test) changed — an
-    empty patch grades not-resolved, never a crash. The single diff seam both backends call."""
+    against `base_ref`, with graded-test-file sections dropped (`drop_files` = the instance's test_patch
+    files; plus the name backstop). Empty string if nothing (non-test) changed — an empty patch grades
+    not-resolved, never a crash. The single diff seam both backends call."""
     subprocess.run(["git", "-C", repo_dir, "add", "-A"], capture_output=True, check=False)
     diff = subprocess.run(
         ["git", "-C", repo_dir, "diff", "--cached", base_ref],
         capture_output=True, text=True, check=False,
     )
-    return filter_diff(diff.stdout)
+    return filter_diff(diff.stdout, drop_files=drop_files)
 
 
 def host_clone(source: str, base_commit: str) -> str:
@@ -70,4 +98,4 @@ def host_clone(source: str, base_commit: str) -> str:
     return d
 
 
-__all__ = ["is_test_file", "filter_diff", "workspace_diff", "host_clone"]
+__all__ = ["is_test_file", "graded_test_files", "filter_diff", "workspace_diff", "host_clone"]

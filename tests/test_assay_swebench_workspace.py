@@ -4,15 +4,40 @@
 import subprocess
 from pathlib import Path
 
-from substrate.assay.swebench_workspace import filter_diff, is_test_file, workspace_diff
+from substrate.assay.swebench_workspace import (
+    filter_diff,
+    is_test_file,
+    graded_test_files,
+    workspace_diff,
+)
 
 
 def test_is_test_file():
     assert is_test_file("tests/test_basic.py")
     assert is_test_file("pkg/foo_test.py")
     assert is_test_file("conftest.py") and is_test_file("tests/conftest.py")
+    assert is_test_file("django/contrib/admin/tests.py")  # django's bare tests.py convention (review fix)
     assert not is_test_file("src/flask/blueprints.py")
     assert not is_test_file("setup.py")  # config is KEPT — a real fix may touch it
+    assert not is_test_file("django/test/client.py")  # django/test/ is SOURCE, not a test — must be KEPT
+
+
+def test_graded_test_files_parses_the_graded_test_set():
+    tp = (
+        "diff --git a/tests/test_x.py b/tests/test_x.py\n--- a/tests/test_x.py\n+++ b/tests/test_x.py\n"
+        "diff --git a/app/tests.py b/app/tests.py\n--- /dev/null\n+++ b/app/tests.py\n"
+    )
+    assert graded_test_files(tp) == {"tests/test_x.py", "app/tests.py"}
+
+
+def test_filter_diff_drops_drop_files_even_when_not_test_named():
+    # a file the held-out test_patch touches but that ISN'T test-named must still be dropped (collision).
+    diff = (
+        "diff --git a/app/weird_grader.py b/app/weird_grader.py\n@@ -1 +1 @@\n-a\n+b\n"
+        "diff --git a/src/app.py b/src/app.py\n@@ -1 +1 @@\n-x\n+y\n"
+    )
+    out = filter_diff(diff, drop_files=frozenset({"app/weird_grader.py"}))
+    assert "src/app.py" in out and "weird_grader.py" not in out
 
 
 _DIFF = """diff --git a/src/app.py b/src/app.py
