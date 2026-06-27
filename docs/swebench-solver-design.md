@@ -186,36 +186,56 @@ not outrun those gates.
 ## 7. SDD adherence — how the solver is BUILT (not just what it does)
 
 The solver is built under the same SDD discipline that governs the rest of substrate (catalog:
-`sdd-kit-2/TECHNIQUES.md`). The runtime SDD layer (verify-against-real-API, dual-contract self-grade)
-is the v2 SDD-solver; this is about the BUILD process adhering to SDD:
+`sdd-kit-2/TECHNIQUES.md`, 53 universal entries). Runtime SDD (verify-against-real-API, dual-contract
+self-grade) is the v2 SDD-solver; this is about the BUILD adhering. Review #56 found the discipline REAL
+at the infra level (the repo has `process/WORKING_AGREEMENT.md`, `process/sprints/
+sprint-000-vocabulary-session.md`, `process/KIT_DIARY.md`) but NOMINAL for the solver until its artifacts
+exist. The three artifacts that convert it from claim to contract are PRE-BUILD OBLIGATIONS, listed below.
 
-- **Vocabulary-first (#1, #2, #4-#6).** The solver's records are a typed vocabulary designed BEFORE code,
-  reviewed like a schema: `SuspectFiles` -> `SuspectElements` -> `EditLocations` -> `CandidatePatch` ×N
-  -> `TestResults` -> `SelectedPatch`, plus `ModelUsage` per phase. Categories align with the phases
-  (LOCALIZE / REPAIR / SELECT), not files (#5). Payloads are minimal-but-complete — exactly enough to
-  reconstruct the decision (#6): recall@k inputs, the apply/test status, the compute. Substrate's typed
-  records enforce schema-at-the-mouth natively (#2).
-- **Chain-of-small-sprints (#12, #17), architecture-then-functional (#14).** Built as ≤2-file sprints:
-  (a) the vocabulary + topology skeleton (architecture, plan-mode), (b) the SEARCH/REPLACE applier
-  (its contract is §4b), (c) Localizer, (d) the nested best-of-N+correction sub-topology, (e) Selector +
-  the test seam, (f) the swebench-oracle wiring. Each closes clean before the next.
-- **Dual + observation contract (#23, #24) — load-bearing here.** The solver is behavior-heavy (it runs
-  models AND Docker), so every behavior-touching sprint carries an **observation contract** run FOR REAL,
-  not green-on-wiring: localize on a real instance and check recall@k against the gold files; repair
-  produces a patch that actually applies + `git diff`s; select runs real tests in the real container.
-  Green is not proven (the "be your own skeptic" rule) — the gold-patch smoke (flask-4045 RESOLVED on
-  arm64) is the first confirmed-good fixture (#38), reused as a regression fixture.
-- **Typed halts, no silent decisions (#28, #29).** The firewall disjointness check (§2), an instance that
-  fails it, a candidate that won't apply, a budget exhaustion — each is a typed status / flagged
-  exclusion, never a silent pass. TerminationPolicy never hangs.
-- **The assay arm structure IS techniques #39 + #40.** #39 names SWE-bench Verified as the carrier
-  benchmark and demands the dimensions (quality / speed / reliability / compute) be reported SEPARATELY —
-  which the assay layer + the matched-compute axis already do. #40 (the fidelity test: prose-context arm
-  vs signal/discipline-context arm) is EXACTLY the eventual vanilla-solver-vs-SDD-solver comparison — the
-  clean way to show whether the SDD discipline lifts resolution rate. The pre-registration + contamination
-  + matched-compute cautions (#41) are the cargo-cult gates from reviews #2-#3.
-- **Additive, originals untouched (#36, #37).** This doc is additive; the prompt-factory is reference-only
-  and never edited.
+- **Vocabulary-first (#1, #2, #4-#6) — obligation, not done.** The records are a genuine typed-event
+  decomposition (categories align with phases LOCALIZE/REPAIR/SELECT, not files — #5): `SuspectFiles` ->
+  `SuspectElements` -> `EditLocations` -> `CandidatePatch` ×N -> `TestResults` -> `SelectedPatch`, +
+  `ModelUsage` per phase. But #1/#6 require the PAYLOAD FIELDS locked and reviewed like a schema migration
+  — which doesn't exist yet. **OBLIGATION: a solver vocabulary-session sprint that locks each record's
+  fields and runs the #25 dual-contract audit (pair each behavior record with its observable:
+  CandidatePatch -> apply/test status; TestResults -> the SELECT seam; SelectedPatch -> the verdict view),
+  BEFORE the skeleton sprint.** Until then vocabulary-first is a claim.
+- **Observation contract asserts on the RECORD + deterministic seams, NEVER on stochastic quality (#24,
+  #38).** This is the line that keeps it from hand-wave. "The model localizes correctly" is unobservable;
+  what IS observable, per sprint, built as `assert_signal`/`assert_no_signal` over recorded captures
+  (flask-4045 seeded as the confirmed-good fixture):
+  - LOCALIZE: the records appear in order; recall@k vs the gold-patch files is computed + recorded
+    (==1.0 on the fixture); one ModelUsage per call lands.
+  - REPAIR: the APPLIER is DETERMINISTIC given candidate text, so its observation contract is an ordinary
+    unit test (the highest-risk component — pin hard): gold-matching candidate applies + git-diffs
+    non-empty; zero/multi-match -> TYPED reject (not crash); overlap -> reject; CRLF preserved; ModelUsage
+    per candidate.
+  - SELECT: TestResults emitted `replayable=False`; GIVEN recorded TestResults the selection is
+    deterministic (asserts the best-status pick + the regression-only fallback); the regression allowlist
+    excludes `test_patch` files.
+- **Chain-of-small-sprints (#12, #17), architecture-then-functional (#14), Wave-0 carry (#15).** Re-split
+  per review #56 (the prior "vocab+skeleton" and "nested sub-topology" each bundled >1 concept):
+  1. vocabulary session (#25, plan-mode) | 2. topology skeleton | 3. the SEARCH/REPLACE applier (§4b) |
+  4. **Wave-0** extract the shared best-of-N + correction sub-topology in isolation (it is consumed by
+  THREE topologies — swebench / coding_flow / EA — a #15 shared contract file; its own dual+observation
+  contract reusing coding_flow's proven behavior) | 5. the swebench Repairer NESTS it | 6. the
+  in-container SELECT test-exec **bridge mapping (#32/#46)** — a NEW external-substrate surface, distinct
+  from the grade harness in `swebench-bridge-mapping.md` — then the seam | 7. Selector | 8. oracle wiring.
+  The coding_flow + EA migrations onto the shared sub-topology are SEPARATE behavior-preserving refactor
+  sprints (#43) — not folded into the swebench build.
+- **Typed halts, no silent decisions (#28, #29).** The firewall disjointness check (§2), a failing
+  instance, a non-applying candidate, budget exhaustion — each is a typed status / flagged exclusion.
+- **Canonical-home registry (#22) + diary (#34) — obligations.** OBLIGATION: register the solver's records
+  + the shared sub-topology owner in `process/WORKING_AGREEMENT.md` (the sub-topology is a 3-consumer
+  shared type — exactly the thrash #22 prevents). OBLIGATION: open `process/KIT_DIARY.md` entries for the
+  work, especially the applier (highest risk) and the sub-topology extraction.
+- **The assay arm structure is technique #39 (NOT #40).** #39 (SWE-bench Verified as carrier, dimensions —
+  quality/compute — reported SEPARATELY) is correctly applied: the assay + matched-compute axis already do
+  it. The vanilla-solver-vs-SDD-solver comparison is a #39 **architecture ablation** (it varies the
+  SOLVER), gated by the #41 cautions + the cargo-cult power gates from reviews #2-#3 — it is NOT the #40
+  fidelity test (which is same-solver, prose-context arm vs signal-context arm, isolating the context
+  format). Calling it #40 would borrow a rigor it doesn't have; don't.
+- **Additive, originals untouched (#36, #37).** This doc is additive; the prompt-factory is reference-only.
 
 ## 8. Fold status
 
@@ -228,3 +248,8 @@ Review #55 (CONFIRMED): §4b file-creation scope DECIDED (support empty-SEARCH/f
 the create-file share) · §4b tiered match SPECIFIED (exact -> whitespace-flexible-if-unique -> reject,
 never fuzzy; restore real indent/EOL on write). Non-blocking: suspect-file-scoped regression needs a
 file->tests mapping rule (a cost knob — the full suite × N × instances is slow on big repos).
+Review #56 (SDD adherence — REAL at infra, NOMINAL until artifacts exist): §7 rewritten — the three
+PRE-BUILD OBLIGATIONS named (vocabulary session #25/#1; WORKING_AGREEMENT registry #22; KIT_DIARY #34);
+observation-contract-asserts-on-record-not-quality line added (#24/#38); sprint chain re-split (vocab
+session | skeleton | applier | Wave-0 sub-topology | Repairer-nests | test-exec bridge | selector |
+oracle); #40 fidelity framing corrected to a #39 architecture ablation; "42"->"53" technique count fixed.
