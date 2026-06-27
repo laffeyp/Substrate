@@ -52,6 +52,51 @@ def make_prediction(
     return {KEY_INSTANCE_ID: instance_id, KEY_MODEL: model_name, KEY_PREDICTION: model_patch}
 
 
+def firewall_check(instance: Mapping[str, Any]) -> tuple[bool, str]:
+    """Per-instance firewall assertion (reviews #53 / #58 / #64) — the solver may NEVER see the held-out
+    tests. Two conditions, both data-level over the instance:
+
+      - files(patch) ∩ files(test_patch) == ∅: the gold SOURCE fix does not touch the graded test files.
+        A shared file means a held-out (FAIL_TO_PASS) test could be a PRE-EXISTING test the gold patch
+        flips fail->pass — present at base_commit, visible to the solver. That instance leaks the grade.
+      - every FAIL_TO_PASS test file ∈ files(test_patch): the graded tests are ADDED by test_patch, so they
+        are ABSENT from the base repo the solver works on (the structural firewall).
+
+    Returns (ok, reason). Exclude or flag any instance that fails when assembling a firewall-clean set;
+    prefer SWE-bench_Verified (human-curated) as the base."""
+    import ast
+    import re
+
+    def _added_files(diff: str) -> set[str]:
+        return {ln[6:] for ln in diff.splitlines() if ln.startswith("+++ b/") and ln[6:] != "dev/null"}
+
+    def _f2p_in_test_patch(test_id: str, tp_files: set[str]) -> bool:
+        # pytest: "path/test_x.py::Class::test" -> the file is the path before "::".
+        if "::" in test_id:
+            return test_id.split("::")[0] in tp_files
+        # unittest/django: "test_func (module.sub.Class)" -> the module (drop the Class) maps to a file
+        # fragment "module/sub"; require it to appear in a test_patch path (the file IS added by test_patch).
+        m = re.search(r"\(([\w.]+)\)", test_id)
+        if not m:
+            return True  # unparseable id -> don't false-fail; condition 1 still guards
+        parts = m.group(1).split(".")
+        frag = "/".join(parts[:-1]) if len(parts) > 1 else parts[0]
+        return any(frag in f for f in tp_files)
+
+    patch_files = _added_files(str(instance.get("patch", "")))
+    tp_files = _added_files(str(instance.get("test_patch", "")))
+    f2p_raw = instance.get("FAIL_TO_PASS", [])
+    f2p = ast.literal_eval(f2p_raw) if isinstance(f2p_raw, str) else list(f2p_raw)
+
+    shared = patch_files & tp_files
+    if shared:
+        return (False, f"patch and test_patch share files (grade leak): {sorted(shared)}")
+    leaked = [str(t) for t in f2p if not _f2p_in_test_patch(str(t), tp_files)]
+    if leaked:
+        return (False, f"FAIL_TO_PASS tests not added by test_patch (pre-existing -> leak): {leaked[:3]}")
+    return (True, "firewall ok")
+
+
 def write_predictions(predictions: Sequence[Mapping[str, str]], path: Path | str) -> Path:
     """Write predictions as JSONL (one object per line) — the harness loader accepts a JSON array or
     JSONL file. Returns the path written."""

@@ -87,3 +87,38 @@ def test_swebench_oracle_grades_from_a_prerun_report(tmp_path):
     # a missing report is not-resolved with a note, never a crash.
     miss = oracle.grade([], "never-ran-instance")
     assert miss.passed is False and "no swebench report" in miss.detail
+
+
+def test_firewall_check_both_test_id_formats() -> None:
+    from substrate.assay.swebench import firewall_check
+
+    clean = {
+        "patch": "+++ b/src/m.py\n",
+        "test_patch": "+++ b/tests/test_m.py\n",
+        "FAIL_TO_PASS": ["tests/test_m.py::test_new"],
+    }
+    assert firewall_check(clean)[0] is True
+
+    # the gold patch touches a TEST file -> a held-out test could be pre-existing -> leak.
+    shared = {
+        "patch": "+++ b/tests/test_m.py\n",
+        "test_patch": "+++ b/tests/test_m.py\n",
+        "FAIL_TO_PASS": ["tests/test_m.py::test_new"],
+    }
+    assert firewall_check(shared)[0] is False
+
+    # a FAIL_TO_PASS whose file is NOT added by test_patch is pre-existing -> leak.
+    preexisting = {
+        "patch": "+++ b/src/m.py\n",
+        "test_patch": "+++ b/tests/test_other.py\n",
+        "FAIL_TO_PASS": ["tests/test_m.py::test_x"],
+    }
+    assert firewall_check(preexisting)[0] is False
+
+    # django/unittest format: "test (module.Class)" -> module maps to the test_patch file.
+    django_clean = {
+        "patch": "+++ b/django/db/models.py\n",
+        "test_patch": "+++ b/tests/model_fields/tests.py\n",
+        "FAIL_TO_PASS": ["test_x (model_fields.tests.SomeTest)"],
+    }
+    assert firewall_check(django_clean)[0] is True
