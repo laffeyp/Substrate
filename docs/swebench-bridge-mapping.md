@@ -319,3 +319,18 @@ All retrieved 2026-06 (raw source on `main` unless noted):
   https://huggingface.co/datasets/SWE-bench-Live/SWE-bench-Live
 - SWE-bench-Live paper ("SWE-bench Goes Live!", recency/contamination, monthly +50):
   https://arxiv.org/pdf/2505.23419
+
+## Containerization — REQUIRED for this path (decision 2026-06-26)
+
+SWE-bench runs every instance in its OWN container BY DESIGN (untrusted patches against a real repo +
+reproducibility); `assay/swebench.py` already lazy-imports swebench and runs Docker via TestSpec. So
+containerization is not bolt-on here — it is the substrate this path assumes from the start.
+
+It wraps the GRADE (running candidate/patch code), NEVER the models (Ollama is a separate server, so it
+does not slow inference). It is the right answer to the broad untrusted-execution exposure we currently
+run on the bare host with only a timer: resource bombs (cgroup limits), network exfil (`--network none`),
+filesystem reads/writes of the host (FS isolation). For our OWN bank, the seam is a sandboxed
+`coding_flow.gate.run_gate` mode (container or bwrap/nsjail). The specific test-file-READING hole is
+fixed cheaper by an input/output split (feed inputs, compare expected in the grader, never on disk the
+candidate reads) — not by a container. NOT needed for the current weak-local-model runs; add at the
+SWE-bench step, after the current benchmarking work is finished.
