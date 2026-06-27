@@ -167,8 +167,13 @@ def run_swebench(
         report_dir=str(rdir),
     )
     model_name = predictions[0][KEY_MODEL] if predictions else DEFAULT_MODEL_NAME
-    report_path = rdir / f"{model_name.replace('/', '__')}.{run_id}.json"
-    return read_run_report(report_path)
+    # the harness writes the final run report to CWD (not report_dir) in swebench 4.x — search both,
+    # the same path-churn lesson as read_resolved (pinned empirically on the Architect's arm64 box).
+    report_name = f"{model_name.replace('/', '__')}.{run_id}.json"
+    for cand in (rdir / report_name, Path.cwd() / report_name):
+        if cand.exists():
+            return read_run_report(cand)
+    raise FileNotFoundError(f"no swebench run report {report_name} in {rdir} or {Path.cwd()}")
 
 
 def swebench_oracle(
