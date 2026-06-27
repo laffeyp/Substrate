@@ -63,13 +63,18 @@ def _round_applied(ctx: api.TriggerContext, rnd: int) -> list[dict[str, Any]]:
     return [a for a in ctx.views["applied"].value() if int(a["round"]) == rnd]
 
 
-def _select_exec_factory(runner: TestRunner, regression: str | Callable[[str], str]) -> _Factory:
+def _select_exec_factory(
+    runner: TestRunner,
+    regression: str | Callable[[str], str],
+    passed_at_base: frozenset[str] | None,
+) -> _Factory:
     """Triggered on Solved: run the tests for EVERY applied patch of the solved round, concurrently; yield
     a TestResults per patch. The run-and-observe Docker seam (deterministic=False). The generated
-    reproduction test (`repro_code`, from the input) is run per patch too. ALWAYS yields exactly
-    len(patches): a single patch's runner failure (the real DockerTestRunner WILL raise — container error,
-    OOM, timeout) becomes a FAILED TestResults, never an unraised gather exception that emits ZERO results
-    and stalls the barrier (review #62)."""
+    reproduction test (`repro_code`, from the input) is run per patch too. `passed_at_base` (the instance's
+    base-passing test ids) switches the signal to `regression_held` — None falls back to whole-run
+    `regression_passed`. ALWAYS yields exactly len(patches): a single patch's runner failure (the real
+    DockerTestRunner WILL raise — container error, OOM, timeout) becomes a FAILED TestResults, never an
+    unraised gather exception that emits ZERO results and stalls the barrier (review #62)."""
 
     async def run_all(inp: Any) -> AsyncIterator[TestResults]:
         patches = list(inp.get("applied", [])) if hasattr(inp, "get") else []
@@ -82,6 +87,7 @@ def _select_exec_factory(runner: TestRunner, regression: str | Callable[[str], s
                     repro_code,
                     int(p["slot"]),
                     str(p["model_patch"]),
+                    passed_at_base=passed_at_base,
                 )
                 for p in patches
             ],
@@ -135,6 +141,7 @@ def swebench_solver_topology(
     known_files: set[str],
     runner: TestRunner,
     regression_command: str | Callable[[str], str],
+    passed_at_base: frozenset[str] | None = None,
     n: int = 3,
     max_rounds: int = 2,
     top_k: int = 5,
@@ -143,8 +150,9 @@ def swebench_solver_topology(
     """The whole solver. `responders[0]` localizes; `responders` (per slot) draft. `runner` runs tests in
     the instance env (the real DockerTestRunner, or a stand-in). `regression_command` is a static command
     (same set for every candidate) OR a per-candidate planner (model_patch -> firewall-clean command, e.g.
-    `make_regression_planner` — the proximity picker over the checkout). Terminates on SelectedPatch or
-    Exhausted."""
+    `make_regression_planner` — the proximity picker over the checkout). `passed_at_base` (the instance's
+    base-passing test ids, from one base run) switches SELECT to the passed-at-base filter — required on
+    repos with pre-existing base failures (flask). Terminates on SelectedPatch or Exhausted."""
 
     def topo(b: api.TopologyBuilder) -> None:
         # LOCALIZE
@@ -175,7 +183,7 @@ def swebench_solver_topology(
 
         # SELECT
         b.producer_kind("select_exec", schemas=[TestResults], schema_version=1,
-                        factory=_select_exec_factory(runner, regression_command),
+                        factory=_select_exec_factory(runner, regression_command, passed_at_base),
                         deterministic=False)
         b.producer_kind("selector", schemas=[SelectedPatch], schema_version=1, factory=_selector_factory(),
                         deterministic=False)
