@@ -310,6 +310,14 @@ def swebench_record_oracle(
         patch = model_patch_from_record(record)
         if not patch.strip():
             return (False, f"no model_patch on the record for {instance_id} (the Arm produced none)")
+        # drop edits to the GRADE's test files at the grade boundary (#72 NET 1): the inflation guard, applied
+        # HERE so a topology that emits a raw diff (no internal drop, e.g. the repair topology) can't weaken a
+        # graded test or collide with the held-out test_patch. Harness-side — the topology never sees test_patch.
+        if isinstance(ground_truth, Mapping) and ground_truth.get("test_patch"):
+            from .swebench_workspace import filter_diff, graded_test_files
+            patch = filter_diff(patch, drop_files=frozenset(graded_test_files(str(ground_truth["test_patch"]))))
+            if not patch.strip():
+                return (False, f"patch empty after dropping graded-test edits for {instance_id}")
         resolved = do_grade(instance_id, patch)
         return (resolved, f"swebench resolved={resolved} for {instance_id} ({len(patch)}b patch)")
 

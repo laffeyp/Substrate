@@ -55,6 +55,27 @@ def test_record_oracle_grades_the_extracted_patch_via_the_injected_grader():
     assert oracle.grade(bad, {"instance_id": "x"}).passed is False
 
 
+def test_record_oracle_drops_graded_test_edits_before_grading():
+    # #72 NET 1: the grade boundary filters the SelectedPatch against the instance's test_patch files, so a
+    # topology that emits a raw diff (no internal drop) can't weaken a graded test or collide with test_patch.
+    captured = []
+    oracle = swebench_record_oracle(
+        report_root="/unused", dataset_name="d", grade=lambda iid, p: bool(captured.append(p)) or True
+    )
+    patch = (
+        "diff --git a/src/app.py b/src/app.py\n@@ -1 +1 @@\n-x\n+y\n"
+        "diff --git a/tests/test_x.py b/tests/test_x.py\n@@ -1 +1 @@\n-assert a\n+assert True\n"
+    )
+    gt = {
+        "instance_id": "i",
+        "test_patch": "diff --git a/tests/test_x.py b/tests/test_x.py\n--- a/tests/test_x.py\n+++ b/tests/test_x.py\n",
+    }
+    oracle.grade(_record(("SelectedPatch", {"slot": 0, "model_patch": patch})), gt)
+    graded = captured[0]
+    assert "src/app.py" in graded  # the real source edit is graded
+    assert "tests/test_x.py" not in graded  # the graded-test edit was dropped before grading
+
+
 def test_record_oracle_no_patch_is_not_resolved_without_grading():
     calls = []
     oracle = swebench_record_oracle(
