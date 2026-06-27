@@ -56,7 +56,7 @@ TERMINAL OUTCOME (the always-emit summary — technique #51; added for `swebench
 | Record | Locked fields | Meaning | Category / stratum |
 |---|---|---|---|
 | `RepairOutcome` | enum: `SELECTED` / `NO_LOCALIZATION` / `NO_APPLICABLE_EDIT` | the ENUMERATED terminal states (#53) — why a run produced no patch instead of leaving it implicit in the absence of other events. The judge only declares success when a candidate APPLIES, so the no-patch case splits by whether localization happened. Enforced at the speaker's mouth (#2), like `Reproduction`. | outcome / enum |
-| `RepairSummary` | `outcome:RepairOutcome, localized:int, drafted:int, applied:int, selected_slot:int` | the ALWAYS-EMIT terminal summary (#51): the enumerated `outcome` + the per-stage counts, so a reader learns WHAT HAPPENED from ONE typed event, not by reconstructing it. Emitted on every terminal path; `swebench_repair_topology` terminates on it. `selected_slot` = the chosen slot, or `-1`. | outcome / summary |
+| `RepairSummary` | `outcome:RepairOutcome, localized:int, drafted:int, applied:int, selected_slot:int` | the terminal summary (#51): the enumerated `outcome` + the per-stage counts, so a reader learns WHAT HAPPENED from ONE typed event, not by reconstructing it. Emitted exactly ONCE on every `Solved`/`Exhausted` terminal (`swebench_repair_topology` terminates on it); the WATCHDOG terminal emits NONE (a producer speaks only when triggered) and that absence is the runner's `timed_out` signal. `selected_slot` = the chosen slot, or `-1`. NB: `timed_out`/`error` are the RUNNER-level complement to `RepairOutcome` — the terminal taxonomy is complete across the two levels (#53). | outcome / summary |
 
 ## C. #25 dual-contract audit — every behavior record has a record-observable
 
@@ -74,7 +74,7 @@ these (#24/#38), flask-4045 seeded.
 | `TestResults` | `replayable=False`; the regression set is repo-DERIVED (NOT the `PASS_TO_PASS` field — §4); the allowlist excludes `test_patch` files. |
 | `SelectedPatch` | deterministic GIVEN the recorded `TestResults` (best-status pick; regression-only fallback fires when no candidate passes reproduction); IS the submitted `model_patch`. |
 | `Solved` / `Exhausted` | the loop terminal; reuses coding_flow's proven observation. |
-| `RepairSummary` | emitted exactly ONCE on every terminal path (always-emit, #51); `outcome==SELECTED` iff a `SelectedPatch` was emitted (chained after it); on `Exhausted`, `outcome` is `NO_LOCALIZATION` iff `localized==0` else `NO_APPLICABLE_EDIT`; counts match the record (`drafted`==#Candidate, `applied`==#AppliedPatch). Observation contract: the three outcomes are seeded in `test_swebench_solver.py`. |
+| `RepairSummary` | emitted exactly ONCE on every `Solved`/`Exhausted` terminal (NOT the watchdog terminal — that absence is the runner's `timed_out`); `outcome==SELECTED` iff a `SelectedPatch` was emitted (chained after it); on `Exhausted`, `outcome` is `NO_LOCALIZATION` iff `localized==0` else `NO_APPLICABLE_EDIT` (a complete partition — Exhausted ⟹ `applied==0`, since the judge Solves on any applied candidate). `applied`==#AppliedPatch; `drafted` is counted from the verdicts buffer and ==#Candidate by the one-verdict-per-candidate invariant (#62/#63). Observation contract: the three outcomes are seeded in `test_swebench_solver.py`. |
 | `ModelUsage` | metering, not behavior — no behavior-observable required; one per drafter call (LOCALIZE / each REPAIR candidate / SELECT), summed for the matched-compute axis (#3). |
 
 ## D. Open items for later sprints (named, not deferred-silently)

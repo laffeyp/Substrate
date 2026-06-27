@@ -132,10 +132,14 @@ class RepairOutcome(enum.Enum):
 
 
 class RepairSummary(Struct, frozen=True):
-    """The ALWAYS-EMIT terminal summary of a repair run (technique #51): the enumerated `outcome` plus the
-    per-stage counts, so a reader (or the assay runner) learns WHAT HAPPENED from ONE typed event rather
-    than reconstructing it from the presence/absence of others. Emitted on every terminal path; the
-    topology terminates on it. `selected_slot` is the chosen slot, or -1 when no patch was selected."""
+    """The terminal summary of a repair run (technique #51): the enumerated `outcome` plus the per-stage
+    counts, so a reader (or the assay runner) learns WHAT HAPPENED from ONE typed event rather than
+    reconstructing it from the presence/absence of others. Emitted exactly ONCE on every Solved/Exhausted
+    terminal (the topology terminates on it). The WATCHDOG terminal (a true wedge — neither Solved nor
+    Exhausted reached) emits NONE: a producer can only speak when triggered, and synthesizing a summary
+    there would assert a classification the topology never computed; that ABSENCE is the runner's
+    `timed_out` signal (so `timed_out`/`error` are the RUNNER-level complement to `RepairOutcome` — the
+    terminal taxonomy is complete across the two levels). `selected_slot` = the chosen slot, or -1."""
 
     outcome: RepairOutcome
     localized: int  # number of edit targets localization produced
