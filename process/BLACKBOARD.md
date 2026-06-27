@@ -234,6 +234,10 @@
 
 - **B-Q-1.** Package/import name — **DEFERRED** 2026-06-12 (see `## Deferred`). Working name "Substrate" stands; official name picked later. Was: product D-2 shortlist (`substrate-kernel`, `substrate-bus`, `pysubstrate`, `substrated`, `horizon-substrate`, `buskernel`); design-spec placeholder `rostrum`; brainstorm added Strata / Keel / Chronicle / Cradle.
 
+- **SWE-Q-1 (2026-06-27, solver) — the SELECT reproduction signal FALSE-POSITIVES; keep it, demote it, or strengthen it?** The model-generated reproduction test only exercises the part of the issue the model understood/fixed, so it reports "Issue resolved" for a partial fix (proven on the 480B flask-4045 run — SELECT was green on regression+repro, oracle said unresolved). It's a useful TIEBREAK (it did discriminate slot 0 from slot 1) but NOT a "resolved" certifier. Options: keep as a low-weight tiebreak (current), demote below regression entirely, or strengthen the repro prompt to enumerate multiple failure modes from the issue. The oracle is the only truth; internal signals SELECT, they don't CERTIFY. Reviewer input wanted before changing SELECT's signal weighting.
+
+- **SWE-Q-2 (2026-06-27, solver) — `exclude` uses test_patch FILE PATHS (grade metadata); keep-with-disclosure or drop?** The proximity picker drops the held-out test_patch file paths from the regression set — path-only metadata, never reaching the solver, disclosed per-instance via `exclude_delta` (how often it bites beyond proximity). It modestly spares a correct patch from an issue-related test that proximity MISSES (non-co-located). Reviewer #69 leaned keep-and-measure; SWE-Q is whether a clean SELF-CONTAINED number should drop it (proximity-alone) for the eventual reported rate. Not blocking the exploratory work.
+
 ---
 
 ## Drift watchlist
@@ -273,6 +277,13 @@
 ## Sprint tail
 
 *Agent maintains. Last 10 sprint summaries; older entries roll into `## Built` as compressed paragraphs.*
+
+### swebench_solver — vanilla LOCALIZE→REPAIR→SELECT (sprints 133–155, 2026-06-27) — first real-model solves
+- **Scope:** a non-agentic SWE-bench solver topology (mostly ours, best ideas from Agentless), built sprint-by-sprint under SDD with an independent reviewer at key moments (reviews #53–#70). Full details in `## Surfaced for review` (2026-06-27) + `process/KIT_DIARY.md` findings 10–21.
+- **Dual contract:** signal — SuspectFiles → AppliedPatch → TestResults → SelectedPatch on the record (verified on real-model runs); artifact — ~80 swebench tests + the loop/applier/firewall suites green, ruff + mypy --strict clean across the package.
+- **Observation contract (the real seams, not stubs):** the firewall-clean regression seam smoked on the LIVE flask-4045 container (passed-at-base=106, gold patch holds); two exploratory real-model solves — qwen2.5-coder:7b (honest negative) and qwen3-coder:480b (honest partial fix, 1/2 FAIL_TO_PASS, SELECT discriminated). Every phase ran with a real model + real container.
+- **Be-your-own-skeptic:** the real runs surfaced 6 integration bugs no fixture showed (empty-patch base, test-module discovery, examples/ conftest rc-4, passed-at-base, the regression_held vanished-test hole, the run_id cache collision that reused a stale grade) — each diagnosed to root and fixed, not patched at the symptom.
+- **Open:** SWE-Q-1 (reproduction false-positive) + SWE-Q-2 (exclude grade-metadata) in `## Open questions`; reviewer #70 NET 2 (collection-survival discovery) before multi-repo; power gates + pre-registration before ANY reported resolve-rate. Branch `track-assay-benchmarking`, not closed.
 
 ### game_of_life — tick-based simulation (2026-06-22, closed) — Conway's Life
 - **Scope:** the "simulation" What-you-can-build sketch as Conway's Game of Life — many cell Producers acting each generation against a shared world-state Producer. `game_of_life/__init__.py` + test + committed record + bundled registration. Auto-band.
