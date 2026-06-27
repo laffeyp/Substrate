@@ -5,6 +5,7 @@ unrelated test like test_json.py stays IN the regression set."""
 
 from substrate.topologies.swebench_solver.select_exec import resolve_regression
 from substrate.topologies.swebench_solver.select_regression import (
+    canonical_test_modules,
     discover_test_modules,
     exclude_delta,
     is_test_module,
@@ -78,6 +79,17 @@ def test_discover_test_modules_drops_fixture_and_support_files() -> None:
     assert discover_test_modules(repo_files) == ["tests/test_basic.py"]
     assert is_test_module("tests/test_apps/cliapp/importerrorapp.py") is False
     assert is_test_module("pkg/foo_test.py") is True
+
+
+def test_canonical_test_modules_drops_example_test_trees() -> None:
+    # the exact shape the real solve #152 surfaced: flask's examples/*/tests have a conftest that imports an
+    # uninstalled example package -> fatal rc-4 conftest error. The dominant `tests/` group is kept; the
+    # scattered `examples/` test trees are dropped.
+    mods = [
+        "tests/test_basic.py", "tests/test_json.py", "tests/test_blueprints.py",
+        "examples/javascript/tests/test_js_example.py", "examples/tutorial/tests/test_auth.py",
+    ]
+    assert canonical_test_modules(mods) == ["tests/test_basic.py", "tests/test_blueprints.py", "tests/test_json.py"]
 
 
 def test_planner_builds_per_candidate_firewall_clean_command() -> None:

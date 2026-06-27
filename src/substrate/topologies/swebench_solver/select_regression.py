@@ -47,10 +47,29 @@ def is_test_module(path: str) -> bool:
     return base.startswith("test_") or base.endswith("_test.py")
 
 
+def canonical_test_modules(test_modules: list[str] | set[str]) -> list[str]:
+    """Keep only the modules under the package's DOMINANT test directory — its own suite. Repos ship
+    EXAMPLE/tutorial test trees (flask's `examples/*/tests/`) whose `conftest.py` imports an uninstalled
+    example package -> a FATAL conftest ImportError that `--continue-on-collection-errors` can't survive
+    (pytest exits rc 4 before running anything), zeroing the regression set (proven by the real solve #152).
+    Group by the top path segment and keep the largest group (flask: `tests`=21 beats `examples`=5).
+    Sorted, deterministic. (A coarse v1; a repo splitting its OWN suite across top dirs would lose the
+    smaller part — tolerable for a selector input, refine per-repo if a target needs it.)"""
+    mods = list(test_modules)
+    if not mods:
+        return []
+    counts: dict[str, int] = {}
+    for p in mods:
+        counts[p.split("/")[0]] = counts.get(p.split("/")[0], 0) + 1
+    top = max(sorted(counts), key=lambda k: counts[k])  # sorted() first -> deterministic tie-break
+    return sorted(p for p in mods if p.split("/")[0] == top)
+
+
 def discover_test_modules(repo_files: list[str] | set[str]) -> list[str]:
     """Filter a repo file listing (from `git ls-files`, the checkout) down to pytest-collectable test
-    modules — the eligible universe the proximity picker chooses from. Sorted, deterministic."""
-    return sorted(p for p in repo_files if is_test_module(p))
+    modules under the package's canonical test directory — the eligible universe the proximity picker
+    chooses from. Sorted, deterministic."""
+    return canonical_test_modules([p for p in repo_files if is_test_module(p)])
 
 
 def patch_touched_files(model_patch: str) -> set[str]:
