@@ -35,6 +35,24 @@ from typing import Any
 from .select_docker import build_regression_command
 
 
+def is_test_module(path: str) -> bool:
+    """A pytest-collectable test MODULE — basename `test_*.py` or `*_test.py`. NOT support files under a
+    test tree (`__init__.py`, fixture apps like flask's `tests/test_apps/cliapp/importerrorapp.py`, which
+    raises ImportError ON PURPOSE). The real-runner smoke (review #69 NET #2) proved 'every file under
+    tests/' poisons the run with collection errors — the regression set must be actual test modules, which
+    is also why swebench's eval names specific files, never a directory."""
+    base = os.path.basename(path)
+    if not base.endswith(".py") or base == "__init__.py":
+        return False
+    return base.startswith("test_") or base.endswith("_test.py")
+
+
+def discover_test_modules(repo_files: list[str] | set[str]) -> list[str]:
+    """Filter a repo file listing (from `git ls-files`, the checkout) down to pytest-collectable test
+    modules — the eligible universe the proximity picker chooses from. Sorted, deterministic."""
+    return sorted(p for p in repo_files if is_test_module(p))
+
+
 def patch_touched_files(model_patch: str) -> set[str]:
     """The repo-relative paths a unified git diff modifies, from its `--- a/` / `+++ b/` headers
     (`/dev/null` dropped — a pure add or delete still names the real side). Deterministic; order-free."""

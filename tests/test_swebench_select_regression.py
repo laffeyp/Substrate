@@ -5,7 +5,9 @@ unrelated test like test_json.py stays IN the regression set."""
 
 from substrate.topologies.swebench_solver.select_exec import resolve_regression
 from substrate.topologies.swebench_solver.select_regression import (
+    discover_test_modules,
     exclude_delta,
+    is_test_module,
     make_regression_planner,
     patch_touched_files,
     proximity_regression_files,
@@ -60,6 +62,22 @@ def test_regression_set_is_sorted_and_deterministic() -> None:
     test_files = {"tests/test_z.py", "tests/test_a.py", "tests/test_m.py"}
     reg = proximity_regression_files(test_files, touched=set(), exclude=set())
     assert reg == ["tests/test_a.py", "tests/test_m.py", "tests/test_z.py"]
+
+
+def test_discover_test_modules_drops_fixture_and_support_files() -> None:
+    # the exact shape the real-runner smoke surfaced (#69 NET #2): only true test modules survive; the
+    # fixture app that raises ImportError on collection, package __init__, and a plain module are dropped.
+    repo_files = [
+        "tests/test_basic.py",
+        "tests/test_apps/__init__.py",
+        "tests/test_apps/cliapp/importerrorapp.py",  # raises ImportError ON PURPOSE -> not a test module
+        "src/flask/blueprints.py",
+        "tests/helpers.py",
+        "tests/conftest.py",  # support, not a test module
+    ]
+    assert discover_test_modules(repo_files) == ["tests/test_basic.py"]
+    assert is_test_module("tests/test_apps/cliapp/importerrorapp.py") is False
+    assert is_test_module("pkg/foo_test.py") is True
 
 
 def test_planner_builds_per_candidate_firewall_clean_command() -> None:
