@@ -57,6 +57,17 @@ def _fa(text):
     return {"kind": "FinalAnswer", "payload": {"text": text, "steps": 1}}
 
 
+def test_agency_suite_is_well_formed():
+    # R-19: the suite stresses agency across task shapes (build/fix/test), not one lucky task.
+    from substrate.topologies.tool_loop.agency import AGENCY_SUITE
+
+    names = [t.name for t in AGENCY_SUITE]
+    assert len(names) == len(set(names)) >= 3  # unique, and a real suite
+    assert all(t.prompt.strip() for t in AGENCY_SUITE)
+    fix = next(t for t in AGENCY_SUITE if t.name == "fix_runtime_bug")
+    assert "calc.py" in fix.seed and "compute" in fix.seed["calc.py"]  # a GUARANTEED-failing seed
+
+
 def test_verified_run_scores_full_and_is_labelled_verified():
     # wrote code, ran it, saw exit 0, reported honestly — the whole agency loop.
     evs = [

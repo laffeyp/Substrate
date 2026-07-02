@@ -22,7 +22,12 @@ from pathlib import Path
 from substrate.adapters import OllamaResponder
 from substrate.api import Runtime, read_record
 from substrate.topologies.tool_loop import tool_loop_topology
-from substrate.topologies.tool_loop.agency import AgencyScore, aggregate_agency, score_agency
+from substrate.topologies.tool_loop.agency import (
+    AGENCY_SUITE,
+    AgencyScore,
+    aggregate_agency,
+    score_agency,
+)
 from substrate.topologies.tool_loop.tools import full_suite
 
 _DEFAULT_TASK = (
@@ -33,10 +38,14 @@ _DEFAULT_TASK = (
 )
 
 
-async def _score_one(model: str, args: argparse.Namespace) -> AgencyScore | str:
+async def _score_one(
+    model: str, prompt: str, seed: dict[str, str], args: argparse.Namespace
+) -> AgencyScore | str:
     workdir = Path(tempfile.mkdtemp(prefix="agency-"))
+    for name, content in seed.items():  # seed files (e.g. a broken program to fix) before the run
+        (workdir / name).write_text(content)
     record = workdir / "record"
-    task = args.task.replace("{workdir}", str(workdir))
+    task = prompt.replace("{workdir}", str(workdir))
     try:
         await Runtime(record).run(
             tool_loop_topology(
@@ -55,6 +64,34 @@ async def _score_one(model: str, args: argparse.Namespace) -> AgencyScore | str:
     return score_agency(read_record(record))
 
 
+def _run_suite(args: argparse.Namespace) -> int:
+    """Run the AGENCY_SUITE (a grid of task shapes) across the models; print a per-(model,task) grid of
+    labels+scores plus a per-model mean. Measures agency across shapes, not one lucky task."""
+    grid: dict[str, dict[str, AgencyScore | str]] = {}
+    for m in args.models:
+        for t in AGENCY_SUITE:
+            grid.setdefault(m, {})[t.name] = asyncio.run(_score_one(m, t.prompt, t.seed, args))
+    tasks = [t.name for t in AGENCY_SUITE]
+    header = f"{'MODEL':<24} " + " ".join(f"{t[:14]:>14}" for t in tasks) + "   mean"
+    print("\nAGENCY SUITE — trajectory score per (model, task):")
+    print(header)
+    print("-" * len(header))
+    for m in args.models:
+        oks: list[AgencyScore] = []
+        cells: list[str] = []
+        for t in tasks:
+            r = grid[m][t]
+            if isinstance(r, AgencyScore):
+                oks.append(r)
+                cells.append(f"{r.label[:4]}:{r.score:>3}")
+            else:
+                cells.append("ERROR")
+        mean = aggregate_agency(oks).mean_score
+        print(f"{m:<24} " + " ".join(f"{c:>14}" for c in cells) + f"   {mean:>4.0f}")
+    print("\n(agency = trajectory across task shapes; n=1 per cell — classes, not rates)")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--model", action="append", dest="models", required=True, help="repeatable")
@@ -64,13 +101,19 @@ def main() -> int:
     ap.add_argument("--timeout", type=float, default=240.0)
     ap.add_argument("--think", action="store_true", help="enable thinking mode (reasoning models)")
     ap.add_argument("--repeats", type=int, default=1, help="runs per model; n>1 prints RATES")
+    ap.add_argument(
+        "--suite", action="store_true", help="run the AGENCY_SUITE (a grid of task shapes)"
+    )
     args = ap.parse_args()
+
+    if args.suite:
+        return _run_suite(args)
 
     scored: dict[str, list[AgencyScore]] = {}
     errs: dict[str, list[str]] = {}
     for m in args.models:
         for _ in range(args.repeats):
-            r = asyncio.run(_score_one(m, args))
+            r = asyncio.run(_score_one(m, args.task, {}, args))
             (
                 scored.setdefault(m, []).append(r)
                 if isinstance(r, AgencyScore)

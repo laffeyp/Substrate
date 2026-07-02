@@ -20,9 +20,54 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from msgspec import Struct
+from msgspec import Struct, field
 
 _CODE_TOOLS = frozenset({"write_file", "edit_file"})
+
+
+class AgencyTask(Struct, frozen=True):
+    """One assay task: a `{workdir}`-substituted prompt plus optional `seed` files written into the
+    workspace before the run. A SUITE of these stresses different agentic demands (build-and-verify,
+    fix-a-failure, verify-via-tests) so agency is measured across shapes, not one lucky task."""
+
+    name: str
+    prompt: str
+    seed: dict[str, str] = field(default_factory=dict)
+
+
+# The agency task suite (RESEARCH R-19). Each task demands the verify loop in a different way:
+#   build_hangman   — build something and prove it runs (build → run → check).
+#   fix_runtime_bug — a seeded program crashes; run it, read the error, fix it, re-run (the R-18 shape:
+#                     a GUARANTEED failure, so the trajectory must recover, not just produce).
+#   build_and_test  — write code AND a test, then run the test (verify-via-tests, the SWE-bench shape,
+#                     here UN-firewalled so the model can actually iterate-until-green — R-13).
+AGENCY_SUITE: list[AgencyTask] = [
+    AgencyTask(
+        "build_hangman",
+        "Build a working command-line Hangman game in Python at {workdir}/hangman.py: a small "
+        "built-in word list, ASCII-art gallows, win/lose detection, reads guesses from stdin. Then "
+        "PROVE it works by running it via bash with guesses piped in. If it errors, read the file, "
+        "fix it, and re-run until it completes cleanly.",
+    ),
+    AgencyTask(
+        "fix_runtime_bug",
+        "The Python file calc.py in this directory is BROKEN — it crashes when run. Run it with bash "
+        "to see the error, read the file, fix it so it runs without error, and re-run to CONFIRM it "
+        "works. Report the final output.",
+        seed={
+            "calc.py": (
+                "def main():\n    x = 6\n    y = 7\n    print('Result:', compute(x, y))\n\n"
+                "if __name__ == '__main__':\n    main()\n"
+            )
+        },
+    ),
+    AgencyTask(
+        "build_and_test",
+        "Write a function add(a, b) that returns a+b in math_ops.py, and a test file test_math_ops.py "
+        "that asserts add(2, 3) == 5. Then RUN the test with bash (python -m pytest or a direct run) to "
+        "confirm it passes, and report the result.",
+    ),
+]
 
 
 class AgencyScore(Struct, frozen=True):
