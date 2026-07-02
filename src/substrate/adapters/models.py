@@ -124,7 +124,9 @@ class OllamaResponder:
         # working; the native chat route is `<base>/api/chat`. `OLLAMA_BASE_URL` lets a run reach
         # Ollama across a boundary (the container test arena points it at host.docker.internal)
         # without touching call sites; an explicit base_url still wins.
-        base = (base_url or os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434").rstrip("/")
+        base = (base_url or os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434").rstrip(
+            "/"
+        )
         if base.endswith("/v1"):
             base = base[:-3]
         self._endpoint = f"{base}/api/chat"

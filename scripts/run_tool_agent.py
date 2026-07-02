@@ -92,7 +92,9 @@ def main() -> int:
         "--read-only", action="store_true", help="inspect-only suite (no edit/write/bash)"
     )
     ap.add_argument(
-        "--think", action="store_true", help="enable the model's thinking mode (for reasoning models)"
+        "--think",
+        action="store_true",
+        help="enable the model's thinking mode (for reasoning models)",
     )
     return asyncio.run(_run(ap.parse_args()))
 
