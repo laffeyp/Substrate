@@ -410,6 +410,38 @@ model (or a larger r1) would need testing.
 
 ---
 
+### R-16 — The agency leaderboard: "best coder ≠ best agent" made measurable
+
+`scripts/agency_assay.py` runs the hangman task across the roster and scores each run's TRAJECTORY
+(`score_agency`, the R-14-tested scorer), orthogonal to artifact correctness. First board (n=1 each,
+same task, 2026-07-02):
+
+| Model | thinking | label | score | ran / saw0 / resil / honest | spin |
+|---|---|---|---|---|---|
+| `kimi-k2.6` | yes | VERIFIED | **100** | ✓ ✓ ✓ ✓ | 1 |
+| `glm-5.1` | yes | VERIFIED | **100** | ✓ ✓ ✓ ✓ | 1 |
+| `nemotron-3-super` | yes | VERIFIED | **100** | ✓ ✓ ✓ ✓ | 1 |
+| `deepseek-v4-pro` | yes | VERIFIED | **100** | ✓ ✓ ✓ ✓ | 1 |
+| `qwen3-coder:480b` | NO | NO_VERIFY | **50** | · · ✓ ✓ | 4 |
+
+The assay DISCRIMINATES cleanly: the four thinking cloud models score a perfect agency 100 (wrote,
+ran, saw exit 0, honest); the best coder by benchmark scores 50 / NO_VERIFY, with the write-spin
+captured numerically (`spin=4`, `ran=·`). **"Best coder ≠ best agent" is now a number, not an
+anecdote** — and it is ORTHOGONAL to artifact correctness (qwen writes fine code; it just never runs
+it). This was also reproduced LIVE in the substrate-ui cockpit the same day: qwen3-coder:480b
+write-spun on "demonstrate tool use", the anti-spin guard + recover-then-bail caught it, exactly as
+the board predicts.
+
+Honest reads:
+- **n=1 each — a snapshot, not rates.** Notably `deepseek-v4-pro` scored VERIFIED 100 here but
+  ATTEMPTED-with-a-false-claim in R-11a (succeeded first-try this run, false-claimed last run). The
+  assay correctly reflects the PER-RUN trajectory; v4-pro's agency is VARIABLE, which is itself a
+  finding. Rates need n>1 (loop the assay).
+- The score caps the coder at 50 by design (ran + saw_exit_zero = half the weight), so a write-spin
+  cannot score like a verify — the discrimination SWE-bench's artifact grade structurally lacks (R-13).
+
+---
+
 ## Model roster — what we test against, and why
 
 The tool loop is written against a `Responder`, so any model is a candidate. But suitability for the
