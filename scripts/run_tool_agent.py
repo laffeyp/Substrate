@@ -49,7 +49,9 @@ async def _run(args: argparse.Namespace) -> int:
 
     result = await Runtime(record).run(
         tool_loop_topology(
-            model=OllamaResponder(args.model, max_tokens=args.max_tokens, think=args.think),
+            model=OllamaResponder(
+                args.model, max_tokens=args.max_tokens, think=args.think, timeout=args.timeout
+            ),
             walkthrough=True,
             deterministic=False,
             tools=suite,
@@ -95,6 +97,12 @@ def main() -> int:
         "--think",
         action="store_true",
         help="enable the model's thinking mode (for reasoning models)",
+    )
+    ap.add_argument(
+        "--timeout",
+        type=float,
+        default=180.0,
+        help="per model-call timeout in seconds (raise for slow local reasoning models)",
     )
     return asyncio.run(_run(ap.parse_args()))
 

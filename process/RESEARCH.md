@@ -410,7 +410,10 @@ this is the list to attack, not trust.
   (types/required/versions), not prose; regenerated all 12 committed records. Verified cross-version:
   the real `test_committed_record_is_current` passes on **py3.12 (29) AND py3.14 (29)**, full py3.12
   suite 565 passed. (The "unsorted set" guess is exactly why you reproduce and diff instead of infer.)
-  Follow-up still worth doing: pin ruff in CI so the formatter can't re-drift.
+  **CI OBSERVED GREEN across the full matrix** (run `3ed3f1b`, all 6 cells ubuntu+macos ×
+  py3.12/3.13/3.14 = `success`) — confirmed by watching the run conclude, not from a local or
+  single-cell green. This moves "CI is green" from FALSE (all session) to TRUE (observed). Follow-up
+  still worth doing: pin ruff in CI so the formatter can't re-drift.
   **Self-inflicted repeat:** I wrote finding 33 ("run what CI runs, watch CI") and then said "CI
   fixed" from a single-env local green (`macos-py3.12`) before the full matrix concluded — the same
   class of error one turn later, now across the OS/Python matrix rather than scoped-vs-whole-repo.

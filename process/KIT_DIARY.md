@@ -352,6 +352,23 @@ checks that could fail. Also found and repaired a pre-existing repo-wide CI fail
   self-recovered from a failure. For agentic topologies the observation contract must exercise the
   TRAJECTORY (did it run and check?), not only grade the final artifact — the artifact can be correct
   while the agent never verified it, and that is a different, load-bearing fact.
+- 35. **A persisted record/manifest must pin STRUCTURE, not prose — prose is environment-variable.**
+  A committed-record currency gate went red on the py3.13/3.14 CI cells: three topologies' records
+  wouldn't regenerate byte-identically across Python versions. Root (found by reproducing on a real
+  py3.14 env and DIFFING the bytes — my first guess, "an unsorted set," was wrong): the manifest
+  embedded each Struct's DOCSTRING via the JSON-schema `description`, and CPython 3.13 dedents
+  docstrings at compile time, so a multi-line docstring serialized differently across versions. The
+  fix was to drop `description` — the manifest should pin the structural contract (types / required /
+  version), never human prose. General rule for any byte-identity/currency claim: audit the serialized
+  bytes for anything environment- or version-derived (docstrings, timestamps, paths, hashes, set
+  order) and exclude it — and root-cause by reproducing + diffing, not by inferring.
+- 36. **A green cell is not a green matrix — watch the run CONCLUDE across the matrix (extends 33).**
+  I called "CI fixed" when `macos-py3.12` went green while the py3.13/3.14 cells were still running —
+  and those were the ones still red. The bar for "CI is green" is the whole matrix concluding green,
+  observed, not one cell or a local run. Finding 33 said "run what CI runs"; 36 sharpens it: also
+  "wait for ALL of what CI runs to finish." (Caught and corrected in the same session — twice, which
+  is the point: the failure mode is claiming from a partial green, and it recurs unless the bar is the
+  observed full conclusion.)
 
 ---
 
