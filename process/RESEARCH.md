@@ -328,5 +328,59 @@ the shape is captured; build the catalogue once the model path is settled.
 
 ---
 
+## Claim ledger — verified vs unverified (2026-07-02)
+
+A standing honest audit, run under the SDD skeptic challenge. **Verified** = a reading *outside my
+control* would differ if the claim were false (a live run's real fs/bash/oracle output, an independent
+tool, rendered pixels, a diff vs source-of-truth). Everything else is named plainly. Kept current;
+this is the list to attack, not trust.
+
+### Verified — outside-my-control evidence (this session)
+- Byte-cap kills the glob-wedge (arena live + reproduce-then-kill). · Parser batched-call fix (live
+  flip 0-tools→executing + test). · Anti-spin guard (live `16→2` writes). · Recover-then-bail (live
+  `4`+truthful bail + tests). · Workspace rooting: rel→root / absolute passthrough / bash cwd (real fs
+  smoke). · **Server→workspace→file** (live, counter-checked: file in `/tmp/ws-verify`, none leaked to
+  server cwd). · **`/cwd` terminal** (structural E2E + perceptual screenshot showing `workspace =
+  /tmp/agent-e2e`). · Empty-file marker (arena live). · R-9 kimi write→read→run→verify (n=1, real
+  `exit: 0` + `=== HANGMAN ===`). · R-10 discipline prompt inert (n=1 A/B). · SOFT regex (12 real
+  logs, 0 false positives). · Container arena reaches host Ollama (live). · 17 tool_loop + 6 reference
+  + 28 server tests (independent pytest, run this session). · ruff+mypy over `src/substrate` (95 files).
+
+### Unverified / weaker (this session)
+- **`replace_all` coercion, out-of-range read marker:** could-fail UNIT TEST only — adequate for a pure
+  function, but no independent/live channel.
+- **`edit_file` line-prefix warning:** prompt text; no behavioral test that a model heeds it —
+  UNVERIFIED as an effect.
+- **"CI is green":** FALSE. CI was red before this session and stayed red on both my pushes — whole-repo
+  `ruff check` fails on two `F401`s in pre-existing assay *scripts*. My local gates ran `ruff check
+  src/substrate` (scoped), so I never saw it. Fixed the two imports 2026-07-02; **CI beyond the Lint
+  gate remains unverified until a run is observed** (fail-fast hid any downstream mypy/test failures).
+- **"Nothing else regressed" after the ~40-file adapter-move refactor:** now VERIFIED — full local
+  suite **565 passed, 1 skipped** (2026-07-02, 4m43s), whole-repo `ruff check` clean, `mypy --strict`
+  clean over 95 files. (Moved to verified; kept here as the record of the gap that was open.)
+
+### Inherited / not re-verified this session
+- **CliResponder:** the mechanism is verified (stub test); "Claude drives FULL_SUITE live" is inherited
+  from the pre-compaction summary, NOT re-observed this session. Gemini never worked (auth).
+- **Capability eval** (poem/doc/software × tiers): from a prior run, not re-run.
+- **Model roster suitability:** only `qwen3-coder:480b` (fails, R-7) and `kimi-k2.6` (verifies, R-9) are
+  actually tested on the agentic loop. `deepseek-v4-pro` / `glm-5.1` / `deepseek-r1:8b` / `nemotron` /
+  `qwen2.5-coder:7b` verify-behaviour is UNVERIFIED — the roster is a plan, not a result.
+- **Benchmark numbers** in the roster: vendor/aggregator claims, not our measurements.
+
+### Project-level standing caveats (flagged, not re-audited here)
+- SWE-bench 36% on Lite-300 is real (official-oracle graded), but the split is public+contaminated —
+  the contamination-CLEAN rate is unverified (dating deferred).
+- N-PERF-1 is machine-dependent; there is no single true number.
+- Every n=1 / n=5 model run is exploratory, not a rate — the power floor gates any reported number.
+- The "cockpit / daily-driver" vision is aspirational, not a verified capability.
+
+**The process finding under it all:** my local gates were scoped narrower than CI (src-only ruff vs
+whole-repo), and I ran targeted test subsets rather than the full suite after a broad refactor. The
+green I read was real but *narrower than the claim*. The fix is a habit: run the CI-equivalent gate
+(bare `ruff check`, full `pytest`) and observe CI, before saying "clean."
+
+---
+
 *process/RESEARCH.md — started 2026-07-02. Append; never delete a refuted hypothesis (the refutation
 is the finding). Thread 1 open: the model ceiling (R-7) is the live frontier.*

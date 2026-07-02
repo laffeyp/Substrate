@@ -8,7 +8,6 @@ patch without invoking Docker). Env-gated (git + Docker), slow.
 
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 from datasets import load_dataset
