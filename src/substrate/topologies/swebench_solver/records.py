@@ -126,8 +126,12 @@ class RepairOutcome(enum.Enum):
     happened. Enforced at the speaker's mouth (#2), not a string convention."""
 
     SELECTED = "selected"  # a candidate applied cleanly and was selected (the success path)
-    NO_LOCALIZATION = "no_localization"  # localize picked no edit target -> the drafters had no file to edit
-    NO_APPLICABLE_EDIT = "no_applicable_edit"  # drafts were produced but none applied (the model's SEARCH
+    NO_LOCALIZATION = (
+        "no_localization"  # localize picked no edit target -> the drafters had no file to edit
+    )
+    NO_APPLICABLE_EDIT = (
+        "no_applicable_edit"  # drafts were produced but none applied (the model's SEARCH
+    )
     #                                            text did not match the file) -> nothing to submit
 
 

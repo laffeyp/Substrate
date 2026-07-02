@@ -86,10 +86,17 @@ def test_canonical_test_modules_drops_example_test_trees() -> None:
     # uninstalled example package -> fatal rc-4 conftest error. The dominant `tests/` group is kept; the
     # scattered `examples/` test trees are dropped.
     mods = [
-        "tests/test_basic.py", "tests/test_json.py", "tests/test_blueprints.py",
-        "examples/javascript/tests/test_js_example.py", "examples/tutorial/tests/test_auth.py",
+        "tests/test_basic.py",
+        "tests/test_json.py",
+        "tests/test_blueprints.py",
+        "examples/javascript/tests/test_js_example.py",
+        "examples/tutorial/tests/test_auth.py",
     ]
-    assert canonical_test_modules(mods) == ["tests/test_basic.py", "tests/test_blueprints.py", "tests/test_json.py"]
+    assert canonical_test_modules(mods) == [
+        "tests/test_basic.py",
+        "tests/test_blueprints.py",
+        "tests/test_json.py",
+    ]
 
 
 def test_planner_builds_per_candidate_firewall_clean_command() -> None:
@@ -100,13 +107,17 @@ def test_planner_builds_per_candidate_firewall_clean_command() -> None:
     # only the issue-unrelated, non-held-out test runs, under the repo's own install + runner.
     assert run.command.endswith("pytest -rA --continue-on-collection-errors tests/test_json.py")
     assert "python -m pip install -e ." in run.command
-    assert run.files == frozenset({"tests/test_json.py"})  # the scope, for the vanished-test check (#70)
+    assert run.files == frozenset(
+        {"tests/test_json.py"}
+    )  # the scope, for the vanished-test check (#70)
 
 
 def test_planner_empty_command_when_everything_excluded() -> None:
     plan = make_regression_planner(_SPEC, ["tests/test_basic.py"], exclude={"tests/test_basic.py"})
     run = plan(_FLASK_PATCH)
-    assert run.command == "" and run.files == frozenset()  # nothing left -> empty (no vacuous all-pass)
+    assert (
+        run.command == "" and run.files == frozenset()
+    )  # nothing left -> empty (no vacuous all-pass)
 
 
 def test_exclude_delta_zero_when_proximity_already_catches() -> None:
@@ -121,7 +132,9 @@ def test_exclude_delta_names_the_harness_assist() -> None:
     # drops it: that drop is the harness assist, and exclude_delta names it.
     test_files = ["other/test_weird.py", "tests/test_json.py"]
     touched = {"src/flask/blueprints.py"}
-    assert exclude_delta(test_files, touched, exclude={"other/test_weird.py"}) == ["other/test_weird.py"]
+    assert exclude_delta(test_files, touched, exclude={"other/test_weird.py"}) == [
+        "other/test_weird.py"
+    ]
 
 
 def test_resolve_regression_static_vs_planner() -> None:

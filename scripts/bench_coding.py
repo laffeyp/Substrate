@@ -55,7 +55,11 @@ def _suite() -> Suite:
     if limit:
         problems = problems[: int(limit)]
     return coding_suite(
-        problems, strong_model=STRONG_MODEL, weak_models=WEAK_MODELS, equivalence_margin=MARGIN, pass_k=1
+        problems,
+        strong_model=STRONG_MODEL,
+        weak_models=WEAK_MODELS,
+        equivalence_margin=MARGIN,
+        pass_k=1,
     )
 
 
@@ -94,22 +98,36 @@ def _load_rows() -> dict[tuple[str, str, int], dict[str, object]]:
     return rows
 
 
-def _row(arm: Arm, case: Case, trial: int, passed: bool, source: str, u: UsageTotals, elapsed: int, root: str) -> dict[str, object]:
+def _row(
+    arm: Arm,
+    case: Case,
+    trial: int,
+    passed: bool,
+    source: str,
+    u: UsageTotals,
+    elapsed: int,
+    root: str,
+) -> dict[str, object]:
     # compute fields are NULL for salvage/fail cells (no calls were MADE this run — null, not a
     # measured 0); real only for freshly-run, metered cells.
     measured = source == "run"
     return {
-        "arm": arm.name, "role": arm.role, "case_id": case.case_id, "trial": trial,
-        "passed": passed, "source": source, "elapsed_ms": elapsed if measured else None, "root": root,
-        "config_fp": _CONFIG_FP, "run_id": _RUN_ID,
+        "arm": arm.name,
+        "role": arm.role,
+        "case_id": case.case_id,
+        "trial": trial,
+        "passed": passed,
+        "source": source,
+        "elapsed_ms": elapsed if measured else None,
+        "root": root,
+        "config_fp": _CONFIG_FP,
+        "run_id": _RUN_ID,
         "prompt_tokens": u.prompt_tokens if measured else None,
         "completion_tokens": u.completion_tokens if measured else None,
         "inference_ms": u.inference_ms if measured else None,
         "model_calls": u.model_calls if measured else None,
         "estimated": u.estimated,
     }
-
-
 
 
 _ZERO = UsageTotals(0, 0, 0, 0, False)
@@ -133,29 +151,44 @@ def _print_report() -> None:
     floor = equivalence_power_floor(rec_margin)
     env_margin = os.environ.get("BENCH_MARGIN")
     if env_margin is not None and abs(float(env_margin) - rec_margin) > 1e-9:
-        print(f"  NOTE: BENCH_MARGIN={env_margin} IGNORED — the report uses the run's RECORDED margin "
-              f"±{rec_margin}. A post-hoc margin is not allowed; re-margining is a NEW pre-registered run.")
+        print(
+            f"  NOTE: BENCH_MARGIN={env_margin} IGNORED — the report uses the run's RECORDED margin "
+            f"±{rec_margin}. A post-hoc margin is not allowed; re-margining is a NEW pre-registered run."
+        )
     n_run = sum(1 for r in rows if r.get("source") == "run")
     n_salv = sum(1 for r in rows if r.get("source") == "salvage")
     n_fail = sum(1 for r in rows if r.get("source") == "fail")
     trials = (max((int(r["trial"]) for r in rows), default=0) + 1) if rows else 0
-    print(f"\n=== {report.suite}  control={report.control_arm}  margin=±{rec_margin} (recorded)  "
-          f"equivalence needs >= {floor} problems at this margin ===")
-    print(f"cells: {len(rows)} ({n_run} run, {n_salv} salvaged, {n_fail} failed)  "
-          f"control-ran: {report.control_check.state}  trials={trials}")
+    print(
+        f"\n=== {report.suite}  control={report.control_arm}  margin=±{rec_margin} (recorded)  "
+        f"equivalence needs >= {floor} problems at this margin ==="
+    )
+    print(
+        f"cells: {len(rows)} ({n_run} run, {n_salv} salvaged, {n_fail} failed)  "
+        f"control-ran: {report.control_check.state}  trials={trials}"
+    )
     prov = meta.get("_provenance", "unverified")
     if prov == "tampered":
-        print("  ** PROVENANCE TAMPERED — the recorded config (margin/models) does NOT match its "
-              "fingerprint or the cells. The verdict below is NOT trustworthy. **")
+        print(
+            "  ** PROVENANCE TAMPERED — the recorded config (margin/models) does NOT match its "
+            "fingerprint or the cells. The verdict below is NOT trustworthy. **"
+        )
     else:
-        print(f"  provenance: {prov}"
-              + ("  (config cryptographically anchored to the cells)" if prov == "verified"
-                 else "  (unanchored — a pre-fingerprint run)"))
+        print(
+            f"  provenance: {prov}"
+            + (
+                "  (config cryptographically anchored to the cells)"
+                if prov == "verified"
+                else "  (unanchored — a pre-fingerprint run)"
+            )
+        )
     for a in report.arms:
         flake = a.pass_at_1 - a.pass_rate
         compute = f"calls={a.model_calls}" if a.model_calls else "calls=—"
-        line = (f"  {a.arm:22s} reliable {a.passes}/{a.n_cases}={a.pass_rate:.3f}  "
-                f"per-trial={a.pass_at_1:.3f}  flake={flake:+.3f}  {compute}")
+        line = (
+            f"  {a.arm:22s} reliable {a.passes}/{a.n_cases}={a.pass_rate:.3f}  "
+            f"per-trial={a.pass_at_1:.3f}  flake={flake:+.3f}  {compute}"
+        )
         if a.arm == report.control_arm:
             pass  # the bar — no self-comparison
         elif not a.complete:
@@ -164,12 +197,16 @@ def _print_report() -> None:
             line += f"  | Δreliable={a.delta_vs_control:+.3f}"
             if a.p_value is not None:
                 line += f"(McNemar p={a.p_value:.3f})"
-            line += (f"  | Δpass@1={a.delta_pass_k:+.3f} CI=[{a.ci_low:+.3f},{a.ci_high:+.3f}]"
-                     f" verdict={a.equivalence} fdr={a.fdr_significant}")
+            line += (
+                f"  | Δpass@1={a.delta_pass_k:+.3f} CI=[{a.ci_low:+.3f},{a.ci_high:+.3f}]"
+                f" verdict={a.equivalence} fdr={a.fdr_significant}"
+            )
         print(line)
-    print(f"\nverdicts: superior/inferior = a real difference beyond ±{rec_margin}; equivalent = a real "
-          f"tie (only with >= {floor} problems at this margin); underpowered = looks tied but too few "
-          "problems to claim it; inconclusive = can't tell. An incomplete arm gets NO verdict.")
+    print(
+        f"\nverdicts: superior/inferior = a real difference beyond ±{rec_margin}; equivalent = a real "
+        f"tie (only with >= {floor} problems at this margin); underpowered = looks tied but too few "
+        "problems to claim it; inconclusive = can't tell. An incomplete arm gets NO verdict."
+    )
 
 
 async def main() -> None:
@@ -204,9 +241,12 @@ async def main() -> None:
         if (arm.name, case.case_id, t) not in done
     ]
     total = len(suite.arms) * len(suite.cases) * TRIALS
-    print(f"firewalled coding A/B: {len(suite.cases)} problems x {len(suite.arms)} arms x {TRIALS} trials "
-          f"= {total} cells; {len(done)} already done, {len(todo)} to go (concurrency={CONCURRENCY}, "
-          f"margin=±{MARGIN}, salvage={'on' if SALVAGE else 'off'})", flush=True)
+    print(
+        f"firewalled coding A/B: {len(suite.cases)} problems x {len(suite.arms)} arms x {TRIALS} trials "
+        f"= {total} cells; {len(done)} already done, {len(todo)} to go (concurrency={CONCURRENCY}, "
+        f"margin=±{MARGIN}, salvage={'on' if SALVAGE else 'off'})",
+        flush=True,
+    )
 
     sem = asyncio.Semaphore(CONCURRENCY)
     lock = asyncio.Lock()
@@ -221,7 +261,11 @@ async def main() -> None:
             if salv is not None and (salv / "manifest.json").exists():
                 try:
                     passed = await asyncio.to_thread(
-                        lambda: suite.oracle.grade(list(api.read_record(salv)), case.ground_truth).passed
+                        lambda: (
+                            suite.oracle.grade(
+                                list(api.read_record(salv)), case.ground_truth
+                            ).passed
+                        )
                     )
                     row = _row(arm, case, trial, passed, "salvage", _ZERO, 0, str(salv))
                 except Exception:
@@ -230,11 +274,16 @@ async def main() -> None:
                 root = base / f"{arm.name}__{case.case_id}__t{trial}"
                 try:
                     r = await asyncio.wait_for(
-                        run_arm_on_case(arm, case, suite.oracle, root, trial=trial), timeout=RUN_TIMEOUT
+                        run_arm_on_case(arm, case, suite.oracle, root, trial=trial),
+                        timeout=RUN_TIMEOUT,
                     )
-                    row = _row(arm, case, trial, r.result.passed, "run", r.usage, r.elapsed_ms, r.root)
+                    row = _row(
+                        arm, case, trial, r.result.passed, "run", r.usage, r.elapsed_ms, r.root
+                    )
                 except Exception:
-                    row = _row(arm, case, trial, False, "fail", _ZERO, int(RUN_TIMEOUT * 1000), str(root))
+                    row = _row(
+                        arm, case, trial, False, "fail", _ZERO, int(RUN_TIMEOUT * 1000), str(root)
+                    )
             async with lock:
                 with CELLS.open("a") as fh:
                     fh.write(json.dumps(row) + "\n")
@@ -242,7 +291,10 @@ async def main() -> None:
                 if progress["n"] % 25 == 0 or progress["n"] == len(todo):
                     rate = progress["n"] / max(1e-9, time.monotonic() - started)
                     eta = (len(todo) - progress["n"]) / max(1e-9, rate)
-                    print(f"  ... {progress['n']}/{len(todo)}  ({rate * 60:.0f}/min, ~{eta / 60:.1f} min left)", flush=True)
+                    print(
+                        f"  ... {progress['n']}/{len(todo)}  ({rate * 60:.0f}/min, ~{eta / 60:.1f} min left)",
+                        flush=True,
+                    )
 
     await asyncio.gather(*(cell(a, c, t) for a, c, t in todo))
     _print_report()

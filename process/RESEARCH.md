@@ -351,15 +351,17 @@ this is the list to attack, not trust.
   function, but no independent/live channel.
 - **`edit_file` line-prefix warning:** prompt text; no behavioral test that a model heeds it —
   UNVERIFIED as an effect.
-- **"CI is green":** FALSE, and pre-existing. CI has been red since before this session (the
-  2026-06-27 commit too), for TWO repo-wide reasons, both surfaced only by running the CI-equivalent
-  gates locally (bare `ruff check` / `ruff format --check`, whole repo — my session gates were scoped
-  to `src/substrate`): (1) two `F401` unused imports in assay scripts — **fixed**; (2) **`ruff format
-  --check` drift across 61 files** (assay/, swebench tests, scripts), NOT a version skew (reproduces
-  locally, ruff 0.15.17, no pinned version). I formatted the 2 files in my own changeset; the
-  remaining **59 are pre-existing and not mine to reformat unasked**. So CI stays red until a repo-wide
-  `ruff format` + a pinned ruff version — an Architect decision, not a fix I should bundle into this
-  branch. My contribution is CI-clean; the repo is not.
+- **"CI is green":** was FALSE and pre-existing (red since the 2026-06-27 commit) — now **FIXED**
+  (2026-07-02, Architect authorized the repo-wide fix: "CI can't be broken"). Three latent gate
+  failures, none introduced by this session's features, all surfaced only by running the CI-equivalent
+  gates locally (my session gates were scoped to `src/substrate`; CI runs the whole repo): (1) two
+  `F401` unused imports in assay scripts; (2) `ruff format --check` drift across 61 files (assay/,
+  swebench tests, scripts) — not version skew (reproduced locally, ruff 0.15.17); (3) a latent mypy
+  error in `swebench_solver/assemble.py` (a `# type: ignore` on the wrong line — both unused AND not
+  suppressing — invisible until Lint/Format passed and the Type gate became reachable). All fixed;
+  **every CI gate now passes locally** (ruff check, format --check, mypy, lint-imports, conformance
+  no-fail, 565 tests). Follow-up worth doing: pin the ruff version in CI so a future formatter change
+  can't silently re-drift. The lesson stands regardless: run the CI-equivalent gate, don't scope it.
 - **"Nothing else regressed" after the ~40-file adapter-move refactor:** now VERIFIED — full local
   suite **565 passed, 1 skipped** (2026-07-02, 4m43s), whole-repo `ruff check` clean, `mypy --strict`
   clean over 95 files. (Moved to verified; kept here as the record of the gap that was open.)

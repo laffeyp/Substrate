@@ -34,7 +34,12 @@ class _Responder(Protocol):
 
 
 def _prompt(
-    issue: str, skeleton: str, view: tuple[str, str] | None, log: list[str], *, force_edit: bool = False
+    issue: str,
+    skeleton: str,
+    view: tuple[str, str] | None,
+    log: list[str],
+    *,
+    force_edit: bool = False,
 ) -> str:
     """The agent prompt: the issue, the file list, the FULL content of the file currently being viewed
     (so the model can write an exact SEARCH), and a short action log. The current view is shown in full
@@ -82,7 +87,9 @@ def solve_in_container(
     graded-test edits dropped). "" if nothing applied. Env-gated (Docker + the eval image + a live model)."""
     ok, reason = firewall_check(instance)  # precondition: firewall-screened (#71 NET 3)
     if not ok:
-        raise ValueError(f"instance {instance.get('instance_id')} is not firewall-screened: {reason}")
+        raise ValueError(
+            f"instance {instance.get('instance_id')} is not firewall-screened: {reason}"
+        )
     with ContainerWorkspace(instance["instance_id"]) as ws:
         _, skeleton = ws.exec("git ls-files | head -400")
         issue = str(instance["problem_statement"])
@@ -90,7 +97,9 @@ def solve_in_container(
         log: list[str] = []
         reads_since_edit = 0
         for step in range(max_steps):
-            reply = responder.respond(_prompt(issue, skeleton, view, log, force_edit=reads_since_edit >= 2))
+            reply = responder.respond(
+                _prompt(issue, skeleton, view, log, force_edit=reads_since_edit >= 2)
+            )
             am = _ACTION.search(reply)
             action = am.group(1).lower() if am else ""
             if verbose:

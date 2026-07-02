@@ -37,8 +37,11 @@ def _pick_spanning_repos(dataset, n):
 def main() -> None:
     ds = list(load_dataset("princeton-nlp/SWE-bench_Lite", split="test"))
     chosen = _pick_spanning_repos(ds, N)
-    print(f"{len(chosen)} instances across {sorted({c['repo'] for c in chosen})} | "
-          f"model={MODEL} max_steps={MAX_STEPS}", flush=True)
+    print(
+        f"{len(chosen)} instances across {sorted({c['repo'] for c in chosen})} | "
+        f"model={MODEL} max_steps={MAX_STEPS}",
+        flush=True,
+    )
     responder = OllamaResponder(MODEL, max_tokens=2048)
 
     resolved, errors = [], []
@@ -56,8 +59,12 @@ def main() -> None:
             continue
         print(f"  patch {len(patch)}b; grading (Docker; slow)...", flush=True)
         try:
-            ok = grade_patch(iid, patch, report_root=Path("process/assay_container"),
-                             dataset_name="princeton-nlp/SWE-bench_Lite")
+            ok = grade_patch(
+                iid,
+                patch,
+                report_root=Path("process/assay_container"),
+                dataset_name="princeton-nlp/SWE-bench_Lite",
+            )
         except Exception as exc:  # noqa: BLE001
             print(f"  GRADE FAILED: {type(exc).__name__}: {str(exc)[:140]}", flush=True)
             errors.append((iid, f"grade: {type(exc).__name__}"))
@@ -67,7 +74,10 @@ def main() -> None:
             resolved.append(iid)
 
     print("\n==================== CONTAINER-BACKEND SCORE ====================", flush=True)
-    print(f"model={MODEL} max_steps={MAX_STEPS} | instances={len(chosen)} | errors={len(errors)}", flush=True)
+    print(
+        f"model={MODEL} max_steps={MAX_STEPS} | instances={len(chosen)} | errors={len(errors)}",
+        flush=True,
+    )
     print(f"RESOLVED: {len(resolved)}/{len(chosen)} -> {resolved}", flush=True)
     for iid, why in errors:
         print(f"  err {iid}: {why}", flush=True)

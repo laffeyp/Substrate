@@ -53,10 +53,16 @@ class ArmReport:
     role: str
     n_cases: int
     passes: int
-    pass_rate: float  # pass^k-COLLAPSED reliable-solve rate (a cell counts only if ALL trials passed)
+    pass_rate: (
+        float  # pass^k-COLLAPSED reliable-solve rate (a cell counts only if ALL trials passed)
+    )
     pass_at_1: float  # per-trial (pass@1) success rate — the OTHER currency; the gap to pass_rate is flakiness
-    complete: bool  # graded EVERY suite Case — a verdict is gated on this (no claim off a partial run)
-    delta_vs_control: float | None  # pass^k-collapsed Δ (same currency as `passes`) — the harsher, honest one
+    complete: (
+        bool  # graded EVERY suite Case — a verdict is gated on this (no claim off a partial run)
+    )
+    delta_vs_control: (
+        float | None
+    )  # pass^k-collapsed Δ (same currency as `passes`) — the harsher, honest one
     discordant_control_only: int | None  # b: control passed, arm failed
     discordant_arm_only: int | None  # c: control failed, arm passed
     p_value: float | None  # exact McNemar (binary) — SECONDARY cross-check
@@ -151,7 +157,9 @@ def build_report(suite: Suite, results: Sequence[CaseResult]) -> Report:
     )
     # ARM-COMPLETENESS gate (review): a verdict needs every Case graded in BOTH the arm AND the control
     # — a half-finished run (the live sweep) must not yield a confirmatory delta/CI/verdict.
-    control_complete = check.state == PASS and all(control_map.get(cid) is not None for cid in case_ids)
+    control_complete = check.state == PASS and all(
+        control_map.get(cid) is not None for cid in case_ids
+    )
 
     mids: list[_Mid] = []
     for arm in suite.arms:
@@ -170,7 +178,12 @@ def build_report(suite: Suite, results: Sequence[CaseResult]) -> Report:
         # GATE: a delta/verdict exists only if the control ran on every Case (check PASS), this is not
         # the control, AND both this arm and the control graded every Case (completeness — no verdict
         # off a partial run).
-        if check.state == PASS and arm.name != suite.control_arm and arm_complete and control_complete:
+        if (
+            check.state == PASS
+            and arm.name != suite.control_arm
+            and arm_complete
+            and control_complete
+        ):
             # McNemar on the pass^k-collapsed cells — PAIRED over the Cases both arms graded.
             b = c = control_passes = arm_passes = paired = 0
             for cid in case_ids:

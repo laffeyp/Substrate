@@ -12,8 +12,14 @@ MODEL = sys.argv[2] if len(sys.argv) > 2 else "qwen3-coder:480b-cloud"
 
 
 def main() -> None:
-    inst = next(x for x in load_dataset("princeton-nlp/SWE-bench_Lite", split="test") if x["instance_id"] == IID)
-    patch = solve_in_container(inst, OllamaResponder(MODEL, max_tokens=2048), max_steps=8, verbose=True)
+    inst = next(
+        x
+        for x in load_dataset("princeton-nlp/SWE-bench_Lite", split="test")
+        if x["instance_id"] == IID
+    )
+    patch = solve_in_container(
+        inst, OllamaResponder(MODEL, max_tokens=2048), max_steps=8, verbose=True
+    )
     print(f"\n=== final patch: {len(patch)}b ===", flush=True)
     if patch:
         print(patch[:800], flush=True)

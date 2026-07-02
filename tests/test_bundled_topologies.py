@@ -66,9 +66,13 @@ async def test_committed_record_is_current(tmp_path, name):
     # non-determinism for a stale record (a false-fail). Every BUNDLED entry is deterministic today;
     # this keeps that invariant explicit rather than implicit.
     rs = next(e for e in read_record(tmp_path / name) if e["kind"] == "substrate.RunStarted")
-    nondet = [pk["kind"] for pk in rs["payload"]["topology"]["producer_kinds"] if not pk["deterministic"]]
+    nondet = [
+        pk["kind"] for pk in rs["payload"]["topology"]["producer_kinds"] if not pk["deterministic"]
+    ]
     if nondet:
-        pytest.skip(f"{name}: non-deterministic producers {nondet} — not byte-reproducible, currency gate N/A")
+        pytest.skip(
+            f"{name}: non-deterministic producers {nondet} — not byte-reproducible, currency gate N/A"
+        )
     div = first_divergence(bundled.record_path(name), tmp_path / name)
     assert div is None, (
         f"{name}: committed record is STALE — a fresh run diverges from it. "

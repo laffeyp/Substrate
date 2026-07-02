@@ -29,7 +29,7 @@ import tempfile
 _TEST_FILE = re.compile(r"(^|/)(test_[^/]*\.py|[^/]*_test\.py|tests?\.py|conftest\.py)$")
 # the `diff --git` header b-side path, both forms git emits: bare `a/X b/Y` and, for paths with spaces or
 # special chars, the C-quoted `"a/X" "b/Y"`. A header that matches NEITHER is treated as unparseable.
-_HDR_BARE = re.compile(r'^diff --git a/(\S+) b/(\S+)$')
+_HDR_BARE = re.compile(r"^diff --git a/(\S+) b/(\S+)$")
 _HDR_QUOTED = re.compile(r'^diff --git "a/(.+)" "b/(.+)"$')
 
 
@@ -57,7 +57,7 @@ def graded_test_files(test_patch: str) -> set[str]:
     for ln in test_patch.splitlines():
         for prefix in ("--- a/", "+++ b/"):
             if ln.startswith(prefix):
-                p = ln[len(prefix):].strip()
+                p = ln[len(prefix) :].strip()
                 if p and p != "dev/null":
                     out.add(p)
     return out
@@ -92,7 +92,9 @@ def workspace_diff(
     subprocess.run(["git", "-C", repo_dir, "add", "-A"], capture_output=True, check=False)
     diff = subprocess.run(
         ["git", "-C", repo_dir, "diff", "--cached", base_ref],
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     return filter_diff(diff.stdout, drop_files=drop_files)
 

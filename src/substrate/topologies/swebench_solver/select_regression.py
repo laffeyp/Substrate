@@ -90,7 +90,7 @@ def patch_touched_files(model_patch: str) -> set[str]:
     for ln in model_patch.splitlines():
         for prefix in ("--- a/", "+++ b/"):
             if ln.startswith(prefix):
-                path = ln[len(prefix):].strip()
+                path = ln[len(prefix) :].strip()
                 if path and path != "dev/null":
                     out.add(path)
     return out
@@ -104,7 +104,7 @@ def _module_stem(path: str) -> str:
     if base.endswith(".py"):
         base = base[:-3]
     if base.startswith("test_"):
-        base = base[len("test_"):]
+        base = base[len("test_") :]
     elif base.endswith("_test"):
         base = base[: -len("_test")]
     return base

@@ -35,20 +35,32 @@ def main() -> None:
     for iid in IIDS:
         inst = by_id[iid]
         case = Case(case_id=safe_case_id(iid), payload={}, ground_truth=inst)
-        print(f"\n--- {iid} ({inst['repo']}) — running the repair TOPOLOGY (n={N}; slow) ---", flush=True)
+        print(
+            f"\n--- {iid} ({inst['repo']}) — running the repair TOPOLOGY (n={N}; slow) ---",
+            flush=True,
+        )
         res = asyncio.run(run_arm_on_case(arm, case, oracle, base / case.case_id))
         # show that the substrate producers actually ran (the record is the proof).
         from substrate.api import read_record
+
         rec = list(read_record(base / case.case_id))
         kinds = [e["kind"] for e in rec]
-        print(f"  record kinds: localizer={kinds.count('SuspectFiles')} drafts={kinds.count('Candidate')} "
-              f"applied={kinds.count('AppliedPatch')} selected={kinds.count('SelectedPatch')}", flush=True)
+        print(
+            f"  record kinds: localizer={kinds.count('SuspectFiles')} drafts={kinds.count('Candidate')} "
+            f"applied={kinds.count('AppliedPatch')} selected={kinds.count('SelectedPatch')}",
+            flush=True,
+        )
         print(f"  resolved={res.result.passed} | {res.result.detail}", flush=True)
         if res.result.passed:
             resolved.append(iid)
 
-    print(f"\n=== REPAIR TOPOLOGY: {len(resolved)}/{len(IIDS)} resolved -> {resolved} ===", flush=True)
-    print("(a genuine substrate topology — producers do the localize/draft/apply — emitting patches, graded official)", flush=True)
+    print(
+        f"\n=== REPAIR TOPOLOGY: {len(resolved)}/{len(IIDS)} resolved -> {resolved} ===", flush=True
+    )
+    print(
+        "(a genuine substrate topology — producers do the localize/draft/apply — emitting patches, graded official)",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

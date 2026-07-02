@@ -27,16 +27,28 @@ def _kinds(events: list[dict], kind: str) -> list[dict]:
 def _draft_factory(good_from_round: int):  # type: ignore[no-untyped-def]
     async def draft(inp: Any) -> AsyncIterator[Candidate]:
         rnd, slot = int(inp.get("round", 1)), int(inp.get("slot", 0))
-        yield Candidate(round=rnd, slot=slot, response=("GOOD" if rnd >= good_from_round else "BAD"))
+        yield Candidate(
+            round=rnd, slot=slot, response=("GOOD" if rnd >= good_from_round else "BAD")
+        )
 
     return lambda: draft
 
 
 def _validate_factory(pass_slots: set[int]):  # type: ignore[no-untyped-def]
     async def validate(inp: Any) -> AsyncIterator[Verdict]:
-        rnd, slot, resp = int(inp.get("round", 1)), int(inp.get("slot", 0)), str(inp.get("response", ""))
+        rnd, slot, resp = (
+            int(inp.get("round", 1)),
+            int(inp.get("slot", 0)),
+            str(inp.get("response", "")),
+        )
         ok = resp == "GOOD" and slot in pass_slots
-        yield Verdict(round=rnd, slot=slot, passed=ok, returncode=0 if ok else 1, summary="ok" if ok else "fail")
+        yield Verdict(
+            round=rnd,
+            slot=slot,
+            passed=ok,
+            returncode=0 if ok else 1,
+            summary="ok" if ok else "fail",
+        )
 
     return lambda: validate
 
@@ -48,26 +60,42 @@ async def _run(tmp_path, **kw):  # type: ignore[no-untyped-def]
 
 async def test_selects_the_passing_candidate(tmp_path) -> None:  # type: ignore[no-untyped-def]
     events = await _run(
-        tmp_path, n=3, max_rounds=2, draft_factory=_draft_factory(1), validate_factory=_validate_factory({2})
+        tmp_path,
+        n=3,
+        max_rounds=2,
+        draft_factory=_draft_factory(1),
+        validate_factory=_validate_factory({2}),
     )
     verdicts = _kinds(events, "Verdict")
-    assert len(verdicts) == 3 and sum(v["passed"] for v in verdicts) == 1  # full best-of-N on the record
+    assert (
+        len(verdicts) == 3 and sum(v["passed"] for v in verdicts) == 1
+    )  # full best-of-N on the record
     out = _outcome(events)
     assert out is not None and out["kind"] == "Solved" and out["payload"]["slot"] == 2
 
 
 async def test_correction_then_pass(tmp_path) -> None:  # type: ignore[no-untyped-def]
     events = await _run(
-        tmp_path, n=3, max_rounds=2, draft_factory=_draft_factory(2), validate_factory=_validate_factory({0, 1, 2})
+        tmp_path,
+        n=3,
+        max_rounds=2,
+        draft_factory=_draft_factory(2),
+        validate_factory=_validate_factory({0, 1, 2}),
     )
     out = _outcome(events)
-    assert out is not None and out["kind"] == "Solved" and out["payload"]["round"] == 2  # round 1 failed, 2 passed
+    assert (
+        out is not None and out["kind"] == "Solved" and out["payload"]["round"] == 2
+    )  # round 1 failed, 2 passed
     assert len(_kinds(events, "Verdict")) == 6  # 3 per round, both rounds on the record
 
 
 async def test_exhausted_when_all_fail(tmp_path) -> None:  # type: ignore[no-untyped-def]
     events = await _run(
-        tmp_path, n=3, max_rounds=1, draft_factory=_draft_factory(2), validate_factory=_validate_factory({0, 1, 2})
+        tmp_path,
+        n=3,
+        max_rounds=1,
+        draft_factory=_draft_factory(2),
+        validate_factory=_validate_factory({0, 1, 2}),
     )
     out = _outcome(events)
     assert out is not None and out["kind"] == "Exhausted"

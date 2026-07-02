@@ -79,7 +79,9 @@ def test_fixtures_win_over_a_colliding_candidate_file() -> None:
         name="collide",
         spec="",
         gate="python -m pytest -q",
-        fixtures={"test_it.py": "from m import f\n\n\ndef test_it() -> None:\n    assert f() == 1\n"},
+        fixtures={
+            "test_it.py": "from m import f\n\n\ndef test_it() -> None:\n    assert f() == 1\n"
+        },
         ci_good="",
         ci_bad="",
     )

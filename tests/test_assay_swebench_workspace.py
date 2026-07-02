@@ -16,10 +16,14 @@ def test_is_test_file():
     assert is_test_file("tests/test_basic.py")
     assert is_test_file("pkg/foo_test.py")
     assert is_test_file("conftest.py") and is_test_file("tests/conftest.py")
-    assert is_test_file("django/contrib/admin/tests.py")  # django's bare tests.py convention (review fix)
+    assert is_test_file(
+        "django/contrib/admin/tests.py"
+    )  # django's bare tests.py convention (review fix)
     assert not is_test_file("src/flask/blueprints.py")
     assert not is_test_file("setup.py")  # config is KEPT — a real fix may touch it
-    assert not is_test_file("django/test/client.py")  # django/test/ is SOURCE, not a test — must be KEPT
+    assert not is_test_file(
+        "django/test/client.py"
+    )  # django/test/ is SOURCE, not a test — must be KEPT
 
 
 def test_graded_test_files_parses_the_graded_test_set():
@@ -93,8 +97,11 @@ def _git_repo(tmp_path) -> Path:
     (d / "tests").mkdir()
     (d / "tests" / "test_app.py").write_text("assert f() == 1\n")
     for args in (
-        ["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"],
-        ["add", "-A"], ["commit", "-qm", "base"],
+        ["init", "-q"],
+        ["config", "user.email", "t@t"],
+        ["config", "user.name", "t"],
+        ["add", "-A"],
+        ["commit", "-qm", "base"],
     ):
         subprocess.run(["git", "-C", str(d), *args], check=True, capture_output=True)
     return d
@@ -107,12 +114,16 @@ def test_workspace_diff_on_a_real_repo_drops_test_edits(tmp_path):
     (repo / "tests" / "test_app.py").write_text("assert f() == 2\n")
     patch = workspace_diff(str(repo))
     assert "app.py" in patch and "+    return 2" in patch  # the real fix is in the patch
-    assert "test_app.py" not in patch  # the test edit is dropped (would collide with the held-out tests)
+    assert (
+        "test_app.py" not in patch
+    )  # the test edit is dropped (would collide with the held-out tests)
 
 
 def test_workspace_diff_empty_when_nothing_changed(tmp_path):
     repo = _git_repo(tmp_path)
-    assert workspace_diff(str(repo)) == ""  # no changes -> empty patch (graded not-resolved, no crash)
+    assert (
+        workspace_diff(str(repo)) == ""
+    )  # no changes -> empty patch (graded not-resolved, no crash)
 
 
 def test_workspace_diff_captures_a_new_file(tmp_path):

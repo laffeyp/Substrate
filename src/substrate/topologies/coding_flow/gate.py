@@ -99,8 +99,10 @@ def sanitize_candidate_artifacts(artifacts: dict[str, str]) -> dict[str, str]:
     safe: dict[str, str] = {}
     for path, content in artifacts.items():
         base = Path(path).name.lower()
-        if base in _CONFIG_DENY or (base.startswith("test_") and base.endswith(".py")) or base.endswith(
-            "_test.py"
+        if (
+            base in _CONFIG_DENY
+            or (base.startswith("test_") and base.endswith(".py"))
+            or base.endswith("_test.py")
         ):
             continue
         safe[path] = content

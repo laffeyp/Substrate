@@ -45,7 +45,9 @@ SUPERIOR = "superior"
 EQUIVALENT = "equivalent"
 INFERIOR = "inferior"
 INCONCLUSIVE = "inconclusive"
-UNDERPOWERED = "underpowered"  # would read equivalent, but too few cases for THIS margin to claim it
+UNDERPOWERED = (
+    "underpowered"  # would read equivalent, but too few cases for THIS margin to claim it
+)
 
 
 def equivalence_power_floor(margin: float) -> int:
@@ -124,7 +126,9 @@ def bootstrap_delta_pass_k(
     deltas.sort()
 
     def _pct(a: float) -> tuple[float, float]:
-        return deltas[max(0, int((a / 2) * n_boot))], deltas[min(n_boot - 1, int((1 - a / 2) * n_boot))]
+        return deltas[max(0, int((a / 2) * n_boot))], deltas[
+            min(n_boot - 1, int((1 - a / 2) * n_boot))
+        ]
 
     lo, hi = _pct(alpha)  # the 1-alpha (95%) CI — reported for display + the difference (!=0) test
     # the verdict uses the 90% CI: a 5% TOST is two one-sided 5% tests, whose dual is the 90% interval,

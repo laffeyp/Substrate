@@ -115,7 +115,12 @@ def _selector_factory() -> _Factory:
 
     async def select(inp: Any) -> AsyncIterator[SelectedPatch]:
         applied = [
-            AppliedPatch(round=int(a["round"]), slot=int(a["slot"]), model_patch=str(a["model_patch"]), creates_file=bool(a["creates_file"]))
+            AppliedPatch(
+                round=int(a["round"]),
+                slot=int(a["slot"]),
+                model_patch=str(a["model_patch"]),
+                creates_file=bool(a["creates_file"]),
+            )
             for a in (inp.get("applied", []) if hasattr(inp, "get") else [])
         ]
         results = {
@@ -143,10 +148,15 @@ def _first_patch_selector_factory() -> _Factory:
     async def select(inp: Any) -> AsyncIterator[SelectedPatch]:
         slot = int(inp.get("slot", 0)) if hasattr(inp, "get") else 0
         applied = list(inp.get("applied", [])) if hasattr(inp, "get") else []
-        chosen = next((a for a in applied if int(a["slot"]) == slot), applied[0] if applied else None)
+        chosen = next(
+            (a for a in applied if int(a["slot"]) == slot), applied[0] if applied else None
+        )
         if chosen is not None:
-            yield SelectedPatch(slot=int(chosen["slot"]), model_patch=str(chosen["model_patch"]),
-                                reason="first-applyable")
+            yield SelectedPatch(
+                slot=int(chosen["slot"]),
+                model_patch=str(chosen["model_patch"]),
+                reason="first-applyable",
+            )
 
     return lambda: select
 
@@ -170,7 +180,9 @@ def _outcome_factory() -> _Factory:
             oc, sel = RepairOutcome.NO_LOCALIZATION, -1
         else:
             oc, sel = RepairOutcome.NO_APPLICABLE_EDIT, -1
-        yield RepairSummary(outcome=oc, localized=localized, drafted=drafted, applied=applied, selected_slot=sel)
+        yield RepairSummary(
+            outcome=oc, localized=localized, drafted=drafted, applied=applied, selected_slot=sel
+        )
 
     return lambda: outcome
 
@@ -205,68 +217,150 @@ def swebench_repair_topology(
     ALWAYS emits a terminal `RepairSummary` (the enumerated outcome + stage counts) and terminates on it."""
 
     def topo(b: api.TopologyBuilder) -> None:
-        b.producer_kind("localizer", schemas=[SuspectFiles, EditLocations, ModelUsage], schema_version=1,
-                        factory=localizer_factory(responders[0], issue, repo_skeleton, known_files, top_k=top_k),
-                        deterministic=False)
+        b.producer_kind(
+            "localizer",
+            schemas=[SuspectFiles, EditLocations, ModelUsage],
+            schema_version=1,
+            factory=localizer_factory(
+                responders[0], issue, repo_skeleton, known_files, top_k=top_k
+            ),
+            deterministic=False,
+        )
         b.initial("localizer", input=None)
         b.view("edit_locations", api.KindBuffer("EditLocations"))
         b.view("verdicts", api.KindBuffer("Verdict"))
         b.view("applied", api.KindBuffer("AppliedPatch"))
         b.view("solved", api.KindBuffer("Solved"))
 
-        b.producer_kind("seeder", schemas=[Draft], schema_version=1, factory=seeder_factory(n), deterministic=False)
-        b.producer_kind("drafter", schemas=[Candidate, ModelUsage], schema_version=1,
-                        factory=repair_drafter_factory(responders, spec=issue), deterministic=False)
-        b.producer_kind("validator", schemas=[Verdict, AppliedPatch], schema_version=1,
-                        factory=repair_validate_factory(base_checkout), deterministic=False)
-        b.producer_kind("judge", schemas=[Solved, Draft, Exhausted], schema_version=1,
-                        factory=select_first_judge_factory(n, max_rounds), deterministic=False)
-        b.producer_kind("selector", schemas=[SelectedPatch], schema_version=1,
-                        factory=_first_patch_selector_factory(), deterministic=False)
-        b.producer_kind("outcome", schemas=[RepairSummary], schema_version=1,
-                        factory=_outcome_factory(), deterministic=False)
+        b.producer_kind(
+            "seeder",
+            schemas=[Draft],
+            schema_version=1,
+            factory=seeder_factory(n),
+            deterministic=False,
+        )
+        b.producer_kind(
+            "drafter",
+            schemas=[Candidate, ModelUsage],
+            schema_version=1,
+            factory=repair_drafter_factory(responders, spec=issue),
+            deterministic=False,
+        )
+        b.producer_kind(
+            "validator",
+            schemas=[Verdict, AppliedPatch],
+            schema_version=1,
+            factory=repair_validate_factory(base_checkout),
+            deterministic=False,
+        )
+        b.producer_kind(
+            "judge",
+            schemas=[Solved, Draft, Exhausted],
+            schema_version=1,
+            factory=select_first_judge_factory(n, max_rounds),
+            deterministic=False,
+        )
+        b.producer_kind(
+            "selector",
+            schemas=[SelectedPatch],
+            schema_version=1,
+            factory=_first_patch_selector_factory(),
+            deterministic=False,
+        )
+        b.producer_kind(
+            "outcome",
+            schemas=[RepairSummary],
+            schema_version=1,
+            factory=_outcome_factory(),
+            deterministic=False,
+        )
 
-        b.trigger("seed", subscription=api.Subscription(kinds=frozenset({"EditLocations"})),
-                  predicate=lambda ctx: True, starts="seeder", input_builder=lambda ctx: None, policy=api.PerEvent())
-        b.trigger("draft", subscription=api.Subscription(kinds=frozenset({"Draft"})), predicate=lambda ctx: True,
-                  starts="drafter",
-                  input_builder=lambda ctx: {
-                      "round": int(ctx.event.payload["round"]),
-                      "slot": int(ctx.event.payload["slot"]),
-                      "context": ctx.event.payload["context"],
-                      "edit_context": _build_edit_context(
-                          base_checkout,
-                          tuple(ctx.views["edit_locations"].value()[-1]["targets"]) if ctx.views["edit_locations"].value() else (),
-                      ),
-                  }, policy=api.PerEvent())
-        b.trigger("validate", subscription=api.Subscription(kinds=frozenset({"Candidate"})), predicate=lambda ctx: True,
-                  starts="validator",
-                  input_builder=lambda ctx: {"round": int(ctx.event.payload["round"]), "slot": int(ctx.event.payload["slot"]), "response": ctx.event.payload["response"]},
-                  policy=api.PerEvent())
-        b.trigger("judge", subscription=api.Subscription(kinds=frozenset({"Verdict"})),
-                  predicate=lambda ctx: len(_round_verdicts(ctx, int(ctx.event.payload["round"]))) >= n, starts="judge",
-                  input_builder=lambda ctx: {"round": int(ctx.event.payload["round"]), "verdicts": _round_verdicts(ctx, int(ctx.event.payload["round"]))},
-                  policy=api.PerEvent())
+        b.trigger(
+            "seed",
+            subscription=api.Subscription(kinds=frozenset({"EditLocations"})),
+            predicate=lambda ctx: True,
+            starts="seeder",
+            input_builder=lambda ctx: None,
+            policy=api.PerEvent(),
+        )
+        b.trigger(
+            "draft",
+            subscription=api.Subscription(kinds=frozenset({"Draft"})),
+            predicate=lambda ctx: True,
+            starts="drafter",
+            input_builder=lambda ctx: {
+                "round": int(ctx.event.payload["round"]),
+                "slot": int(ctx.event.payload["slot"]),
+                "context": ctx.event.payload["context"],
+                "edit_context": _build_edit_context(
+                    base_checkout,
+                    tuple(ctx.views["edit_locations"].value()[-1]["targets"])
+                    if ctx.views["edit_locations"].value()
+                    else (),
+                ),
+            },
+            policy=api.PerEvent(),
+        )
+        b.trigger(
+            "validate",
+            subscription=api.Subscription(kinds=frozenset({"Candidate"})),
+            predicate=lambda ctx: True,
+            starts="validator",
+            input_builder=lambda ctx: {
+                "round": int(ctx.event.payload["round"]),
+                "slot": int(ctx.event.payload["slot"]),
+                "response": ctx.event.payload["response"],
+            },
+            policy=api.PerEvent(),
+        )
+        b.trigger(
+            "judge",
+            subscription=api.Subscription(kinds=frozenset({"Verdict"})),
+            predicate=lambda ctx: len(_round_verdicts(ctx, int(ctx.event.payload["round"]))) >= n,
+            starts="judge",
+            input_builder=lambda ctx: {
+                "round": int(ctx.event.payload["round"]),
+                "verdicts": _round_verdicts(ctx, int(ctx.event.payload["round"])),
+            },
+            policy=api.PerEvent(),
+        )
         # SELECT (simple): the first applyable patch — on Solved, emit the AppliedPatch at the solved slot.
-        b.trigger("selector", subscription=api.Subscription(kinds=frozenset({"Solved"})), predicate=lambda ctx: True,
-                  starts="selector",
-                  input_builder=lambda ctx: {
-                      "slot": int(ctx.event.payload["slot"]),
-                      "applied": _round_applied(ctx, int(ctx.event.payload["round"])),
-                  }, policy=api.PerEvent())
+        b.trigger(
+            "selector",
+            subscription=api.Subscription(kinds=frozenset({"Solved"})),
+            predicate=lambda ctx: True,
+            starts="selector",
+            input_builder=lambda ctx: {
+                "slot": int(ctx.event.payload["slot"]),
+                "applied": _round_applied(ctx, int(ctx.event.payload["round"])),
+            },
+            policy=api.PerEvent(),
+        )
         # OUTCOME (always-emit summary, #51): on SelectedPatch -> SELECTED (chained AFTER the patch lands, so
         # termination can't race the selector); on Exhausted -> the failure classification.
-        b.trigger("outcome-ok", subscription=api.Subscription(kinds=frozenset({"SelectedPatch"})),
-                  predicate=lambda ctx: True, starts="outcome",
-                  input_builder=lambda ctx: _outcome_input(ctx, is_selected=True), policy=api.PerEvent())
-        b.trigger("outcome-fail", subscription=api.Subscription(kinds=frozenset({"Exhausted"})),
-                  predicate=lambda ctx: True, starts="outcome",
-                  input_builder=lambda ctx: _outcome_input(ctx, is_selected=False), policy=api.PerEvent())
+        b.trigger(
+            "outcome-ok",
+            subscription=api.Subscription(kinds=frozenset({"SelectedPatch"})),
+            predicate=lambda ctx: True,
+            starts="outcome",
+            input_builder=lambda ctx: _outcome_input(ctx, is_selected=True),
+            policy=api.PerEvent(),
+        )
+        b.trigger(
+            "outcome-fail",
+            subscription=api.Subscription(kinds=frozenset({"Exhausted"})),
+            predicate=lambda ctx: True,
+            starts="outcome",
+            input_builder=lambda ctx: _outcome_input(ctx, is_selected=False),
+            policy=api.PerEvent(),
+        )
 
-        b.termination(api.any_of(
-            api.threshold_count("RepairSummary", 1),
-            api.quiescence_with_watchdog(seconds=watchdog_seconds),
-        ))
+        b.termination(
+            api.any_of(
+                api.threshold_count("RepairSummary", 1),
+                api.quiescence_with_watchdog(seconds=watchdog_seconds),
+            )
+        )
 
     return topo
 
@@ -295,14 +389,25 @@ def swebench_solver_topology(
 
     def topo(b: api.TopologyBuilder) -> None:
         # LOCALIZE
-        b.producer_kind("localizer", schemas=[SuspectFiles, EditLocations, ModelUsage], schema_version=1,
-                        factory=localizer_factory(responders[0], issue, repo_skeleton, known_files, top_k=top_k),
-                        deterministic=False)
+        b.producer_kind(
+            "localizer",
+            schemas=[SuspectFiles, EditLocations, ModelUsage],
+            schema_version=1,
+            factory=localizer_factory(
+                responders[0], issue, repo_skeleton, known_files, top_k=top_k
+            ),
+            deterministic=False,
+        )
         b.initial("localizer", input=None)
         # the reproduction-test generator runs once at the start (it only needs the issue); SELECT reads
         # its output to check which patches resolve the issue.
-        b.producer_kind("repro_gen", schemas=[ReproductionTest, ModelUsage], schema_version=1,
-                        factory=repro_generator_factory(responders[0], issue), deterministic=False)
+        b.producer_kind(
+            "repro_gen",
+            schemas=[ReproductionTest, ModelUsage],
+            schema_version=1,
+            factory=repro_generator_factory(responders[0], issue),
+            deterministic=False,
+        )
         b.initial("repro_gen", input=None)
         b.view("reproduction", api.KindBuffer("ReproductionTest"))
         b.view("edit_locations", api.KindBuffer("EditLocations"))
@@ -312,69 +417,143 @@ def swebench_solver_topology(
         b.view("solved", api.KindBuffer("Solved"))
 
         # REPAIR (shared loop factories, swebench-seeded)
-        b.producer_kind("seeder", schemas=[Draft], schema_version=1, factory=seeder_factory(n), deterministic=False)
-        b.producer_kind("drafter", schemas=[Candidate, ModelUsage], schema_version=1,
-                        factory=repair_drafter_factory(responders, spec=issue), deterministic=False)
-        b.producer_kind("validator", schemas=[Verdict, AppliedPatch], schema_version=1,
-                        factory=repair_validate_factory(base_checkout), deterministic=False)
-        b.producer_kind("judge", schemas=[Solved, Draft, Exhausted], schema_version=1,
-                        factory=select_first_judge_factory(n, max_rounds), deterministic=False)
+        b.producer_kind(
+            "seeder",
+            schemas=[Draft],
+            schema_version=1,
+            factory=seeder_factory(n),
+            deterministic=False,
+        )
+        b.producer_kind(
+            "drafter",
+            schemas=[Candidate, ModelUsage],
+            schema_version=1,
+            factory=repair_drafter_factory(responders, spec=issue),
+            deterministic=False,
+        )
+        b.producer_kind(
+            "validator",
+            schemas=[Verdict, AppliedPatch],
+            schema_version=1,
+            factory=repair_validate_factory(base_checkout),
+            deterministic=False,
+        )
+        b.producer_kind(
+            "judge",
+            schemas=[Solved, Draft, Exhausted],
+            schema_version=1,
+            factory=select_first_judge_factory(n, max_rounds),
+            deterministic=False,
+        )
 
         # SELECT
-        b.producer_kind("select_exec", schemas=[TestResults], schema_version=1,
-                        factory=_select_exec_factory(runner, regression_command, passed_at_base),
-                        deterministic=False)
-        b.producer_kind("selector", schemas=[SelectedPatch], schema_version=1, factory=_selector_factory(),
-                        deterministic=False)
+        b.producer_kind(
+            "select_exec",
+            schemas=[TestResults],
+            schema_version=1,
+            factory=_select_exec_factory(runner, regression_command, passed_at_base),
+            deterministic=False,
+        )
+        b.producer_kind(
+            "selector",
+            schemas=[SelectedPatch],
+            schema_version=1,
+            factory=_selector_factory(),
+            deterministic=False,
+        )
 
         # LOCALIZE -> seed the loop
-        b.trigger("seed", subscription=api.Subscription(kinds=frozenset({"EditLocations"})),
-                  predicate=lambda ctx: True, starts="seeder", input_builder=lambda ctx: None, policy=api.PerEvent())
+        b.trigger(
+            "seed",
+            subscription=api.Subscription(kinds=frozenset({"EditLocations"})),
+            predicate=lambda ctx: True,
+            starts="seeder",
+            input_builder=lambda ctx: None,
+            policy=api.PerEvent(),
+        )
         # draft per Draft, with edit_context built from the localized targets + the repo
-        b.trigger("draft", subscription=api.Subscription(kinds=frozenset({"Draft"})), predicate=lambda ctx: True,
-                  starts="drafter",
-                  input_builder=lambda ctx: {
-                      "round": int(ctx.event.payload["round"]),
-                      "slot": int(ctx.event.payload["slot"]),
-                      "context": ctx.event.payload["context"],
-                      "edit_context": _build_edit_context(
-                          base_checkout,
-                          tuple(ctx.views["edit_locations"].value()[-1]["targets"]) if ctx.views["edit_locations"].value() else (),
-                      ),
-                  }, policy=api.PerEvent())
-        b.trigger("validate", subscription=api.Subscription(kinds=frozenset({"Candidate"})), predicate=lambda ctx: True,
-                  starts="validator",
-                  input_builder=lambda ctx: {"round": int(ctx.event.payload["round"]), "slot": int(ctx.event.payload["slot"]), "response": ctx.event.payload["response"]},
-                  policy=api.PerEvent())
-        b.trigger("judge", subscription=api.Subscription(kinds=frozenset({"Verdict"})),
-                  predicate=lambda ctx: len(_round_verdicts(ctx, int(ctx.event.payload["round"]))) >= n, starts="judge",
-                  input_builder=lambda ctx: {"round": int(ctx.event.payload["round"]), "verdicts": _round_verdicts(ctx, int(ctx.event.payload["round"]))},
-                  policy=api.PerEvent())
+        b.trigger(
+            "draft",
+            subscription=api.Subscription(kinds=frozenset({"Draft"})),
+            predicate=lambda ctx: True,
+            starts="drafter",
+            input_builder=lambda ctx: {
+                "round": int(ctx.event.payload["round"]),
+                "slot": int(ctx.event.payload["slot"]),
+                "context": ctx.event.payload["context"],
+                "edit_context": _build_edit_context(
+                    base_checkout,
+                    tuple(ctx.views["edit_locations"].value()[-1]["targets"])
+                    if ctx.views["edit_locations"].value()
+                    else (),
+                ),
+            },
+            policy=api.PerEvent(),
+        )
+        b.trigger(
+            "validate",
+            subscription=api.Subscription(kinds=frozenset({"Candidate"})),
+            predicate=lambda ctx: True,
+            starts="validator",
+            input_builder=lambda ctx: {
+                "round": int(ctx.event.payload["round"]),
+                "slot": int(ctx.event.payload["slot"]),
+                "response": ctx.event.payload["response"],
+            },
+            policy=api.PerEvent(),
+        )
+        b.trigger(
+            "judge",
+            subscription=api.Subscription(kinds=frozenset({"Verdict"})),
+            predicate=lambda ctx: len(_round_verdicts(ctx, int(ctx.event.payload["round"]))) >= n,
+            starts="judge",
+            input_builder=lambda ctx: {
+                "round": int(ctx.event.payload["round"]),
+                "verdicts": _round_verdicts(ctx, int(ctx.event.payload["round"])),
+            },
+            policy=api.PerEvent(),
+        )
         # Solved -> run tests for every applied patch of that round
-        b.trigger("select_exec", subscription=api.Subscription(kinds=frozenset({"Solved"})), predicate=lambda ctx: True,
-                  starts="select_exec",
-                  input_builder=lambda ctx: {
-                      "round": int(ctx.event.payload["round"]),
-                      "applied": _round_applied(ctx, int(ctx.event.payload["round"])),
-                      "repro_code": (ctx.views["reproduction"].value()[-1]["code"]
-                                     if ctx.views["reproduction"].value() else ""),
-                  },
-                  policy=api.PerEvent())
+        b.trigger(
+            "select_exec",
+            subscription=api.Subscription(kinds=frozenset({"Solved"})),
+            predicate=lambda ctx: True,
+            starts="select_exec",
+            input_builder=lambda ctx: {
+                "round": int(ctx.event.payload["round"]),
+                "applied": _round_applied(ctx, int(ctx.event.payload["round"])),
+                "repro_code": (
+                    ctx.views["reproduction"].value()[-1]["code"]
+                    if ctx.views["reproduction"].value()
+                    else ""
+                ),
+            },
+            policy=api.PerEvent(),
+        )
         # all TestResults in for the round -> rerank
-        b.trigger("selector", subscription=api.Subscription(kinds=frozenset({"TestResults"})),
-                  predicate=lambda ctx: _solved_round(ctx) is not None
-                  and len([r for r in ctx.views["test_results"].value()]) >= len(_round_applied(ctx, _solved_round(ctx))),  # type: ignore[arg-type]
-                  starts="selector",
-                  input_builder=lambda ctx: {
-                      "applied": _round_applied(ctx, _solved_round(ctx)),  # type: ignore[arg-type]
-                      "results": list(ctx.views["test_results"].value()),
-                  }, policy=api.PerEvent())
+        b.trigger(
+            "selector",
+            subscription=api.Subscription(kinds=frozenset({"TestResults"})),
+            predicate=lambda ctx: (
+                _solved_round(ctx) is not None
+                and len([r for r in ctx.views["test_results"].value()])
+                >= len(_round_applied(ctx, _solved_round(ctx)))  # type: ignore[arg-type]
+            ),
+            starts="selector",
+            input_builder=lambda ctx: {
+                "applied": _round_applied(ctx, _solved_round(ctx)),  # type: ignore[arg-type]
+                "results": list(ctx.views["test_results"].value()),
+            },
+            policy=api.PerEvent(),
+        )
 
-        b.termination(api.any_of(
-            api.threshold_count("SelectedPatch", 1),
-            api.threshold_count("Exhausted", 1),
-            api.quiescence_with_watchdog(seconds=watchdog_seconds),
-        ))
+        b.termination(
+            api.any_of(
+                api.threshold_count("SelectedPatch", 1),
+                api.threshold_count("Exhausted", 1),
+                api.quiescence_with_watchdog(seconds=watchdog_seconds),
+            )
+        )
 
     return topo
 

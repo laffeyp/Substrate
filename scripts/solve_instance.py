@@ -58,7 +58,11 @@ def _checkout(base_commit: str, repo: str) -> str:
 
 
 def main() -> None:
-    inst = next(x for x in load_dataset("princeton-nlp/SWE-bench_Lite", split="test") if x["instance_id"] == IID)
+    inst = next(
+        x
+        for x in load_dataset("princeton-nlp/SWE-bench_Lite", split="test")
+        if x["instance_id"] == IID
+    )
 
     ok, reason = firewall_check(inst)
     print(f"firewall_check: {ok} — {reason}", flush=True)
@@ -66,11 +70,16 @@ def main() -> None:
         sys.exit(2)
 
     base = _checkout(inst["base_commit"], inst["repo"])
-    repo_files = subprocess.run(["git", "-C", base, "ls-files"], capture_output=True, text=True).stdout.split()
+    repo_files = subprocess.run(
+        ["git", "-C", base, "ls-files"], capture_output=True, text=True
+    ).stdout.split()
     repo_tests = discover_test_modules(repo_files)
     exclude = _added_files(inst["test_patch"])
     gold_files = _added_files(inst["patch"])
-    print(f"repo: {len(repo_files)} files, {len(repo_tests)} test modules; gold touches {sorted(gold_files)}", flush=True)
+    print(
+        f"repo: {len(repo_files)} files, {len(repo_tests)} test modules; gold touches {sorted(gold_files)}",
+        flush=True,
+    )
 
     # the firewall-clean regression: per-candidate planner (proximity subset) + passed_at_base over the FULL
     # eligible set (candidates run subsets; regression_held only checks tests that ran ∩ base-passing).
@@ -100,23 +109,40 @@ def main() -> None:
         watchdog_seconds=2400.0,
     )
     rundir = Path(tempfile.mkdtemp(prefix="solve-run-")) / "run"
-    print(f"\nrunning the solver with {MODEL} (n={N}, real model + real container; slow)...", flush=True)
+    print(
+        f"\nrunning the solver with {MODEL} (n={N}, real model + real container; slow)...",
+        flush=True,
+    )
     asyncio.run(Runtime(rundir).run(topo))
     events = list(read_record(rundir))
 
     # what each phase produced (the record is the observable).
-    suspect: list[str] = next((e["payload"]["files"] for e in events if e["kind"] == "SuspectFiles"), [])
+    suspect: list[str] = next(
+        (e["payload"]["files"] for e in events if e["kind"] == "SuspectFiles"), []
+    )
     applied = [e["payload"] for e in events if e["kind"] == "AppliedPatch"]
     results = [e["payload"] for e in events if e["kind"] == "TestResults"]
     selected = [e["payload"] for e in events if e["kind"] == "SelectedPatch"]
     print(f"\nLOCALIZE suspect files: {suspect}", flush=True)
-    print(f"  recall@k: {recall_at_k(tuple(suspect), gold_files):.2f}  full_recall@k: {full_recall_at_k(tuple(suspect), gold_files)}", flush=True)
+    print(
+        f"  recall@k: {recall_at_k(tuple(suspect), gold_files):.2f}  full_recall@k: {full_recall_at_k(tuple(suspect), gold_files)}",
+        flush=True,
+    )
     print(f"REPAIR applied patches: {len(applied)}/{N}", flush=True)
-    print(f"SELECT test results: {[(r['slot'], r['regression_passed'], r['reproduction']) for r in results]}", flush=True)
-    print(f"SELECT chose: {'slot ' + str(selected[0]['slot']) if selected else 'NOTHING (no candidate survived)'}", flush=True)
+    print(
+        f"SELECT test results: {[(r['slot'], r['regression_passed'], r['reproduction']) for r in results]}",
+        flush=True,
+    )
+    print(
+        f"SELECT chose: {'slot ' + str(selected[0]['slot']) if selected else 'NOTHING (no candidate survived)'}",
+        flush=True,
+    )
 
     if not selected:
-        print("\n=== no SelectedPatch — nothing to grade (exploratory run, expected for a weak model) ===", flush=True)
+        print(
+            "\n=== no SelectedPatch — nothing to grade (exploratory run, expected for a weak model) ===",
+            flush=True,
+        )
         sys.exit(0)
 
     print("\ngrading the chosen patch with the swebench oracle (Docker)...", flush=True)
@@ -128,10 +154,19 @@ def main() -> None:
     patch_hash = hashlib.sha1(selected[0]["model_patch"].encode()).hexdigest()[:8]
     run_id = f"solve-{MODEL.split(':')[0].replace('/', '_')}-{patch_hash}"
     rdir = Path("process/solve_runs") / IID
-    run_swebench([pred], dataset_name="princeton-nlp/SWE-bench_Lite", run_id=run_id,
-                 instance_ids=[IID], report_dir=rdir, max_workers=1)
+    run_swebench(
+        [pred],
+        dataset_name="princeton-nlp/SWE-bench_Lite",
+        run_id=run_id,
+        instance_ids=[IID],
+        report_dir=rdir,
+        max_workers=1,
+    )
     resolved = read_resolved(rdir, run_id, "substrate-solver", IID)
-    print(f"\n=== RESOLVED: {resolved} ===  (real model {MODEL}, exploratory, n={N}, run_id={run_id})", flush=True)
+    print(
+        f"\n=== RESOLVED: {resolved} ===  (real model {MODEL}, exploratory, n={N}, run_id={run_id})",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

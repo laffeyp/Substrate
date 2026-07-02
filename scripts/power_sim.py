@@ -32,7 +32,9 @@ def _experiment(scenario: str, n: int, trials: int, margin: float, rng: random.R
     for i in range(n):
         c = rng.uniform(0.1, 0.9)  # control's per-problem solve probability
         if scenario == "het_null":
-            a = min(1.0, max(0.0, c + rng.gauss(0.0, 0.2)))  # arm differs per problem; mean effect ~0
+            a = min(
+                1.0, max(0.0, c + rng.gauss(0.0, 0.2))
+            )  # arm differs per problem; mean effect ~0
         elif scenario == "hom_null":
             a = c  # identical difficulty -> difference is pure sampling noise
         else:  # "diff": a real +0.15 effect
@@ -48,9 +50,7 @@ def _experiment(scenario: str, n: int, trials: int, margin: float, rng: random.R
 
 def _rate(scenario: str, n: int, trials: int, margin: float, verdict: str, seed: int) -> float:
     rng = random.Random(seed)
-    hits = sum(
-        1 for _ in range(N_SIM) if _experiment(scenario, n, trials, margin, rng) == verdict
-    )
+    hits = sum(1 for _ in range(N_SIM) if _experiment(scenario, n, trials, margin, rng) == verdict)
     return hits / N_SIM
 
 
@@ -64,11 +64,16 @@ def main() -> None:
             print(f"--- {label} null, margin=±{margin:.2f} ---")
             print("   n  | " + "  ".join(f"trials={t:<2d}" for t in trials_grid))
             for n in ns:
-                cells = [_rate(scenario, n, t, margin, EQUIVALENT, seed=1000 + n + t) for t in trials_grid]
+                cells = [
+                    _rate(scenario, n, t, margin, EQUIVALENT, seed=1000 + n + t)
+                    for t in trials_grid
+                ]
                 print(f"  {n:3d} | " + "  ".join(f"   {c:4.2f}  " for c in cells))
             print()
 
-    print("For contrast — P(earn 'superior') under a TRUE +0.15 effect, margin=±0.10 (equivalence's mirror):")
+    print(
+        "For contrast — P(earn 'superior') under a TRUE +0.15 effect, margin=±0.10 (equivalence's mirror):"
+    )
     print("   n  | " + "  ".join(f"trials={t:<2d}" for t in trials_grid))
     for n in ns:
         cells = [_rate("diff", n, t, 0.10, "superior", seed=2000 + n + t) for t in trials_grid]

@@ -29,14 +29,19 @@ def test_parse_test_outcomes_and_passed() -> None:
     assert outcomes["tests/test_json.py::test_dump"] == "passed"
     assert outcomes["tests/test_views.py::test_deprecated"] == "failed"
     assert outcomes["tests/test_cli.py::test_x"] == "error"
-    assert passed_tests(_RA_OUTPUT) == {"tests/test_json.py::test_dump", "tests/test_json.py::test_load"}
+    assert passed_tests(_RA_OUTPUT) == {
+        "tests/test_json.py::test_dump",
+        "tests/test_json.py::test_load",
+    }
 
 
 def test_regression_held_charges_only_new_failures() -> None:
     base = passed_tests(_RA_OUTPUT)  # the two test_json tests
     # patched run: a base-passing test still passes, and a test that FAILED at base still fails (env noise) ->
     # held (the pre-existing failure is not charged to the candidate).
-    patched_ok = "PASSED tests/test_json.py::test_dump\nFAILED tests/test_views.py::test_deprecated - x\n"
+    patched_ok = (
+        "PASSED tests/test_json.py::test_dump\nFAILED tests/test_views.py::test_deprecated - x\n"
+    )
     assert regression_held(base, patched_ok) is True
     # patched run where a base-PASSING test now fails -> a real regression -> not held.
     patched_bad = "FAILED tests/test_json.py::test_dump - broke\n"
@@ -52,7 +57,9 @@ def test_regression_held_scope_aware_vanished_test_is_charged() -> None:
     # patched: test_json reappears+passes, test_views VANISHED (its file was in scope but no line emitted).
     patched = "PASSED tests/test_json.py::test_a\n1 passed\n"
     in_scope = frozenset({"tests/test_json.py", "tests/test_views.py"})
-    assert regression_held(base, patched, in_scope) is False  # the vanished in-scope base-pass is charged
+    assert (
+        regression_held(base, patched, in_scope) is False
+    )  # the vanished in-scope base-pass is charged
     # but a base-passing test in a file the candidate did NOT run is legitimately absent, not charged.
     assert regression_held(base, patched, frozenset({"tests/test_json.py"})) is True
 
@@ -77,18 +84,24 @@ class _StubRunner:
     def __init__(self, outcomes: dict[str, tuple[int, str]]) -> None:
         self._outcomes = outcomes
 
-    def run(self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None) -> tuple[int, str]:
+    def run(
+        self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None
+    ) -> tuple[int, str]:
         return self._outcomes[test_command]
 
 
 async def test_select_exec_emits_test_results() -> None:
     # the reproduction test runs as "python /sol/repro.py" (the generated code goes in via extra_files).
-    runner = _StubRunner({"REG": (0, "3 passed in 0.1s"), "python /sol/repro.py": (0, "Issue resolved")})
+    runner = _StubRunner(
+        {"REG": (0, "3 passed in 0.1s"), "python /sol/repro.py": (0, "Issue resolved")}
+    )
     validate = select_exec_validate_factory(runner, "REG", repro_code="print('Issue resolved')")()
     results = [r async for r in validate({"slot": 2, "model_patch": "diff"})]
     assert len(results) == 1
     tr = results[0]
-    assert tr.slot == 2 and tr.regression_passed is True and tr.reproduction == Reproduction.RESOLVED
+    assert (
+        tr.slot == 2 and tr.regression_passed is True and tr.reproduction == Reproduction.RESOLVED
+    )
 
 
 async def test_select_exec_no_reproduction() -> None:

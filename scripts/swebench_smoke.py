@@ -15,7 +15,13 @@ from datasets import load_dataset
 
 from substrate.assay.swebench import make_prediction, read_resolved, run_swebench
 
-PREFER = ("pallets/flask", "psf/requests", "pallets/click", "sqlfluff/sqlfluff", "marshmallow-code/marshmallow")
+PREFER = (
+    "pallets/flask",
+    "psf/requests",
+    "pallets/click",
+    "sqlfluff/sqlfluff",
+    "marshmallow-code/marshmallow",
+)
 RUN_ID = "goldsmoke"
 RDIR = Path("process/swebench_smoke").resolve()
 
@@ -26,8 +32,11 @@ def main() -> None:
     iid = inst["instance_id"]
     print(f"instance: {iid}  repo={inst['repo']}  base={inst['base_commit'][:10]}", flush=True)
     pred = make_prediction(iid, inst["patch"], model_name="gold")
-    print("running the harness — default namespace => PULL the official x86 image + run under "
-          "emulation (Rosetta/QEMU). Slow: pulls ~GB then runs the test suite emulated…", flush=True)
+    print(
+        "running the harness — default namespace => PULL the official x86 image + run under "
+        "emulation (Rosetta/QEMU). Slow: pulls ~GB then runs the test suite emulated…",
+        flush=True,
+    )
     try:
         report = run_swebench(
             [pred],
@@ -43,14 +52,20 @@ def main() -> None:
         print("RUN REPORT:", report, flush=True)
     except Exception as exc:  # noqa: BLE001 — the WHOLE point is to surface the real arm64 failure mode
         traceback.print_exc()
-        print(f"\nHARNESS ERROR (this IS the answer about local arm64): {type(exc).__name__}: {exc}", flush=True)
+        print(
+            f"\nHARNESS ERROR (this IS the answer about local arm64): {type(exc).__name__}: {exc}",
+            flush=True,
+        )
         sys.exit(2)
     try:
         resolved = read_resolved(RDIR, RUN_ID, "gold", iid)
     except FileNotFoundError as exc:
         print(f"\nno report.json found: {exc}", flush=True)
         sys.exit(3)
-    print(f"\nRESOLVED: {resolved}   (the gold patch MUST resolve — proves the pipeline works here)", flush=True)
+    print(
+        f"\nRESOLVED: {resolved}   (the gold patch MUST resolve — proves the pipeline works here)",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

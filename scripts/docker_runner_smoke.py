@@ -17,7 +17,9 @@ def main() -> None:
     inst = next(x for x in d if x["instance_id"] == IID)
     img = instance_image(IID)
     print(f"image: {img}\npulling (slow, ~GB under emulation)...", flush=True)
-    pull = subprocess.run(["docker", "pull", "--platform", "linux/amd64", img], capture_output=True, text=True)
+    pull = subprocess.run(
+        ["docker", "pull", "--platform", "linux/amd64", img], capture_output=True, text=True
+    )
     if pull.returncode != 0:
         print("pull FAILED:\n" + pull.stderr[-1500:], flush=True)
         sys.exit(2)
@@ -25,7 +27,10 @@ def main() -> None:
     runner = DockerTestRunner(img, timeout=1200)
     rc, out = runner.run(inst["patch"], "python -m pytest tests/test_blueprints.py -q")
     print(f"\nrc={rc}\n--- tail ---\n{out[-1800:]}", flush=True)
-    print(f"\nregression_passed = {regression_passed(rc, out)}  (the runner ran flask's tests in-container)", flush=True)
+    print(
+        f"\nregression_passed = {regression_passed(rc, out)}  (the runner ran flask's tests in-container)",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

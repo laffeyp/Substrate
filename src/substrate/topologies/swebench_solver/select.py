@@ -29,7 +29,9 @@ def normalize_patch(model_patch: str) -> str:
     return "\n".join(keep).strip()
 
 
-def select_patch(applied: list[AppliedPatch], results: dict[int, TestResults]) -> SelectedPatch | None:
+def select_patch(
+    applied: list[AppliedPatch], results: dict[int, TestResults]
+) -> SelectedPatch | None:
     """Pick one patch, deterministically GIVEN `results`. Filter to regression-passing (fall back to ALL
     applied if none pass — 'regression-only' was empty); among those prefer `reproduction == RESOLVED`;
     then majority-vote on the normalized patch, lowest-slot tiebreak. None if no patch applied."""
@@ -38,7 +40,9 @@ def select_patch(applied: list[AppliedPatch], results: dict[int, TestResults]) -
     reg_ok = [a for a in applied if (r := results.get(a.slot)) is not None and r.regression_passed]
     pool = reg_ok or applied
     resolved = [
-        a for a in pool if (r := results.get(a.slot)) is not None and r.reproduction == Reproduction.RESOLVED
+        a
+        for a in pool
+        if (r := results.get(a.slot)) is not None and r.reproduction == Reproduction.RESOLVED
     ]
     candidates = resolved or pool
     norm = {a.slot: normalize_patch(a.model_patch) for a in candidates}

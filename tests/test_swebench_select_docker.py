@@ -14,7 +14,10 @@ _FLASK_SPEC = {"install": "python -m pip install -e .", "test_cmd": "pytest -rA"
 
 
 def test_instance_image_name() -> None:
-    assert instance_image("pallets__flask-4045") == "swebench/sweb.eval.x86_64.pallets_1776_flask-4045:latest"
+    assert (
+        instance_image("pallets__flask-4045")
+        == "swebench/sweb.eval.x86_64.pallets_1776_flask-4045:latest"
+    )
 
 
 def test_build_regression_command_reuses_repo_install_and_runner() -> None:

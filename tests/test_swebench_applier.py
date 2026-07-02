@@ -50,7 +50,9 @@ def test_whitespace_flexible_match_tier2():
     d = _repo({"m.py": b"class C:\n    def f(self):\n        return 1\n"})
     search = "def f(self):\n    return 1"  # model's indentation, not the file's
     replace = "def f(self):\n    return 2"
-    assert search not in "class C:\n    def f(self):\n        return 1\n"  # confirms tier 1 cannot match
+    assert (
+        search not in "class C:\n    def f(self):\n        return 1\n"
+    )  # confirms tier 1 cannot match
     r = apply_candidate(_block("m.py", search, replace), d)
     assert r.applied, r.error
     assert (Path(d) / "m.py").read_text() == "class C:\n    def f(self):\n        return 2\n"
@@ -72,7 +74,9 @@ def test_ambiguous_rejects():
 def test_overlapping_blocks_reject():
     # two whole-line blocks whose line-spans overlap (both touch "b = 2").
     d = _repo({"m.py": b"a = 1\nb = 2\nc = 3\n"})
-    text = _block("m.py", "a = 1\nb = 2", "X = 1\nY = 2") + _block("m.py", "b = 2\nc = 3", "Y = 2\nZ = 3")
+    text = _block("m.py", "a = 1\nb = 2", "X = 1\nY = 2") + _block(
+        "m.py", "b = 2\nc = 3", "Y = 2\nZ = 3"
+    )
     r = apply_candidate(text, d)
     assert not r.applied and r.error is not None and "overlap" in r.error
     assert (Path(d) / "m.py").read_text() == "a = 1\nb = 2\nc = 3\n"  # untouched
@@ -125,7 +129,9 @@ def test_tab_space_tier2_limitation_documented():
     d = _repo({"m.py": b"def f():\n\treturn 1\n"})  # tab-indented body
     r = apply_candidate(_block("m.py", "def f():\n    return 1", "def f():\n    return 2"), d)
     assert r.applied  # it applies (tier-2 strip match) ...
-    assert "    return 2" in (Path(d) / "m.py").read_text()  # ... but with spaces (the documented limitation)
+    assert (
+        "    return 2" in (Path(d) / "m.py").read_text()
+    )  # ... but with spaces (the documented limitation)
 
 
 def test_file_creation_empty_search():

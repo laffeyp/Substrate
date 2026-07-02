@@ -32,7 +32,9 @@ from substrate.reference._models import ModelUsage, OllamaResponder, call_respon
 pytestmark = pytest.mark.realmodel
 
 _OLLAMA_V1 = "http://localhost:11434/v1"
-_MODEL = "qwen2.5:7b-instruct"  # a capable local model (a 128GB M5 runs the 7B/8B locals comfortably)
+_MODEL = (
+    "qwen2.5:7b-instruct"  # a capable local model (a 128GB M5 runs the 7B/8B locals comfortably)
+)
 
 
 def _require(*models: str) -> None:
@@ -56,7 +58,9 @@ async def test_metered_seam_captures_real_provider_accounting():
     text, usage = await call_responder_metered(
         r, "In one short sentence, what is an append-only log?"
     )
-    assert usage.estimated is False, f"metered seam did not mark live usage as provider truth: {usage}"
+    assert usage.estimated is False, (
+        f"metered seam did not mark live usage as provider truth: {usage}"
+    )
     assert usage.prompt_tokens > 0, f"no real prompt tokens from the provider: {usage}"
     assert usage.completion_tokens > 0, f"no real completion tokens from the provider: {usage}"
     assert usage.wall_ms > 0, f"no real inference latency from the provider: {usage}"
@@ -110,7 +114,9 @@ async def test_assay_aggregates_real_usage_end_to_end(tmp_path):
         name="realmodel-smoke",
         version="0.1",
         cases=(Case("c1", {}, True),),
-        arms=(Arm(name="baseline", role=BASELINE, build=lambda case: _real_metered_topology(_MODEL)),),
+        arms=(
+            Arm(name="baseline", role=BASELINE, build=lambda case: _real_metered_topology(_MODEL)),
+        ),
         oracle=LogProjectionOracle(extract=_produced_answer, metric="produced_answer"),
         control_arm="baseline",
         primary_metric="produced_answer",

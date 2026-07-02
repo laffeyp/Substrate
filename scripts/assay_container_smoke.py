@@ -15,11 +15,16 @@ def main() -> None:
         rc, ver = ws.exec("python -c 'import flask; print(flask.__version__)'")
         print(f"  env: rc={rc} flask={ver.strip()!r} (deps installed in the image)", flush=True)
 
-        _, net = ws.exec("curl -sS --max-time 5 https://pypi.org >/dev/null 2>&1 && echo HAS_NET || echo NO_NET")
+        _, net = ws.exec(
+            "curl -sS --max-time 5 https://pypi.org >/dev/null 2>&1 && echo HAS_NET || echo NO_NET"
+        )
         print(f"  network: {net.strip()} (expect NO_NET — --network none lockdown)", flush=True)
 
         baseline = ws.diff()
-        print(f"  baseline diff length: {len(baseline)} (expect ~0 — clean /testbed, no build-artifact noise)", flush=True)
+        print(
+            f"  baseline diff length: {len(baseline)} (expect ~0 — clean /testbed, no build-artifact noise)",
+            flush=True,
+        )
 
         src = ws.read_file("src/flask/blueprints.py")
         print(f"  read src/flask/blueprints.py: {len(src)} chars (expect >0)", flush=True)

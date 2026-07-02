@@ -16,6 +16,7 @@ def test_safe_case_id_strips_the_double_underscore():
     assert safe_case_id("pallets__flask-4045") == "pallets_1776_flask-4045"
     assert "__" not in safe_case_id("django__django-12345")
 
+
 _PAYLOAD = {
     "base_checkout": "/tmp/does-not-need-to-exist",
     "repo_skeleton": "src/flask/blueprints.py\ntests/test_json.py",
@@ -59,7 +60,10 @@ def test_swebench_suite_assembles_and_validates(tmp_path):
         swebench_solver_arm("full", FULL, models=["a", "b"]),
     ]
     suite = swebench_suite(
-        [_case()], arms, report_root=tmp_path, dataset_name="princeton-nlp/SWE-bench_Lite",
+        [_case()],
+        arms,
+        report_root=tmp_path,
+        dataset_name="princeton-nlp/SWE-bench_Lite",
         control_arm="strong_ref",
     )
     assert suite.control_arm == "strong_ref"

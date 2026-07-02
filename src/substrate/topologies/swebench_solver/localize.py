@@ -68,7 +68,9 @@ def localizer_factory(
 
     async def localize(_inp: Any) -> AsyncIterator[Any]:
         try:
-            response, usage = await call_responder_metered(responder, build_localize_prompt(issue, repo_skeleton))
+            response, usage = await call_responder_metered(
+                responder, build_localize_prompt(issue, repo_skeleton)
+            )
             yield usage
             files = parse_suspect_files(response, known_files)[:top_k]
         except Exception:  # noqa: BLE001 — the localizer is the INITIAL producer; its death wedges the

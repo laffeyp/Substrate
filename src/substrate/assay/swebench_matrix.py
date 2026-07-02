@@ -49,50 +49,73 @@ def _backend_topology(solve: Callable[[], str]) -> Callable[[api.TopologyBuilder
     instant the patch lands; a watchdog backstops a wedge."""
 
     def topo(b: api.TopologyBuilder) -> None:
-        b.producer_kind("solve", schemas=[SelectedPatch], schema_version=1,
-                        factory=_solve_factory(solve), deterministic=False)
+        b.producer_kind(
+            "solve",
+            schemas=[SelectedPatch],
+            schema_version=1,
+            factory=_solve_factory(solve),
+            deterministic=False,
+        )
         b.initial("solve", input=None)
-        b.termination(api.any_of(
-            api.threshold_count("SelectedPatch", 1),
-            api.quiescence_with_watchdog(seconds=3600.0),
-        ))
+        b.termination(
+            api.any_of(
+                api.threshold_count("SelectedPatch", 1),
+                api.quiescence_with_watchdog(seconds=3600.0),
+            )
+        )
 
     return topo
 
 
 def host_arm(name: str, role: str, *, model: str, max_tokens: int = 2048) -> Arm:
     """Host backend as an Arm (model picks a file, edits it, host_clone -> workspace_diff)."""
+
     def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
         inst, resp = case.ground_truth, OllamaResponder(model, max_tokens=max_tokens)
         return _backend_topology(lambda: solve_on_host(inst, resp))
+
     return Arm(name=name, role=role, build=build)
 
 
-def container_arm(name: str, role: str, *, model: str, max_steps: int = 8, max_tokens: int = 2048) -> Arm:
+def container_arm(
+    name: str, role: str, *, model: str, max_steps: int = 8, max_tokens: int = 2048
+) -> Arm:
     """Container backend as an Arm (read/edit/bash agent loop in the locked eval container)."""
+
     def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
         inst, resp = case.ground_truth, OllamaResponder(model, max_tokens=max_tokens)
         return _backend_topology(lambda: solve_in_container(inst, resp, max_steps=max_steps))
+
     return Arm(name=name, role=role, build=build)
 
 
-def repair_arm(name: str, role: str, *, model: str, n: int = 3, max_rounds: int = 2,
-               max_tokens: int = 2048) -> Arm:
+def repair_arm(
+    name: str, role: str, *, model: str, n: int = 3, max_rounds: int = 2, max_tokens: int = 2048
+) -> Arm:
     """A REAL substrate coding topology as an Arm: localize -> best-of-N SEARCH/REPLACE repair -> emit the
     first patch that applied (`swebench_repair_topology`). The substrate producers DO the coding — this is
     not a function in a shell. `build` clones the repo at base_commit (I/O at build, env-gated) and wires
     the topology; the per-candidate validator clones from it and produces the git diff."""
+
     def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
         inst = case.ground_truth
         clone = host_clone(f"https://github.com/{inst['repo']}", inst["base_commit"])
         files = subprocess.run(
             ["git", "-C", clone, "ls-files"], capture_output=True, text=True
         ).stdout.split()
-        responders: list[Responder] = [OllamaResponder(model, max_tokens=max_tokens) for _ in range(n)]
+        responders: list[Responder] = [
+            OllamaResponder(model, max_tokens=max_tokens) for _ in range(n)
+        ]
         return swebench_repair_topology(
-            responders=responders, base_checkout=clone, issue=str(inst["problem_statement"]),
-            repo_skeleton="\n".join(files), known_files=set(files), n=n, max_rounds=max_rounds,
+            responders=responders,
+            base_checkout=clone,
+            issue=str(inst["problem_statement"]),
+            repo_skeleton="\n".join(files),
+            known_files=set(files),
+            n=n,
+            max_rounds=max_rounds,
         )
+
     return Arm(name=name, role=role, build=build)
 
 
@@ -111,19 +134,25 @@ def swebench_matrix_suite(
     """A frozen SWE-bench Suite over the backend Arms, graded by the record oracle. Cases carry the instance
     as ground_truth; the case_id is the path-safe label."""
     cases = tuple(
-        Case(case_id=safe_case_id(inst["instance_id"]), payload={}, ground_truth=inst) for inst in instances
+        Case(case_id=safe_case_id(inst["instance_id"]), payload={}, ground_truth=inst)
+        for inst in instances
     )
     return Suite(
-        name=name, version=version, cases=cases, arms=tuple(arms),
+        name=name,
+        version=version,
+        cases=cases,
+        arms=tuple(arms),
         oracle=swebench_record_oracle(report_root=report_root, dataset_name=dataset_name),
-        control_arm=control_arm, primary_metric="resolved",
+        control_arm=control_arm,
+        primary_metric="resolved",
         null_rule=(
             "primary endpoint = instances resolved (official held-out grade). A non-control Arm is "
             "compared to the control by paired McNemar + a two-level bootstrap on Delta-pass^k; "
             "'equivalent' requires the CI inside +/-margin AND n at the power floor (~90 at margin .20) — "
             "below it the verdict is 'underpowered', never read as equivalence."
         ),
-        equivalence_margin=equivalence_margin, pass_k=pass_k,
+        equivalence_margin=equivalence_margin,
+        pass_k=pass_k,
     )
 
 

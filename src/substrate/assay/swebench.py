@@ -69,7 +69,9 @@ def firewall_check(instance: Mapping[str, Any]) -> tuple[bool, str]:
     import re
 
     def _added_files(diff: str) -> set[str]:
-        return {ln[6:] for ln in diff.splitlines() if ln.startswith("+++ b/") and ln[6:] != "dev/null"}
+        return {
+            ln[6:] for ln in diff.splitlines() if ln.startswith("+++ b/") and ln[6:] != "dev/null"
+        }
 
     def _f2p_in_test_patch(test_id: str, tp_files: set[str]) -> bool:
         # pytest: "path/test_x.py::Class::test" -> the file is the path before "::".
@@ -94,7 +96,10 @@ def firewall_check(instance: Mapping[str, Any]) -> tuple[bool, str]:
         return (False, f"patch and test_patch share files (grade leak): {sorted(shared)}")
     leaked = [str(t) for t in f2p if not _f2p_in_test_patch(str(t), tp_files)]
     if leaked:
-        return (False, f"FAIL_TO_PASS tests not added by test_patch (pre-existing -> leak): {leaked[:3]}")
+        return (
+            False,
+            f"FAIL_TO_PASS tests not added by test_patch (pre-existing -> leak): {leaked[:3]}",
+        )
     return (True, "firewall ok")
 
 
@@ -273,8 +278,13 @@ def grade_patch(
     rdir = Path(report_root) / instance_id
     pred = make_prediction(instance_id, model_patch, model_name=model_name)
     run_swebench(
-        [pred], dataset_name=dataset_name, run_id=run_id, instance_ids=[instance_id],
-        report_dir=rdir, max_workers=1, namespace=namespace,
+        [pred],
+        dataset_name=dataset_name,
+        run_id=run_id,
+        instance_ids=[instance_id],
+        report_dir=rdir,
+        max_workers=1,
+        namespace=namespace,
     )
     return read_resolved(rdir, run_id, model_name, instance_id)
 
@@ -295,8 +305,11 @@ def swebench_record_oracle(
 
     def _default_grade(instance_id: str, model_patch: str) -> bool:
         return grade_patch(
-            instance_id, model_patch, report_root=report_root,
-            dataset_name=dataset_name, model_name=model_name,
+            instance_id,
+            model_patch,
+            report_root=report_root,
+            dataset_name=dataset_name,
+            model_name=model_name,
         )
 
     do_grade = grade or _default_grade
@@ -309,13 +322,19 @@ def swebench_record_oracle(
         )
         patch = model_patch_from_record(record)
         if not patch.strip():
-            return (False, f"no model_patch on the record for {instance_id} (the Arm produced none)")
+            return (
+                False,
+                f"no model_patch on the record for {instance_id} (the Arm produced none)",
+            )
         # drop edits to the GRADE's test files at the grade boundary (#72 NET 1): the inflation guard, applied
         # HERE so a topology that emits a raw diff (no internal drop, e.g. the repair topology) can't weaken a
         # graded test or collide with the held-out test_patch. Harness-side — the topology never sees test_patch.
         if isinstance(ground_truth, Mapping) and ground_truth.get("test_patch"):
             from .swebench_workspace import filter_diff, graded_test_files
-            patch = filter_diff(patch, drop_files=frozenset(graded_test_files(str(ground_truth["test_patch"]))))
+
+            patch = filter_diff(
+                patch, drop_files=frozenset(graded_test_files(str(ground_truth["test_patch"])))
+            )
             if not patch.strip():
                 return (False, f"patch empty after dropping graded-test edits for {instance_id}")
         resolved = do_grade(instance_id, patch)

@@ -57,7 +57,9 @@ def solve_on_host(instance: dict[str, Any], responder: _Responder) -> str:
     # model reads). Selection screens it; re-assert here so a standalone call can't silently leak (#71 NET 3).
     ok, reason = firewall_check(instance)
     if not ok:
-        raise ValueError(f"instance {instance.get('instance_id')} is not firewall-screened: {reason}")
+        raise ValueError(
+            f"instance {instance.get('instance_id')} is not firewall-screened: {reason}"
+        )
 
     clone = host_clone(f"https://github.com/{instance['repo']}", instance["base_commit"])
     try:
@@ -71,7 +73,9 @@ def solve_on_host(instance: dict[str, Any], responder: _Responder) -> str:
         with open(f"{clone}/{path}", encoding="utf-8", errors="replace") as fh:
             content = fh.read()
         edits = _edit(responder, issue, path, content)
-        apply_candidate(edits, clone)  # writes the edits into the clone (or no-ops if SEARCH doesn't match)
+        apply_candidate(
+            edits, clone
+        )  # writes the edits into the clone (or no-ops if SEARCH doesn't match)
         # drop edits to the GRADE's test files (from test_patch — harness-side, never shown to the model):
         # a collision with the held-out test_patch is a false fail; a weakened graded test is a false pass.
         drop = frozenset(graded_test_files(str(instance.get("test_patch", ""))))

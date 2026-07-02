@@ -69,7 +69,7 @@ def parse_candidate(text: str) -> dict[str, list[_Block]]:
         line = lines[i]
         stripped = line.strip()
         if stripped.startswith(_PATH):
-            path = stripped[len(_PATH):].strip()
+            path = stripped[len(_PATH) :].strip()
             files.setdefault(path, [])
             i += 1
             continue
@@ -161,15 +161,19 @@ def _reindent(replace: str, search: str, original_region: str) -> str:
         if not ln.strip():
             out.append(ln)
         elif o_ind.startswith(s_ind):  # file indented MORE: prepend the extra
-            out.append(o_ind[len(s_ind):] + ln)
-        elif s_ind.startswith(o_ind) and ln.startswith(s_ind[len(o_ind):]):  # file indented LESS: trim
-            out.append(ln[len(s_ind) - len(o_ind):])
+            out.append(o_ind[len(s_ind) :] + ln)
+        elif s_ind.startswith(o_ind) and ln.startswith(
+            s_ind[len(o_ind) :]
+        ):  # file indented LESS: trim
+            out.append(ln[len(s_ind) - len(o_ind) :])
         else:
             out.append(ln)
     return "\n".join(out)
 
 
-def _resolve_file(original: str | None, blocks: list[_Block], relpath: str) -> tuple[str, bool] | str:
+def _resolve_file(
+    original: str | None, blocks: list[_Block], relpath: str
+) -> tuple[str, bool] | str:
     """Resolve all of one file's blocks. Returns (new_content_lf, creates_file) or a string error.
     `original` is None for a not-yet-existing file. Resolves against the ORIGINAL and splices once."""
     # File creation: empty-SEARCH writes a whole new file.
@@ -185,7 +189,11 @@ def _resolve_file(original: str | None, blocks: list[_Block], relpath: str) -> t
     for idx, b in enumerate(blocks, 1):
         loc = _locate(original, b.search)
         if isinstance(loc, str):
-            reason = "SEARCH text not found" if loc == "not_found" else "SEARCH text matches multiple locations (ambiguous)"
+            reason = (
+                "SEARCH text not found"
+                if loc == "not_found"
+                else "SEARCH text matches multiple locations (ambiguous)"
+            )
             return f"{relpath} block {idx}: {reason}; add surrounding context to make it unique"
         start, end, reindent = loc
         replacement = _reindent(b.replace, b.search, original[start:end]) if reindent else b.replace
@@ -229,17 +237,25 @@ def apply_candidate(text: str, repo_dir: str, *, base_ref: str = "HEAD") -> Appl
     repo_real = os.path.realpath(repo_dir)
     for relpath in files:
         target = os.path.realpath(os.path.join(repo_dir, relpath))
-        if os.path.isabs(relpath) or (target != repo_real and not target.startswith(repo_real + os.sep)):
+        if os.path.isabs(relpath) or (
+            target != repo_real and not target.startswith(repo_real + os.sep)
+        ):
             return ApplyResult(applied=False, error=f"path escapes the repo: {relpath!r}")
 
     # Resolve EVERY file first (atomic): compute new content for all before writing any.
-    resolved: dict[str, tuple[str, bool, bool]] = {}  # relpath -> (new_content_lf, creates_file, uses_crlf)
+    resolved: dict[
+        str, tuple[str, bool, bool]
+    ] = {}  # relpath -> (new_content_lf, creates_file, uses_crlf)
     for relpath, blocks in files.items():
         full = os.path.join(repo_dir, relpath)
         if os.path.exists(full):
             raw = open(full, "rb").read()
             uses_crlf = b"\r\n" in raw[:4096]
-            original: str | None = raw.decode("utf-8", errors="replace").replace("\r\n", "\n") if uses_crlf else raw.decode("utf-8", errors="replace")
+            original: str | None = (
+                raw.decode("utf-8", errors="replace").replace("\r\n", "\n")
+                if uses_crlf
+                else raw.decode("utf-8", errors="replace")
+            )
         else:
             original, uses_crlf = None, False
         result = _resolve_file(original, blocks, relpath)
@@ -253,7 +269,11 @@ def apply_candidate(text: str, repo_dir: str, *, base_ref: str = "HEAD") -> Appl
     for relpath, (new_content, creates, uses_crlf) in resolved.items():
         full = os.path.join(repo_dir, relpath)
         os.makedirs(os.path.dirname(full) or ".", exist_ok=True)
-        data = new_content.replace("\n", "\r\n").encode("utf-8") if uses_crlf else new_content.encode("utf-8")
+        data = (
+            new_content.replace("\n", "\r\n").encode("utf-8")
+            if uses_crlf
+            else new_content.encode("utf-8")
+        )
         with open(full, "wb") as fh:
             fh.write(data)
         creates_any = creates_any or creates
@@ -261,7 +281,10 @@ def apply_candidate(text: str, repo_dir: str, *, base_ref: str = "HEAD") -> Appl
     # model_patch = git diff on the clone (NEVER hand-built). Stage so new files show, diff staged vs base.
     subprocess.run(["git", "-C", repo_dir, "add", "-A"], capture_output=True, check=False)
     diff = subprocess.run(
-        ["git", "-C", repo_dir, "diff", "--cached", base_ref], capture_output=True, text=True, check=False
+        ["git", "-C", repo_dir, "diff", "--cached", base_ref],
+        capture_output=True,
+        text=True,
+        check=False,
     )
     # Verdict.passed = applied cleanly AND git-diffs NON-EMPTY (locked vocab). A no-op candidate (or an
     # edit that nets to nothing) would otherwise be submitted as an EMPTY patch = a silent not-resolve.

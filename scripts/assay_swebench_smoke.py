@@ -62,7 +62,11 @@ def diff_to_search_replace(diff: str) -> str:
 
 
 def main() -> None:
-    inst = next(x for x in load_dataset("princeton-nlp/SWE-bench_Lite", split="test") if x["instance_id"] == IID)
+    inst = next(
+        x
+        for x in load_dataset("princeton-nlp/SWE-bench_Lite", split="test")
+        if x["instance_id"] == IID
+    )
     gold_files = sorted({ln[6:] for ln in inst["patch"].splitlines() if ln.startswith("+++ b/")})
     sr = diff_to_search_replace(inst["patch"])
 
@@ -74,7 +78,10 @@ def main() -> None:
 
     print("preparing the case (clone + base run; slow)...", flush=True)
     case = prepare_swebench_case(inst)
-    print(f"  case_id={case.case_id}; passed-at-base={len(case.payload['passed_at_base'])}", flush=True)
+    print(
+        f"  case_id={case.case_id}; passed-at-base={len(case.payload['passed_at_base'])}",
+        flush=True,
+    )
 
     def build(c) -> object:  # type: ignore[no-untyped-def]
         return solver_topology_from_payload(c.payload, [_GoldResponder()], n=1, max_rounds=1)
@@ -88,10 +95,16 @@ def main() -> None:
     print("running the arm through run_arm_on_case + grading (real container; slow)...", flush=True)
     result = asyncio.run(run_arm_on_case(arm, case, oracle, root))
     print(f"\nresolved={result.result.passed} | {result.result.detail}", flush=True)
-    print(f"oracle_class={result.result.oracle_class} replayable={result.result.replayable} "
-          f"elapsed_ms={result.elapsed_ms} model_calls={result.usage.model_calls}", flush=True)
-    print(f"\n=== S1 GATE: {'PASS' if result.result.passed else 'FAIL'} "
-          f"(gold-fed arm resolves through the full assay path) ===", flush=True)
+    print(
+        f"oracle_class={result.result.oracle_class} replayable={result.result.replayable} "
+        f"elapsed_ms={result.elapsed_ms} model_calls={result.usage.model_calls}",
+        flush=True,
+    )
+    print(
+        f"\n=== S1 GATE: {'PASS' if result.result.passed else 'FAIL'} "
+        f"(gold-fed arm resolves through the full assay path) ===",
+        flush=True,
+    )
     sys.exit(0 if result.result.passed else 3)
 
 

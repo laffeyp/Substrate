@@ -37,7 +37,9 @@ def test_majority_vote_lowest_slot_tiebreak() -> None:
     applied = [_ap(0, "X"), _ap(1, "SAME"), _ap(2, "SAME")]
     results = {s: _tr(s, True, Reproduction.OTHER) for s in (0, 1, 2)}
     sel = select_patch(applied, results)
-    assert sel is not None and sel.model_patch == "SAME" and sel.slot == 1  # 2 votes, lowest-slot tiebreak
+    assert (
+        sel is not None and sel.model_patch == "SAME" and sel.slot == 1
+    )  # 2 votes, lowest-slot tiebreak
 
 
 def test_tie_breaks_deterministically_regardless_of_order() -> None:
@@ -47,7 +49,9 @@ def test_tie_breaks_deterministically_regardless_of_order() -> None:
     results = {0: _tr(0, True, Reproduction.OTHER), 1: _tr(1, True, Reproduction.OTHER)}
     a = select_patch(applied, results)
     b = select_patch(list(reversed(applied)), results)
-    assert a is not None and b is not None and a.slot == 0 and b.slot == 0  # same winner both orders
+    assert (
+        a is not None and b is not None and a.slot == 0 and b.slot == 0
+    )  # same winner both orders
 
 
 def test_fallback_when_none_pass_regression() -> None:

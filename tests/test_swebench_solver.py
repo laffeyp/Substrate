@@ -41,7 +41,9 @@ class _SolverResponder:
 class _StubRunner:
     """Regression passes; the reproduction test reports the issue resolved."""
 
-    def run(self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None) -> tuple[int, str]:
+    def run(
+        self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None
+    ) -> tuple[int, str]:
         return (0, "1 passed in 0.1s") if test_command == "REG" else (0, "Issue resolved")
 
 
@@ -76,9 +78,14 @@ class _BaseDiffRunner:
     in BOTH runs) and one base-passing test (test_ok). Proves passed_at_base routes SELECT through
     regression_held: the pre-existing failure must NOT sink the candidate."""
 
-    def run(self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None) -> tuple[int, str]:
+    def run(
+        self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None
+    ) -> tuple[int, str]:
         if test_command == "REG":
-            return (1, "PASSED t/test_ok.py::test_a\nFAILED t/test_env.py::test_b - Deprecation\n1 passed, 1 failed")
+            return (
+                1,
+                "PASSED t/test_ok.py::test_a\nFAILED t/test_env.py::test_b - Deprecation\n1 passed, 1 failed",
+            )
         return (0, "Issue resolved")
 
 
@@ -86,11 +93,16 @@ async def test_passed_at_base_routes_select_through_regression_held(tmp_path) ->
     base = _fixture_repo()
     topo = swebench_solver_topology(
         responders=[_SolverResponder() for _ in range(2)],
-        base_checkout=base, issue="make f(x) return x + 1", repo_skeleton="m.py\nREADME.md",
-        known_files={"m.py", "README.md"}, runner=_BaseDiffRunner(),
+        base_checkout=base,
+        issue="make f(x) return x + 1",
+        repo_skeleton="m.py\nREADME.md",
+        known_files={"m.py", "README.md"},
+        runner=_BaseDiffRunner(),
         regression_command="REG",
         passed_at_base=frozenset({"t/test_ok.py::test_a"}),  # only test_ok passed at base
-        n=2, max_rounds=1, watchdog_seconds=20.0,
+        n=2,
+        max_rounds=1,
+        watchdog_seconds=20.0,
     )
     await Runtime(tmp_path / "run").run(topo)
     events = list(read_record(tmp_path / "run"))
@@ -104,8 +116,13 @@ async def test_passed_at_base_routes_select_through_regression_held(tmp_path) ->
 
 def _repair(responders, base, n=2):
     return swebench_repair_topology(
-        responders=responders, base_checkout=base, issue="make f(x) return x + 1",
-        repo_skeleton="m.py\nREADME.md", known_files={"m.py", "README.md"}, n=n, max_rounds=1,
+        responders=responders,
+        base_checkout=base,
+        issue="make f(x) return x + 1",
+        repo_skeleton="m.py\nREADME.md",
+        known_files={"m.py", "README.md"},
+        n=n,
+        max_rounds=1,
         watchdog_seconds=20.0,
     )
 
@@ -117,7 +134,9 @@ def _summary(events):
 
 async def test_repair_topology_emits_selected_outcome(tmp_path) -> None:  # type: ignore[no-untyped-def]
     # the always-emit RepairSummary (#51): a clean fix -> SELECTED, with a SelectedPatch + the counts.
-    await Runtime(tmp_path / "run").run(_repair([_SolverResponder() for _ in range(2)], _fixture_repo()))
+    await Runtime(tmp_path / "run").run(
+        _repair([_SolverResponder() for _ in range(2)], _fixture_repo())
+    )
     events = list(read_record(tmp_path / "run"))
     selected = [e["payload"] for e in events if e["kind"] == "SelectedPatch"]
     summary = _summary(events)
@@ -137,7 +156,9 @@ class _BadEditResponder:
 
 async def test_repair_topology_no_applicable_edit_outcome(tmp_path) -> None:  # type: ignore[no-untyped-def]
     # localization happened but the model's edits didn't match -> NO_APPLICABLE_EDIT (enumerated, not implicit).
-    await Runtime(tmp_path / "run").run(_repair([_BadEditResponder() for _ in range(2)], _fixture_repo()))
+    await Runtime(tmp_path / "run").run(
+        _repair([_BadEditResponder() for _ in range(2)], _fixture_repo())
+    )
     events = list(read_record(tmp_path / "run"))
     summary = _summary(events)
     assert summary is not None and summary["outcome"] == "no_applicable_edit"
@@ -156,9 +177,15 @@ class _NoLocResponder:
 
 
 async def test_repair_topology_no_localization_outcome(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    await Runtime(tmp_path / "run").run(_repair([_NoLocResponder() for _ in range(2)], _fixture_repo()))
+    await Runtime(tmp_path / "run").run(
+        _repair([_NoLocResponder() for _ in range(2)], _fixture_repo())
+    )
     summary = _summary(list(read_record(tmp_path / "run")))
-    assert summary is not None and summary["outcome"] == "no_localization" and summary["localized"] == 0
+    assert (
+        summary is not None
+        and summary["outcome"] == "no_localization"
+        and summary["localized"] == 0
+    )
 
 
 class _FlakyRunner:
@@ -168,7 +195,9 @@ class _FlakyRunner:
     def __init__(self) -> None:
         self.calls = 0
 
-    def run(self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None) -> tuple[int, str]:
+    def run(
+        self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None
+    ) -> tuple[int, str]:
         self.calls += 1
         if self.calls == 1:
             raise RuntimeError("container OOM")
@@ -179,9 +208,15 @@ async def test_runner_failure_does_not_wedge(tmp_path) -> None:  # type: ignore[
     base = _fixture_repo()
     topo = swebench_solver_topology(
         responders=[_SolverResponder() for _ in range(2)],
-        base_checkout=base, issue="make f(x) return x + 1", repo_skeleton="m.py\nREADME.md",
-        known_files={"m.py", "README.md"}, runner=_FlakyRunner(),
-        regression_command="REG", n=2, max_rounds=1, watchdog_seconds=5.0,
+        base_checkout=base,
+        issue="make f(x) return x + 1",
+        repo_skeleton="m.py\nREADME.md",
+        known_files={"m.py", "README.md"},
+        runner=_FlakyRunner(),
+        regression_command="REG",
+        n=2,
+        max_rounds=1,
+        watchdog_seconds=5.0,
     )
     await Runtime(tmp_path / "run").run(topo)
     events = list(read_record(tmp_path / "run"))
@@ -204,9 +239,15 @@ async def test_drafter_model_error_does_not_wedge(tmp_path) -> None:  # type: ig
     base = _fixture_repo()
     topo = swebench_solver_topology(
         responders=[_DyingDrafter() for _ in range(2)],
-        base_checkout=base, issue="make f(x) return x + 1", repo_skeleton="m.py\nREADME.md",
-        known_files={"m.py", "README.md"}, runner=_StubRunner(),
-        regression_command="REG", n=2, max_rounds=1, watchdog_seconds=5.0,
+        base_checkout=base,
+        issue="make f(x) return x + 1",
+        repo_skeleton="m.py\nREADME.md",
+        known_files={"m.py", "README.md"},
+        runner=_StubRunner(),
+        regression_command="REG",
+        n=2,
+        max_rounds=1,
+        watchdog_seconds=5.0,
     )
     await Runtime(tmp_path / "run").run(topo)
     events = list(read_record(tmp_path / "run"))
@@ -227,9 +268,15 @@ async def test_localizer_model_error_does_not_wedge(tmp_path) -> None:  # type: 
     base = _fixture_repo()
     topo = swebench_solver_topology(
         responders=[_DyingLocalizer() for _ in range(2)],
-        base_checkout=base, issue="make f(x) return x + 1", repo_skeleton="m.py\nREADME.md",
-        known_files={"m.py", "README.md"}, runner=_StubRunner(),
-        regression_command="REG", n=2, max_rounds=1, watchdog_seconds=5.0,
+        base_checkout=base,
+        issue="make f(x) return x + 1",
+        repo_skeleton="m.py\nREADME.md",
+        known_files={"m.py", "README.md"},
+        runner=_StubRunner(),
+        regression_command="REG",
+        n=2,
+        max_rounds=1,
+        watchdog_seconds=5.0,
     )
     await Runtime(tmp_path / "run").run(topo)
     events = list(read_record(tmp_path / "run"))

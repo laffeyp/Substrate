@@ -46,12 +46,15 @@ def main() -> None:
 
     report_root = Path("process/assay_matrix")
     arms = [
-        host_arm("host", BASELINE, model=MODEL),       # control: the simple focused backend
+        host_arm("host", BASELINE, model=MODEL),  # control: the simple focused backend
         container_arm("container", FULL, model=MODEL),  # the executing agent backend
     ]
     suite = swebench_matrix_suite(
-        chosen, arms, report_root=str(report_root),
-        dataset_name="princeton-nlp/SWE-bench_Lite", control_arm="host",
+        chosen,
+        arms,
+        report_root=str(report_root),
+        dataset_name="princeton-nlp/SWE-bench_Lite",
+        control_arm="host",
     )
     rundir = Path(tempfile.mkdtemp(prefix="matrix-")) / "run"
     print("running the matrix (each cell = a real solve + official grade; slow)...", flush=True)
@@ -59,14 +62,23 @@ def main() -> None:
     report = build_report(suite, results)
 
     print("\n==================== SWE-BENCH MATRIX LEADERBOARD ====================", flush=True)
-    print(f"suite={report.suite} v{report.version} | control={report.control_arm} | "
-          f"control_check={report.control_check.state}", flush=True)
-    print(f"{'arm':<12} {'role':<9} {'pass':<7} {'rate':<6} {'Δ-vs-ctrl':<10} {'verdict':<13} {'wall_ms':<9}", flush=True)
+    print(
+        f"suite={report.suite} v{report.version} | control={report.control_arm} | "
+        f"control_check={report.control_check.state}",
+        flush=True,
+    )
+    print(
+        f"{'arm':<12} {'role':<9} {'pass':<7} {'rate':<6} {'Δ-vs-ctrl':<10} {'verdict':<13} {'wall_ms':<9}",
+        flush=True,
+    )
     for a in report.arms:
         delta = f"{a.delta_pass_k:+.2f}" if a.delta_pass_k is not None else "-"
         verdict = a.equivalence or ("control" if a.arm == report.control_arm else "-")
-        print(f"{a.arm:<12} {a.role:<9} {a.passes}/{a.n_cases:<5} {a.pass_rate:<6.2f} "
-              f"{delta:<10} {verdict:<13} {a.elapsed_ms:<9}", flush=True)
+        print(
+            f"{a.arm:<12} {a.role:<9} {a.passes}/{a.n_cases:<5} {a.pass_rate:<6.2f} "
+            f"{delta:<10} {verdict:<13} {a.elapsed_ms:<9}",
+            flush=True,
+        )
     print(f"\nnull rule: {report.null_rule}", flush=True)
 
 

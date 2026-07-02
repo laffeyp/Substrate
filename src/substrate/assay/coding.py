@@ -89,7 +89,10 @@ def coding_oracle(*, timeout: float = 120.0) -> ExternalGraderOracle:
         # sanitize the candidate (drop injected config/test files), THEN the held-out tests WIN on
         # collision: a candidate can neither overwrite the grading test nor inject a conftest/pyproject
         # whose addopts fakes a collect-only pass (firewall grade-time isolation, review fold).
-        artifacts = {**sanitize_candidate_artifacts(parse_artifacts(response)), **problem.grading_tests}
+        artifacts = {
+            **sanitize_candidate_artifacts(parse_artifacts(response)),
+            **problem.grading_tests,
+        }
         result = run_gate(artifacts, problem.grading_command, timeout=timeout)
         # exit code 0 ALONE is forgeable: a candidate can `os._exit(0)` (or sys.exit(0)) at import to make
         # the gate process exit clean WITHOUT the held-out tests ever running. Require POSITIVE evidence —

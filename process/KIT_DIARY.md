@@ -307,6 +307,54 @@
 
 ---
 
+### 2026-07-02 — A prompt is a request, the runtime enforces; and the green that was narrower than the claim
+
+**What happened:** Drove real models through the tool loop on open-ended build-and-verify tasks;
+hardened the loop against the failures the container arena surfaced; then, under an SDD skeptic
+challenge, audited every "works" claim into self-produced vs outside-control evidence and ran the
+checks that could fail. Also found and repaired a pre-existing repo-wide CI failure.
+
+**What worked:**
+- **Structural enforcement beats prose.** The write-spin (a strong model rewriting a file 16x without
+  ever running it) survived a thin prompt AND an SDD-sharpened discipline prompt (RESEARCH R-5). What
+  killed it was a STRUCTURAL guard — a redundant action returned as a typed `ok=False` observation on
+  the record (R-6) — not instruction. A later A/B showed the discipline prompt is inert: the model
+  verifies with or without it (R-10). The kit already says "errors are observations"; the sharper
+  lesson is that a discipline you can ENFORCE on the record beats one you can only REQUEST of a model.
+- **The could-fail check earned its keep against ME.** The challenge ("paste the outside-control
+  reading; where you built the version that can't fail, build the one that could and run it") caught a
+  real over-claim — "the discipline prompt helps." I'd added it, seen the model succeed, and asserted
+  causation. The A/B refuted it. The green was "the model succeeded and I'd just added X, therefore X."
+
+**What got in the way (and the lessons):**
+- **Green narrower than the claim.** My gates ran `ruff check src/substrate` + targeted test subsets;
+  CI runs whole-repo `ruff check` / `ruff format --check` + the full suite. So "gates clean" was true
+  and narrower than "CI green" — and CI had been red the whole time for a pre-existing repo-wide format
+  drift. Fixed under the "CI can't be broken" ruling; the durable fix is a habit, not a tool.
+- **Prefer the observation over the principle.** I relaxed halt-on-first-failure on the
+  errors-as-observations PRINCIPLE (a real model should recover); the observation refuted it for the
+  model at hand (it flailed to "no result"). Recover-THEN-bail was the honest resolution. A principle
+  that predicts behaviour is a hypothesis; when the run disagrees, the run wins.
+
+**What this says about the next kit version:**
+- 32. **Name "enforce vs request" as a discipline axis.** When a topology needs the model to follow a
+  rule (don't repeat a succeeded action; verify before done), ask: can the runtime ENFORCE it as a
+  typed observation on the record, or only REQUEST it in the prompt? Enforcement is model-independent
+  and verifiable; a prompt rule is neither (A/B-verified inert here, across two models). Prefer
+  enforcement; treat a prompt rule as an unproven lever until A/B'd.
+- 33. **The verification bar is the CI-equivalent gate, observed — not the scoped local one.**
+  "ruff/mypy/tests pass" must mean the bare, whole-repo, full-suite commands CI runs, and CI itself
+  observed green. A scoped gate gives a green that is real but narrower than the claim it's used to
+  support — and that gap is where a repo sits red for weeks. Corollary to "green is not proven":
+  *your green may be narrower than your claim — run what CI runs, and watch CI.*
+- 34. **Best output ≠ best agent — test the trajectory, not just the artifact.** The strongest coder by
+  benchmark was the worst agent in the loop (would not verify); a thinking model ran→read→verified and
+  self-recovered from a failure. For agentic topologies the observation contract must exercise the
+  TRAJECTORY (did it run and check?), not only grade the final artifact — the artifact can be correct
+  while the agent never verified it, and that is a different, load-bearing fact.
+
+---
+
 ## Phase boundary syntheses
 
 *(one per phase close)*

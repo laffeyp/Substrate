@@ -101,7 +101,11 @@ def best_of_n_correction(
     (default: Solved | Exhausted | watchdog — a consumer that runs phases AFTER the loop, like swebench
     SELECT, passes its own termination so the loop's Solved is an internal hand-off, not the run terminal)."""
     b.producer_kind(
-        "seeder", schemas=[Draft], schema_version=1, factory=seeder_factory(n), deterministic=deterministic
+        "seeder",
+        schemas=[Draft],
+        schema_version=1,
+        factory=seeder_factory(n),
+        deterministic=deterministic,
     )
     b.producer_kind(
         "drafter",

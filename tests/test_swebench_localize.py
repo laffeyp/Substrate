@@ -16,12 +16,17 @@ from substrate.topologies.swebench_solver.records import EditLocations, SuspectF
 def test_parse_suspect_files_filters_to_known_and_dedupes() -> None:
     resp = "src/app.py\nnonexistent.py\n- src/util.py\njust prose here\nsrc/app.py\n"
     known = {"src/app.py", "src/util.py", "src/other.py"}
-    assert parse_suspect_files(resp, known) == ["src/app.py", "src/util.py"]  # filtered, deduped, ordered
+    assert parse_suspect_files(resp, known) == [
+        "src/app.py",
+        "src/util.py",
+    ]  # filtered, deduped, ordered
 
 
 def test_full_recall_at_k_is_the_localization_ceiling() -> None:
     assert full_recall_at_k(("a.py", "b.py", "c.py"), {"a.py", "b.py"}) is True
-    assert full_recall_at_k(("a.py", "c.py"), {"a.py", "b.py"}) is False  # missed b.py -> can't repair it
+    assert (
+        full_recall_at_k(("a.py", "c.py"), {"a.py", "b.py"}) is False
+    )  # missed b.py -> can't repair it
 
 
 def test_recall_at_k_is_fractional() -> None:
@@ -46,7 +51,9 @@ async def test_localizer_emits_suspects_and_edit_locations(tmp_path) -> None:  #
         )
         b.initial("localizer", input=None)
         b.termination(
-            api.any_of(api.threshold_count("EditLocations", 1), api.quiescence_with_watchdog(seconds=10))
+            api.any_of(
+                api.threshold_count("EditLocations", 1), api.quiescence_with_watchdog(seconds=10)
+            )
         )
 
     await Runtime(tmp_path / "run").run(topo)

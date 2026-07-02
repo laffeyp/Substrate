@@ -92,7 +92,9 @@ def provenance_status(meta: dict[str, Any], rows: list[dict[str, Any]]) -> str:
         return "unverified"
     config = {k: v for k, v in meta.items() if k not in ("config_fp", "run_id", "_provenance")}
     recomputed = (
-        hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:12] if config else None
+        hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:12]
+        if config
+        else None
     )
     if stored and recomputed is not None and stored != recomputed:
         return "tampered"  # the meta's margin/models were edited but its fingerprint was not

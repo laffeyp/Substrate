@@ -86,14 +86,21 @@ class DockerTestRunner:
     (returncode, combined-output). A patch that fails to apply -> non-zero (an honest not-passed)."""
 
     def __init__(
-        self, image: str, *, testbed: str = "/testbed", platform: str = "linux/amd64", timeout: int = 900
+        self,
+        image: str,
+        *,
+        testbed: str = "/testbed",
+        platform: str = "linux/amd64",
+        timeout: int = 900,
     ) -> None:
         self.image = image
         self.testbed = testbed
         self.platform = platform
         self.timeout = timeout
 
-    def run(self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None) -> tuple[int, str]:
+    def run(
+        self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None
+    ) -> tuple[int, str]:
         with tempfile.TemporaryDirectory() as d:
             with open(os.path.join(d, "patch.diff"), "w") as fh:
                 fh.write(model_patch)
@@ -109,9 +116,22 @@ class DockerTestRunner:
             script = f"cd {self.testbed} && {apply}{test_command}"
             try:
                 p = subprocess.run(
-                    ["docker", "run", "--rm", "--platform", self.platform, "-v", f"{d}:/sol:ro",
-                     self.image, "bash", "-lc", script],
-                    capture_output=True, text=True, timeout=self.timeout,
+                    [
+                        "docker",
+                        "run",
+                        "--rm",
+                        "--platform",
+                        self.platform,
+                        "-v",
+                        f"{d}:/sol:ro",
+                        self.image,
+                        "bash",
+                        "-lc",
+                        script,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=self.timeout,
                 )
             except subprocess.TimeoutExpired:
                 return (124, f"docker run timed out after {self.timeout}s")

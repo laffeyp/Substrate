@@ -55,7 +55,9 @@ def build_repair_prompt(spec: str, edit_context: str, failures: str) -> str:
     return "\n".join(parts)
 
 
-def repair_drafter_factory(responders: list[Responder], spec: str, edit_context: str = "") -> _Factory:
+def repair_drafter_factory(
+    responders: list[Responder], spec: str, edit_context: str = ""
+) -> _Factory:
     """The model drafter — one responder per slot (the best-of-N ensemble). Emits the metered usage then
     the Candidate (the raw SEARCH/REPLACE text). `edit_context` (the localized files' content) is read
     from the trigger INPUT when present (the full topology builds it at runtime from LOCALIZE's targets);
@@ -68,7 +70,9 @@ def repair_drafter_factory(responders: list[Responder], spec: str, edit_context:
         ctx = (str(inp.get("edit_context", "")) if hasattr(inp, "get") else "") or edit_context
         prompt = build_repair_prompt(spec, ctx, failures)
         try:
-            response, usage = await call_responder_metered(responders[slot % len(responders)], prompt)
+            response, usage = await call_responder_metered(
+                responders[slot % len(responders)], prompt
+            )
             yield usage
         except Exception as exc:  # noqa: BLE001 — a model error must not kill the slot's coroutine
             # If the drafter died here, this slot would emit no Candidate -> no Verdict -> the round never
@@ -100,7 +104,9 @@ def repair_validate_factory(base_checkout: str) -> _Factory:
             )
             result = await asyncio.to_thread(apply_candidate, response, clone)
         except Exception as exc:  # noqa: BLE001 — a clone/apply failure is a Verdict, never a crash
-            result = ApplyResult(applied=False, error=f"clone/apply failed: {type(exc).__name__}: {exc}")
+            result = ApplyResult(
+                applied=False, error=f"clone/apply failed: {type(exc).__name__}: {exc}"
+            )
         finally:
             shutil.rmtree(clone, ignore_errors=True)
         yield Verdict(
@@ -112,7 +118,10 @@ def repair_validate_factory(base_checkout: str) -> _Factory:
         )
         if result.applied:
             yield AppliedPatch(
-                round=rnd, slot=slot, model_patch=result.model_patch, creates_file=result.creates_file
+                round=rnd,
+                slot=slot,
+                model_patch=result.model_patch,
+                creates_file=result.creates_file,
             )
 
     return lambda: validate

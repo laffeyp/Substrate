@@ -34,7 +34,9 @@ class TestRunner(Protocol):
     reproduction test) alongside, and run `test_command`; return (returncode, output). The real
     implementation runs in the per-instance Docker container; a stand-in is used in tests."""
 
-    def run(self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None) -> tuple[int, str]: ...
+    def run(
+        self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None
+    ) -> tuple[int, str]: ...
 
 
 _PASSED = re.compile(r"(\d+)\s+passed")
@@ -132,7 +134,9 @@ async def run_one(
     )
     repro, repro_out = Reproduction.OTHER, ""
     if repro_code:
-        _, repro_out = await asyncio.to_thread(runner.run, model_patch, "python /sol/repro.py", {"repro.py": repro_code})
+        _, repro_out = await asyncio.to_thread(
+            runner.run, model_patch, "python /sol/repro.py", {"repro.py": repro_code}
+        )
         repro = reproduction_status(repro_out)
     return TestResults(
         slot=slot,
@@ -167,6 +171,8 @@ def select_exec_validate_factory(
     async def select_exec(inp: Any) -> AsyncIterator[TestResults]:
         slot = int(inp.get("slot", 0)) if hasattr(inp, "get") else 0
         patch = str(inp.get("model_patch", "")) if hasattr(inp, "get") else ""
-        yield await run_one(runner, regression, repro_code, slot, patch, passed_at_base=passed_at_base)
+        yield await run_one(
+            runner, regression, repro_code, slot, patch, passed_at_base=passed_at_base
+        )
 
     return lambda: select_exec

@@ -77,7 +77,10 @@ def _patch(grid: list[list[int]], r: int, c: int) -> list[list[int]]:
     """The 3x3 neighborhood around (r, c); off-grid cells are dead (finite, non-wrapping)."""
     rows, cols = len(grid), len(grid[0])
     return [
-        [grid[r + dr][c + dc] if 0 <= r + dr < rows and 0 <= c + dc < cols else 0 for dc in (-1, 0, 1)]
+        [
+            grid[r + dr][c + dc] if 0 <= r + dr < rows and 0 <= c + dc < cols else 0
+            for dc in (-1, 0, 1)
+        ]
         for dr in (-1, 0, 1)
     ]
 
@@ -186,10 +189,10 @@ def game_of_life_topology(
         b.trigger(
             "step",
             subscription=api.Subscription(kinds=frozenset({"CellNext"})),
-            predicate=lambda ctx: sum(
-                1 for e in ctx.views["nexts"].value() if e["tick"] == ctx.event.payload["tick"]
-            )
-            == cell_count,
+            predicate=lambda ctx: (
+                sum(1 for e in ctx.views["nexts"].value() if e["tick"] == ctx.event.payload["tick"])
+                == cell_count
+            ),
             starts="world",
             input_builder=lambda ctx: {
                 "tick": int(ctx.event.payload["tick"]) + 1,

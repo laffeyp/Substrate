@@ -78,9 +78,7 @@ def test_firewall_catches_exit_code_gaming():
     # imports the module to run the held-out test, the process exits CLEAN (rc 0) before any test runs.
     # Exit-code 0 alone would read 'resolved'; the positive-evidence check (the held-out tests must
     # actually report passed) catches it.
-    gamer = (
-        "# path: m.py\n```python\nimport os\n\n\ndef f(x: int) -> int:\n    return 2\n\n\nos._exit(0)\n```\n"
-    )
+    gamer = "# path: m.py\n```python\nimport os\n\n\ndef f(x: int) -> int:\n    return 2\n\n\nos._exit(0)\n```\n"
     assert coding_oracle().grade(_record(gamer), _PROBLEM).passed is False
 
 
@@ -130,9 +128,14 @@ def test_sanitize_drops_config_and_test_files():
     # a candidate emits MODULES; config and test files are the harness's and are stripped before the
     # sandbox, so neither a neutering conftest/ini nor an injected test file ever runs.
     arts = {
-        "rle.py": "x", "sub/mod.py": "y",
-        "conftest.py": "x", "pytest.ini": "x", "pyproject.toml": "x", "tox.ini": "x",
-        "test_evil.py": "x", "foo_test.py": "x",
+        "rle.py": "x",
+        "sub/mod.py": "y",
+        "conftest.py": "x",
+        "pytest.ini": "x",
+        "pyproject.toml": "x",
+        "tox.ini": "x",
+        "test_evil.py": "x",
+        "foo_test.py": "x",
     }
     assert set(sanitize_candidate_artifacts(arts)) == {"rle.py", "sub/mod.py"}
 
@@ -146,9 +149,13 @@ def test_firewall_isolation_blocks_config_injection():
         problem_id="inc",
         spec="write f",
         dev_gate=_GATE_HARD,
-        dev_fixtures={"test_dev.py": "from m import f\n\n\ndef test_dev() -> None:\n    assert f(1) == 2\n"},
+        dev_fixtures={
+            "test_dev.py": "from m import f\n\n\ndef test_dev() -> None:\n    assert f(1) == 2\n"
+        },
         grading_command=_GATE_HARD,
-        grading_tests={"test_grade.py": "from m import f\n\n\ndef test_grade() -> None:\n    assert f(2) == 3\n"},
+        grading_tests={
+            "test_grade.py": "from m import f\n\n\ndef test_grade() -> None:\n    assert f(2) == 3\n"
+        },
     )
     sneaky = (
         "# path: m.py\n```python\ndef f(x: int) -> int:\n    return 2\n```\n"

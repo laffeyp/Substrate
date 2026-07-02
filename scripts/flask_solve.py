@@ -69,9 +69,15 @@ def _checkout(base_commit: str) -> str:
 
 
 def main() -> None:
-    inst = next(x for x in load_dataset("princeton-nlp/SWE-bench_Lite", split="test") if x["instance_id"] == IID)
+    inst = next(
+        x
+        for x in load_dataset("princeton-nlp/SWE-bench_Lite", split="test")
+        if x["instance_id"] == IID
+    )
     sr = diff_to_search_replace(inst["patch"])
-    print(f"known fix touches files: {[ln[8:] for ln in inst['patch'].splitlines() if ln.startswith('+++ b/')]}")
+    print(
+        f"known fix touches files: {[ln[8:] for ln in inst['patch'].splitlines() if ln.startswith('+++ b/')]}"
+    )
     print(f"converted to {sr.count('<<<<<<< SEARCH')} SEARCH/REPLACE block(s)", flush=True)
 
     base = _checkout(inst["base_commit"])
@@ -88,7 +94,8 @@ def main() -> None:
     # gold-fed run is self-verifying across instances.
     def _changes(d: str) -> list[str]:
         return sorted(
-            ln.rstrip() for ln in d.splitlines()
+            ln.rstrip()
+            for ln in d.splitlines()
             if (ln.startswith("+") or ln.startswith("-")) and not ln.startswith(("+++", "---"))
         )
 
@@ -106,7 +113,11 @@ def main() -> None:
     from substrate.assay.swebench import make_prediction, read_resolved, run_swebench
     from substrate.topologies.swebench_solver.assemble import swebench_solver_topology
 
-    files = subprocess.run(["git", "-C", base, "ls-files"], capture_output=True, text=True).stdout.strip().split("\n")
+    files = (
+        subprocess.run(["git", "-C", base, "ls-files"], capture_output=True, text=True)
+        .stdout.strip()
+        .split("\n")
+    )
     skeleton = "\n".join(files)
     known = set(files)
     gold_list = sorted(gold_files)
@@ -116,23 +127,34 @@ def main() -> None:
             return ("\n".join(gold_list) + "\n") if "suspect file" in prompt else sr
 
     class _PassRunner:
-        def run(self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None) -> tuple[int, str]:
+        def run(
+            self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None
+        ) -> tuple[int, str]:
             return (0, "1 passed in 0.0s")
 
     topo = swebench_solver_topology(
         responders=[_GoldResponder()],
-        base_checkout=base, issue=inst["problem_statement"][:4000], repo_skeleton=skeleton,
-        known_files=known, runner=_PassRunner(), regression_command="true",
-        n=1, max_rounds=1, watchdog_seconds=30.0,
+        base_checkout=base,
+        issue=inst["problem_statement"][:4000],
+        repo_skeleton=skeleton,
+        known_files=known,
+        runner=_PassRunner(),
+        regression_command="true",
+        n=1,
+        max_rounds=1,
+        watchdog_seconds=30.0,
     )
     rundir = Path(tempfile.mkdtemp(prefix="solve-")) / "run"
     print("\nrunning the full solver pipeline...", flush=True)
     asyncio.run(Runtime(rundir).run(topo))
     events = list(read_record(rundir))
     selected = [e["payload"] for e in events if e["kind"] == "SelectedPatch"]
-    print(f"pipeline emitted: SuspectFiles={sum(1 for e in events if e['kind']=='SuspectFiles')}, "
-          f"AppliedPatch={sum(1 for e in events if e['kind']=='AppliedPatch')}, "
-          f"SelectedPatch={len(selected)}", flush=True)
+    print(
+        f"pipeline emitted: SuspectFiles={sum(1 for e in events if e['kind'] == 'SuspectFiles')}, "
+        f"AppliedPatch={sum(1 for e in events if e['kind'] == 'AppliedPatch')}, "
+        f"SelectedPatch={len(selected)}",
+        flush=True,
+    )
     if not selected:
         print("ERROR: no SelectedPatch")
         sys.exit(3)
@@ -140,8 +162,14 @@ def main() -> None:
     print("grading the SelectedPatch with the swebench oracle (Docker)...", flush=True)
     pred = make_prediction(IID, selected[0]["model_patch"], model_name="substrate-solver")
     rdir = Path("process/flask_solve")
-    run_swebench([pred], dataset_name="princeton-nlp/SWE-bench_Lite", run_id="flasksolve",
-                 instance_ids=[IID], report_dir=rdir, max_workers=1)
+    run_swebench(
+        [pred],
+        dataset_name="princeton-nlp/SWE-bench_Lite",
+        run_id="flasksolve",
+        instance_ids=[IID],
+        report_dir=rdir,
+        max_workers=1,
+    )
     resolved = read_resolved(rdir, "flasksolve", "substrate-solver", IID)
     print(f"\n=== RESOLVED: {resolved} ===  (the full solver produced a patch the oracle accepts)")
 

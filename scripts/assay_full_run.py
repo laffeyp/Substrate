@@ -46,26 +46,41 @@ async def _solve_and_grade(inst, oracle, root: Path) -> tuple[str, str]:
     to the caller -> 'error' (the genuine our-side / couldn't-run-the-topology bucket)."""
     clone = host_clone(f"https://github.com/{inst['repo']}", inst["base_commit"])
     try:
-        files = subprocess.run(["git", "-C", clone, "ls-files"], capture_output=True, text=True).stdout.split()
+        files = subprocess.run(
+            ["git", "-C", clone, "ls-files"], capture_output=True, text=True
+        ).stdout.split()
         responders = [OllamaResponder(MODEL, max_tokens=2048) for _ in range(N)]
         topo = swebench_repair_topology(
-            responders=responders, base_checkout=clone, issue=str(inst["problem_statement"]),
-            repo_skeleton="\n".join(files), known_files=set(files), n=N, max_rounds=2,
+            responders=responders,
+            base_checkout=clone,
+            issue=str(inst["problem_statement"]),
+            repo_skeleton="\n".join(files),
+            known_files=set(files),
+            n=N,
+            max_rounds=2,
         )
         await Runtime(root).run(topo)
         record = list(read_record(root))
         summary = next((e["payload"] for e in record if e["kind"] == "RepairSummary"), None)
         if summary is None:
-            return "timed_out", "no RepairSummary — the run hit its time limit before reaching an outcome"
+            return (
+                "timed_out",
+                "no RepairSummary — the run hit its time limit before reaching an outcome",
+            )
         diag = f"localized={summary['localized']} drafted={summary['drafted']} applied={summary['applied']}"
         if summary["outcome"] != "selected":
-            return summary["outcome"], diag  # no patch -> the typed outcome IS the status; nothing to grade
+            return summary[
+                "outcome"
+            ], diag  # no patch -> the typed outcome IS the status; nothing to grade
         try:
             result = oracle.grade(record, inst)  # a patch was selected -> grade it
         except Exception as exc:  # noqa: BLE001 — the topology produced a patch; the GRADER couldn't score it
             # grade infrastructure failed (e.g. the SWE-bench eval image is missing -> BuildImageError/404).
             # That's upstream, not our topology — a distinct status from a clone/topology 'error'.
-            return "grade_unavailable", f"grader could not score a produced patch: {type(exc).__name__}: {str(exc)[:140]} | {diag}"
+            return (
+                "grade_unavailable",
+                f"grader could not score a produced patch: {type(exc).__name__}: {str(exc)[:140]} | {diag}",
+            )
         return ("resolved" if result.passed else "wrong_patch"), f"{result.detail} | {diag}"
     finally:
         shutil.rmtree(clone, ignore_errors=True)
@@ -86,9 +101,14 @@ def main() -> None:
             if line.strip():
                 r = json.loads(line)
                 done[r["instance_id"]] = r["status"]
-    print(f"FULL RUN: {len(ds)} instances | model={MODEL} n={N} | already done: {len(done)} (resuming)", flush=True)
+    print(
+        f"FULL RUN: {len(ds)} instances | model={MODEL} n={N} | already done: {len(done)} (resuming)",
+        flush=True,
+    )
 
-    oracle = swebench_record_oracle(report_root=str(out_dir / "grade"), dataset_name="princeton-nlp/SWE-bench_Lite")
+    oracle = swebench_record_oracle(
+        report_root=str(out_dir / "grade"), dataset_name="princeton-nlp/SWE-bench_Lite"
+    )
     base = Path(tempfile.mkdtemp(prefix="full-run-"))
     started = time.monotonic()
 
@@ -101,8 +121,13 @@ def main() -> None:
             status, detail = asyncio.run(_solve_and_grade(inst, oracle, base / f"c{i}"))
         except Exception as exc:  # noqa: BLE001 — an instance that blows up is recorded, not fatal
             status, detail = "error", f"{type(exc).__name__}: {str(exc)[:160]}"
-        rec = {"instance_id": iid, "repo": inst["repo"], "status": status,
-               "firewall_clean": fw_ok, "detail": detail}
+        rec = {
+            "instance_id": iid,
+            "repo": inst["repo"],
+            "status": status,
+            "firewall_clean": fw_ok,
+            "detail": detail,
+        }
         with ckpt.open("a") as fh:
             fh.write(json.dumps(rec) + "\n")
         done[iid] = status
@@ -111,23 +136,40 @@ def main() -> None:
 
     # final tally from the checkpoint (authoritative, survives restarts), broken down by the TYPED outcome.
     from collections import Counter
+
     rows = [json.loads(line) for line in ckpt.read_text().splitlines() if line.strip()]
     counts = Counter(r["status"] for r in rows)
     res = counts["resolved"]
     elapsed = int(time.monotonic() - started)
-    print("\n==================== FULL SWE-BENCH RESULT (repair topology) ====================", flush=True)
-    print(f"model={MODEL} n={N} | processed {len(rows)}/{len(ds)} | {elapsed}s this session", flush=True)
-    print(f"RESOLVED {res}/{len(rows)} ({100*res/max(len(rows),1):.1f}%)", flush=True)
+    print(
+        "\n==================== FULL SWE-BENCH RESULT (repair topology) ====================",
+        flush=True,
+    )
+    print(
+        f"model={MODEL} n={N} | processed {len(rows)}/{len(ds)} | {elapsed}s this session",
+        flush=True,
+    )
+    print(f"RESOLVED {res}/{len(rows)} ({100 * res / max(len(rows), 1):.1f}%)", flush=True)
     # the breakdown a person can read: resolved (fixed it) vs wrong_patch (model's fix didn't pass) vs
     # no_applicable_edit (the model's edits didn't match the file — OUR concern if high) vs no_localization
     # (no file picked) vs timed_out (hit the watchdog) vs grade_unavailable (patch produced but the official
     # eval image is missing -> upstream, not us) vs error (couldn't even run the topology — clone/topology crash).
-    for label in ("resolved", "wrong_patch", "no_applicable_edit", "no_localization", "timed_out",
-                  "grade_unavailable", "error"):
+    for label in (
+        "resolved",
+        "wrong_patch",
+        "no_applicable_edit",
+        "no_localization",
+        "timed_out",
+        "grade_unavailable",
+        "error",
+    ):
         print(f"  {label:<20} {counts[label]}", flush=True)
     # the resolve rate over GRADEABLE instances excludes grade_unavailable (we never got a verdict on those).
     gradeable = len(rows) - counts["grade_unavailable"] - counts["error"]
-    print(f"resolved over gradeable: {res}/{gradeable} ({100*res/max(gradeable,1):.1f}%)", flush=True)
+    print(
+        f"resolved over gradeable: {res}/{gradeable} ({100 * res / max(gradeable, 1):.1f}%)",
+        flush=True,
+    )
     for bucket in ("grade_unavailable", "error"):
         bad = [r for r in rows if r["status"] == bucket]
         if bad:

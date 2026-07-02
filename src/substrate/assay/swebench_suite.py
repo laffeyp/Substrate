@@ -78,7 +78,9 @@ def prepare_swebench_case(
         ["git", "-C", base, "ls-files"], capture_output=True, text=True
     ).stdout.split()
     repo_tests = discover_test_modules(repo_files)
-    exclude = _added_files(instance["test_patch"])  # held-out test_patch file PATHS (firewall-disclosed)
+    exclude = _added_files(
+        instance["test_patch"]
+    )  # held-out test_patch file PATHS (firewall-disclosed)
     spec = dict(repo_test_spec(instance["repo"], instance["version"]))
 
     image = instance_image(instance["instance_id"], namespace=namespace)
@@ -98,7 +100,9 @@ def prepare_swebench_case(
         "image": image,
         "issue": instance["problem_statement"],
     }
-    return Case(case_id=safe_case_id(instance["instance_id"]), payload=payload, ground_truth=instance)
+    return Case(
+        case_id=safe_case_id(instance["instance_id"]), payload=payload, ground_truth=instance
+    )
 
 
 def solver_topology_from_payload(
@@ -142,8 +146,12 @@ def swebench_solver_arm(
     slots = n if n is not None else len(models)
 
     def build(case: Case) -> Topology:
-        responders = [OllamaResponder(models[i % len(models)], max_tokens=max_tokens) for i in range(slots)]
-        return solver_topology_from_payload(case.payload, responders, n=slots, max_rounds=max_rounds)
+        responders = [
+            OllamaResponder(models[i % len(models)], max_tokens=max_tokens) for i in range(slots)
+        ]
+        return solver_topology_from_payload(
+            case.payload, responders, n=slots, max_rounds=max_rounds
+        )
 
     return Arm(name=name, role=role, build=build)
 

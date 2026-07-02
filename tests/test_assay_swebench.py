@@ -49,7 +49,9 @@ def test_record_oracle_grades_the_extracted_patch_via_the_injected_grader():
     good = _record(("SelectedPatch", {"slot": 0, "model_patch": "diff GOOD"}))
     res = oracle.grade(good, {"instance_id": "pallets__flask-4045"})
     assert res.passed is True and res.metric == "resolved"
-    assert res.oracle_class == EXTERNAL_GRADER and res.replayable is False  # run-and-observe, labeled
+    assert (
+        res.oracle_class == EXTERNAL_GRADER and res.replayable is False
+    )  # run-and-observe, labeled
 
     bad = _record(("SelectedPatch", {"slot": 0, "model_patch": "diff BAD"}))
     assert oracle.grade(bad, {"instance_id": "x"}).passed is False
@@ -60,7 +62,9 @@ def test_record_oracle_drops_graded_test_edits_before_grading():
     # topology that emits a raw diff (no internal drop) can't weaken a graded test or collide with test_patch.
     captured = []
     oracle = swebench_record_oracle(
-        report_root="/unused", dataset_name="d", grade=lambda iid, p: bool(captured.append(p)) or True
+        report_root="/unused",
+        dataset_name="d",
+        grade=lambda iid, p: bool(captured.append(p)) or True,
     )
     patch = (
         "diff --git a/src/app.py b/src/app.py\n@@ -1 +1 @@\n-x\n+y\n"

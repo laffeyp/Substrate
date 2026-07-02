@@ -57,9 +57,22 @@ class ContainerWorkspace:
         """Run the eval image detached with `--network none`, then lock down contamination: strip remotes
         AND neuter local git history so no ref reaches the fixing commit (a descendant of base_commit)."""
         p = subprocess.run(
-            ["docker", "run", "-d", "--rm", "--network", "none", "--platform", self.platform,
-             self.image, "sleep", "infinity"],
-            capture_output=True, text=True, check=True,
+            [
+                "docker",
+                "run",
+                "-d",
+                "--rm",
+                "--network",
+                "none",
+                "--platform",
+                self.platform,
+                self.image,
+                "sleep",
+                "infinity",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
         )
         self._cid = p.stdout.strip()
         # contamination lockdown (#71 NET 2): strip remotes, detach HEAD at the current commit (base),
@@ -82,7 +95,9 @@ class ContainerWorkspace:
         try:
             p = subprocess.run(
                 ["docker", "exec", self._cid, "bash", "-lc", script],
-                capture_output=True, text=True, timeout=self.exec_timeout,
+                capture_output=True,
+                text=True,
+                timeout=self.exec_timeout,
             )
         except subprocess.TimeoutExpired:
             return (124, f"exec timed out after {self.exec_timeout}s")
@@ -104,7 +119,8 @@ class ContainerWorkspace:
             self.exec(f"mkdir -p $(dirname {relpath})")
             subprocess.run(
                 ["docker", "cp", host, f"{self._cid}:{self.testbed}/{relpath}"],
-                capture_output=True, check=False,
+                capture_output=True,
+                check=False,
             )
 
     def diff(self, *, drop_files: frozenset[str] = frozenset()) -> str:

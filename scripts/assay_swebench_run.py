@@ -47,8 +47,10 @@ def _pick_spanning_repos(dataset, n):
 def main() -> None:
     ds = list(load_dataset("princeton-nlp/SWE-bench_Lite", split="test"))
     chosen = _pick_spanning_repos(ds, N)
-    print(f"chosen {len(chosen)} instances across repos: "
-          f"{sorted({c['repo'] for c in chosen})}", flush=True)
+    print(
+        f"chosen {len(chosen)} instances across repos: {sorted({c['repo'] for c in chosen})}",
+        flush=True,
+    )
 
     oracle = swebench_record_oracle(
         report_root=Path("process/assay_run"), dataset_name="princeton-nlp/SWE-bench_Lite"
@@ -81,15 +83,23 @@ def main() -> None:
         attempted.append(iid)
         if res.result.passed:
             resolved.append(iid)
-        print(f"  resolved={res.result.passed} | {res.result.detail} | "
-              f"calls={res.usage.model_calls} elapsed_ms={res.elapsed_ms}", flush=True)
+        print(
+            f"  resolved={res.result.passed} | {res.result.detail} | "
+            f"calls={res.usage.model_calls} elapsed_ms={res.elapsed_ms}",
+            flush=True,
+        )
 
     print("\n==================== REAL RUN RESULT ====================", flush=True)
     print(f"model: {MODEL}  (n_drafts={N_DRAFTS})", flush=True)
-    print(f"chosen: {len(chosen)} | attempted: {len(attempted)} | "
-          f"could-not-attempt: {len(skipped)}", flush=True)
-    print(f"RESOLVED: {len(resolved)}/{len(attempted)} attempted "
-          f"({len(resolved)}/{len(chosen)} of chosen) -> {resolved}", flush=True)
+    print(
+        f"chosen: {len(chosen)} | attempted: {len(attempted)} | could-not-attempt: {len(skipped)}",
+        flush=True,
+    )
+    print(
+        f"RESOLVED: {len(resolved)}/{len(attempted)} attempted "
+        f"({len(resolved)}/{len(chosen)} of chosen) -> {resolved}",
+        flush=True,
+    )
     if skipped:
         print("\ncould-not-attempt (the multi-repo work that's NOT done):", flush=True)
         for iid, why in skipped:

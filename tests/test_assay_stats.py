@@ -51,7 +51,9 @@ def test_equivalence_verdict_tost():
     assert equivalence_verdict(-0.05, 0.05, margin=m, n_pairs=59) == UNDERPOWERED
     # 'significantly worse/better' (excludes 0) is NOT a margin verdict if it straddles the boundary.
     assert equivalence_verdict(0.05, 0.20, margin=m, n_pairs=big) == INCONCLUSIVE
-    assert equivalence_verdict(-0.18, -0.06, margin=m, n_pairs=big) == INCONCLUSIVE  # the full pass@1 case
+    assert (
+        equivalence_verdict(-0.18, -0.06, margin=m, n_pairs=big) == INCONCLUSIVE
+    )  # the full pass@1 case
     assert equivalence_verdict(-0.30, 0.30, margin=m, n_pairs=big) == INCONCLUSIVE
     # degenerate zero-width: within the margin -> the false-equivalence trap -> inconclusive; clearing it
     # -> a genuine maximal difference (n-independent).
@@ -106,7 +108,10 @@ def test_bootstrap_maximal_difference_survives_degenerate_guard():
     d = bootstrap_delta_pass_k(
         {f"c{i}": [True, True] for i in range(6)},
         {f"c{i}": [False, False] for i in range(6)},
-        k=1, margin=0.1, n_boot=1000, seed=4,
+        k=1,
+        margin=0.1,
+        n_boot=1000,
+        seed=4,
     )
     assert d.ci_low == d.ci_high == pytest.approx(1.0)
     assert d.verdict == SUPERIOR
