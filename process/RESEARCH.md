@@ -322,6 +322,73 @@ agent" holds, sharpened: agentic tool-use tracks the cloud frontier thinking mod
 
 ---
 
+### R-13 — Synthesis: capability vs policy, and what SWE-bench structurally cannot measure
+
+*A model that ties together R-7, R-11a, R-12, and the SWE-bench thread (KIT_DIARY 23/26). This is a
+hypothesis that PREDICTS, not an n-measured law — flagged as such.*
+
+- **Capability vs policy.** `qwen3-coder:480b` *can* call `bash` (it has the tool) — it just doesn't
+  *decide* to. So its "won't verify" is a missing POLICY, not a missing CAPABILITY. A thinking model's
+  chain-of-thought is functionally an internal policy that already contains "…and then check it
+  worked." This dissolves the 36%-vs-69% tension: with a forcing harness supplying the verify policy
+  externally, qwen's capability shows (~69% Verified, vendor claim, WITH an agent harness); with no
+  forcing (our minimal SWE-bench scaffold, or the open hangman loop) its missing policy caps it
+  (36% Lite / write-spin). The harness adds the DECISION to verify, not the ability. This is the
+  enforce-vs-request axis (KIT_DIARY 32) restated as capability/policy.
+- **SWE-bench, an "agentic" benchmark, is structurally blind to agency.** The `FAIL_TO_PASS` firewall
+  removes iterate-until-green — the defining agentic move — so the score rewards localization +
+  one-shot patch quality + best-of-N, and is near-blind to the self-verification policy that separates
+  an agent from a code-completer. Our own project saw this (KIT_DIARY 23): the executing agent did not
+  beat the focused one there because the axis that favors it is walled off. The headline "agentic
+  coding" number is largely code-generation-under-localization; the agency part is unmeasured.
+- **Substrate can measure exactly what SWE-bench can't — the trajectory.** The run record IS the
+  trajectory as typed events, so you can score *did the model run its code, read the real result, and
+  fix it* — per step, orthogonal to whether the final artifact is correct (KIT_DIARY 34). The hangman
+  tool mix (`write→read→bash→exit0` vs `write×16`) already IS that measurement. `deepseek-v4-pro` is
+  the clean orthogonality case: artifact-plausible ("proven working") while its trajectory shows
+  `exit 1` twice (R-11a). Artifact grading passes it; trajectory grading fails it — different facts,
+  and only the record has the second. Candidate: an **agency assay** — score the verify-loop behaviour
+  across models, independent of output correctness.
+- **The prediction (daily-driver payoff):** self-verifying thinking models should shine *most* exactly
+  where SWE-bench can't measure them — open-ended coding on a real machine, iterate-until-your-tests-
+  pass — while the raw coder needs the harness to carry it. Testable; it is the cockpit use case, not
+  the benchmark one.
+
+**Caveats:** the agentic runs are n=1 behaviour-classes; the 69% is a vendor claim; the capability/
+policy split is a model of the evidence. But it is coherent across four independent findings and it
+*predicts* — which is why it is worth recording and testing (see R-14, the R-11a demonstration).
+
+---
+
+### R-14 — The R-11a check built + verified; the could-fail test caught a real bug
+
+Built the structural "refuse a `done` answer when the last bash exited non-zero" check (externalize
+the verify policy): on a done-attempt with a failed last run, re-prompt once; if the model still
+insists, mark the FinalAnswer `[unverified — last run exited non-zero]` so the record can't launder a
+false "proven working." Recovery path: if the re-prompt yields a tool call, the loop continues.
+
+- **The live demonstration was INCONCLUSIVE.** This run of `deepseek-v4-pro` succeeded on the first
+  bash (`exit 0`), so its "built and working" was TRUE and the check never fired — n=1 stochasticity;
+  the R-11a false-claim didn't recur. A run where the model happens to succeed cannot demonstrate a
+  guard against failure.
+- **So verification is a DETERMINISTIC reproduce-then-kill**, independent of model luck: a stub
+  `achat_tools` responder that runs `exit 3` then insists "done", asserting the FinalAnswer is marked
+  `[unverified]` over the recorded `exit 3`.
+- **That test FAILED first and caught a real bug.** Inside the live view the tool output is a
+  `mappingproxy` (sealed record state), not a `dict`, so the original `isinstance(out, dict)` silently
+  never fired — it passed on `read_record`'s plain-dict payloads but not in the running loop. Fixed to
+  `isinstance(out, Mapping)`. This is the could-fail test doing its job: had I trusted the live run
+  (which "worked"), I'd have shipped a guard that never triggers.
+
+Result: enforce-vs-request demonstrated structurally — the harness refuses an unverified "done",
+independent of the model (R-13's prediction, on the record). Open bound: whether the re-prompt
+CONVERTS a resistant model needs a run where a real model actually fails then insists (stochastic to
+catch). Process near-miss, recorded: I reverted a scratch debug print with `git checkout <file>`,
+which also wiped the uncommitted R-11a code in that file — re-applied it. Never `git checkout` a file
+carrying uncommitted work to undo a temporary edit.
+
+---
+
 ## Model roster — what we test against, and why
 
 The tool loop is written against a `Responder`, so any model is a candidate. But suitability for the

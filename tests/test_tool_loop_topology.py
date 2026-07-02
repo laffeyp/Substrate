@@ -167,6 +167,45 @@ async def test_consecutive_rewrite_of_the_same_file_is_a_typed_observation_not_a
     assert f.read_text(encoding="utf-8") == "v1"  # the spin write never touched the file
 
 
+async def test_refuse_done_when_the_last_run_exited_nonzero(tmp_path):
+    # R-11a: externalize the verify policy the model may not hold. A model that RAN a failing command
+    # and then tries to declare success must not have "done" laundered — the loop re-prompts once, and
+    # if it STILL insists the FinalAnswer is marked [unverified] so the record can't claim success over
+    # a real exit != 0. Deterministic: a stub achat_tools responder (no live model, no luck).
+    from substrate.topologies.tool_loop.tools import FULL_SUITE
+
+    class _Stub:
+        def __init__(self) -> None:
+            self.n = 0
+
+        async def achat_tools(self, prompt: str, tools: list) -> dict:  # noqa: ANN001, ARG002
+            self.n += 1
+            if self.n == 1:  # first turn: run a command that FAILS (exit 3)
+                return {
+                    "content": "",
+                    "tool_calls": [{"function": {"name": "bash", "arguments": {"cmd": "exit 3"}}}],
+                }
+            return {"content": "All done — the program works great."}  # then insist it's done
+
+    result = await Runtime(tmp_path / "run").run(
+        tool_loop_topology(
+            model=_Stub(),
+            walkthrough=True,
+            deterministic=False,
+            tools=FULL_SUITE,
+            task="build it and prove it runs",
+            max_steps=6,
+        )
+    )
+    assert result.status == "finalised"
+    envs = list(read_record(tmp_path / "run"))
+    bash = [e for e in envs if e["kind"] == "ToolResult" and e["payload"]["tool"] == "bash"]
+    assert bash and bash[-1]["payload"]["output"]["exit"] == 3  # the failing run is on the record
+    finals = [e for e in envs if e["kind"] == "FinalAnswer"]
+    # the model insisted "done"; the harness refused to launder it — the claim is marked unverified.
+    assert finals and "unverified" in finals[-1]["payload"]["text"].lower()
+
+
 def test_edit_file_replace_all_is_the_explicit_opt_out_for_renames(tmp_path):
     # unique-or-error stays the DEFAULT (the mis-splice guard above); replace_all=true is the explicit
     # opt-out for a deliberate rename-everywhere (Claude Code parity). The uniqueness safety is only

@@ -37,7 +37,7 @@ These are worked out as topology sketches in `docs/tool-loop-futures.md`.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -99,6 +99,19 @@ class FinalAnswer(Struct, frozen=True):
     steps: int
 
 
+def _last_bash_nonzero(results: list[dict[str, Any]]) -> bool:
+    """True if the most recent `bash` the agent RAN exited non-zero — the last thing it ran FAILED.
+    Externalizes the verify POLICY the model may not hold (R-11a: deepseek-v4-pro ran its code, got
+    exit 1 twice, then declared 'proven working'). The harness reads the record's real exit code and
+    refuses to let a 'done' answer launder an unverified failure. NB: the live view yields the tool
+    output as a `mappingproxy` (sealed record state), not a plain dict — check `Mapping`, not `dict`."""
+    for r in reversed(results):
+        if r.get("tool") == "bash" and r.get("ok", True):
+            out = r.get("output")
+            return isinstance(out, Mapping) and int(out.get("exit", 0) or 0) != 0
+    return False
+
+
 def _answer_text(results: list[dict[str, Any]]) -> str:
     """The model's final text: the last successful output, or a note that there isn't one."""
     return (
@@ -158,8 +171,28 @@ def _model_factory(
                 if kind == "tool":
                     name, call_args = chosen
                     yield ToolCall(call_id=f"c{step}", tool=name, args=list(call_args), step=step)
-                else:
-                    yield FinalAnswer(text=str(chosen), steps=step)
+                    return
+                # R-11a: refuse a "done" answer when the last thing the agent RAN exited non-zero —
+                # externalize the verify policy the model may not hold. Re-prompt ONCE, firmly; if it
+                # then calls a tool, the loop continues; if it STILL insists, let it answer but mark the
+                # claim [unverified] so the record can't launder "proven working" over a failed run.
+                if _last_bash_nonzero(results):
+                    firm = (
+                        f"{prompt}\n\nDO NOT answer yet. Your last bash command exited NON-ZERO — you "
+                        "have NOT verified success. Call a tool to fix the problem and re-run it."
+                    )
+                    kind2, chosen2 = parse_tool_call(await achat(firm, ollama_tools(tools)), tools)
+                    if kind2 == "tool":
+                        name, call_args = chosen2
+                        yield ToolCall(
+                            call_id=f"c{step}", tool=name, args=list(call_args), step=step
+                        )
+                        return
+                    yield FinalAnswer(
+                        text=f"[unverified — last run exited non-zero] {chosen2}", steps=step
+                    )
+                    return
+                yield FinalAnswer(text=str(chosen), steps=step)
                 return
             # fallback — a text Responder with no native tools-chat: a CLI model (CliResponder:
             # claude/gemini/any command-line model) or any prompt->text seam. DESCRIBE the tools and
