@@ -294,6 +294,34 @@ from the write-spin:
 
 ---
 
+### R-12 — Roster widening completed: the verify threshold is a CLOUD-frontier-thinking property
+
+Filling R-11's gaps (n=1 each; anti-spin + recover-then-bail active):
+
+| Model | tier | tool mix | outcome |
+|---|---|---|---|
+| `nemotron-3-super` | cloud, thinking | write, read×2, bash×2 | **VERIFIED** — `exit 0` |
+| `deepseek-r1:8b` | local, reasoning | (none) | **EMPTY** FinalAnswer, 0 tool calls — does not engage the loop, at 600s (NOT a timeout this time) |
+
+**Scoreboard so far (n=1 each — behaviour classes, not rates):**
+- **VERIFY clean** (write→read→run→`exit 0`): `kimi-k2.6`, `glm-5.1`, `nemotron-3-super` — all cloud
+  thinking+tools.
+- **ATTEMPT then claim FALSELY**: `deepseek-v4-pro` (cloud thinking) — ran its code, got `exit 1`
+  twice, declared success (R-11a).
+- **NO verify (write-spin)**: `qwen3-coder:480b` (cloud, NON-thinking coder — the best coder by
+  benchmark, R-7).
+- **NO loop engagement (empty, 0 tools)**: `deepseek-r1:8b` (local reasoning) — R-12.
+
+**Interpretation.** The agentic-verify threshold is, on this evidence, a property of the CLOUD
+frontier thinking+tools models — not code-benchmark rank (the top coder is the worst agent) and not
+the "thinking" tag alone: `deepseek-r1:8b` is thinking-tagged yet returns empty content and never
+calls a tool in our seam. r1's failure is now characterised (empty answer / 0 tools at 600s, not a
+timeout) but not root-caused — candidate: its reasoning routes into the thinking field, or Ollama's
+r1 tools support is weak; a focused `achat_tools` probe on r1 is the follow-up. **"Best coder ≠ best
+agent" holds, sharpened: agentic tool-use tracks the cloud frontier thinking models specifically.**
+
+---
+
 ## Model roster — what we test against, and why
 
 The tool loop is written against a `Responder`, so any model is a candidate. But suitability for the
