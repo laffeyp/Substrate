@@ -527,6 +527,42 @@ file removes the blank-page spin) is coherent and predicts — worth an n>1 conf
 
 ---
 
+### R-20 — The rates board (n=3): R-19's caveat resolved, and the shape boundary sharpened
+
+Re-ran the whole suite at **n=3 per cell** (`agency_assay.py --suite --repeats 3`, cells = VERIFIED-rate
++ mean-score). This is the defensible board — R-19's n=1 classes turned into rates.
+
+| Model | build_hangman | fix_runtime_bug | build_and_test | mean |
+|---|---|---|---|---|
+| `kimi-k2.6` (thinking) | 3/3 · 100 | 3/3 · 100 | 3/3 · 100 | **100** |
+| `glm-5.1` (thinking) | 3/3 · 100 | 3/3 · 100 | 3/3 · 100 | **100** |
+| `deepseek-v4-pro` (thinking) | 3/3 · 100 | 3/3 · 100 | 3/3 · 100 | **100** |
+| `nemotron-3-super` (thinking) | 3/3 · 90 | 3/3 · 100 | 3/3 · 100 | **97** |
+| `qwen3-coder:480b` (coder) | **0/3 · 50** | 3/3 · 100 | **3/3 · 100** | **83** |
+
+- **The thinking roster is a solid VERIFIED wall — now at n=3, not one lucky run.** kimi/glm/deepseek-v4-pro:
+  9/9 VERIFIED each. nemotron: 9/9 VERIFIED too; its build_hangman *mean* dips to 90 (a sub-component of
+  the score, not a label miss — still ran and saw exit 0 every time). The n=1 "these verify" claim held.
+- **R-19's caveat is discharged.** qwen's `fix_runtime_bug` was a single VERIFIED run at n=1; it is now
+  **3/3 VERIFIED**. The seeded-file mechanism reproduces — a broken artifact reliably pulls even the
+  write-spinner into read→fix→run.
+- **The shape boundary is NARROWER than R-19 read.** At n=1, qwen was NO_V on *both* blank-page builds
+  (`build_hangman` and `build_and_test`). At n=3, `build_and_test` flips to **3/3 VERIFIED** — the n=1
+  NO_V there was noise. So qwen fails ONLY the pure `build_hangman` (0/3), and verifies whenever the task
+  either seeds a broken file (`fix_runtime_bug`) or names testing as an explicit step (`build_and_test`).
+  The differentiator is not "build vs fix" — it's **whether the task STRUCTURE supplies the verify step**
+  (a broken seed, or "and test" in the spec) versus leaving the model to self-initiate verification of its
+  own fresh output. `build_hangman` asks in prose ("then PROVE it works by running it") and qwen ignores
+  it 0/3 — prose doesn't move it; structure does. This is R-13's capability/policy split at cell
+  resolution: the policy qwen lacks can be supplied by the task shape, and *only* by structure, not words.
+- **Ties SWE-bench (unchanged, now firmer).** SWE-bench = patch-existing = the seeded-fix shape, exactly
+  qwen's 3/3 column — consistent with its real ~36% there against its blank-page spin.
+
+**Status:** the board is the R-19 → R-20 promotion — n=3, five models, three shapes, one ERROR-free grid.
+Bench: `scripts/agency_assay.py --suite --repeats 3 [--think]`; scorer `topologies/tool_loop/agency.py`.
+
+---
+
 ## Model roster — what we test against, and why
 
 The tool loop is written against a `Responder`, so any model is a candidate. But suitability for the
@@ -615,7 +651,13 @@ this is the list to attack, not trust.
   /tmp/agent-e2e`). · Empty-file marker (arena live). · R-9 kimi write→read→run→verify (n=1, real
   `exit: 0` + `=== HANGMAN ===`). · R-10 discipline prompt inert (n=1 A/B). · SOFT regex (12 real
   logs, 0 false positives). · Container arena reaches host Ollama (live). · 17 tool_loop + 6 reference
-  + 28 server tests (independent pytest, run this session). · ruff+mypy over `src/substrate` (95 files).
+  + 29 server tests (independent pytest, run this session). · ruff+mypy over `src/substrate` (95 files).
+- **Agency rates board, n=3 (R-20)** — real cloud trajectories, five models × three shapes, ERROR-free:
+  thinking roster 9/9 VERIFIED each (nemotron mean 97), `qwen3-coder:480b` 0/3 on the pure blank-page
+  build but 3/3 on the seeded fix AND on build-and-test. Reading is outside my control (each run's own
+  ToolCall/ToolResult/FinalAnswer record scored by `score_agency`). Discharges R-19's n=1 caveat.
+- **`/diff` worktree surface** — `_worktree_diff` shows an edit + a new file surfacing in both the diff
+  text and the name-status list; server test exercises it against a real temp git worktree (29th test).
 
 ### Unverified / weaker (this session)
 - **`replace_all` coercion, out-of-range read marker:** could-fail UNIT TEST only — adequate for a pure
