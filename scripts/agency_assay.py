@@ -65,30 +65,44 @@ async def _score_one(
 
 
 def _run_suite(args: argparse.Namespace) -> int:
-    """Run the AGENCY_SUITE (a grid of task shapes) across the models; print a per-(model,task) grid of
-    labels+scores plus a per-model mean. Measures agency across shapes, not one lucky task."""
-    grid: dict[str, dict[str, AgencyScore | str]] = {}
+    """Run the AGENCY_SUITE (a grid of task shapes) across the models, `--repeats` runs per cell; print
+    a per-(model,task) grid + a per-model mean. n=1 cells show label:score; n>1 cells show the
+    VERIFIED-rate + mean (the defensible board). Agency measured across shapes, not one lucky task."""
+    n = args.repeats
+    grid: dict[str, dict[str, list[AgencyScore]]] = {}
     for m in args.models:
         for t in AGENCY_SUITE:
-            grid.setdefault(m, {})[t.name] = asyncio.run(_score_one(m, t.prompt, t.seed, args))
+            scores: list[AgencyScore] = []
+            for _ in range(n):
+                r = asyncio.run(_score_one(m, t.prompt, t.seed, args))
+                if isinstance(r, AgencyScore):
+                    scores.append(r)
+            grid.setdefault(m, {})[t.name] = scores
     tasks = [t.name for t in AGENCY_SUITE]
     header = f"{'MODEL':<24} " + " ".join(f"{t[:14]:>14}" for t in tasks) + "   mean"
-    print("\nAGENCY SUITE — trajectory score per (model, task):")
+    print(
+        f"\nAGENCY SUITE ({'VERIFIED-rate + mean' if n > 1 else 'label:score'}) per (model, task), n={n}:"
+    )
     print(header)
     print("-" * len(header))
     for m in args.models:
-        oks: list[AgencyScore] = []
         cells: list[str] = []
+        means: list[float] = []
         for t in tasks:
-            r = grid[m][t]
-            if isinstance(r, AgencyScore):
-                oks.append(r)
-                cells.append(f"{r.label[:4]}:{r.score:>3}")
-            else:
+            agg = aggregate_agency(grid[m][t])
+            if agg.runs == 0:
                 cells.append("ERROR")
-        mean = aggregate_agency(oks).mean_score
+            elif n > 1:
+                cells.append(f"{agg.verified}/{agg.runs} {agg.mean_score:>3.0f}")
+                means.append(agg.mean_score)
+            else:
+                s = grid[m][t][0]
+                cells.append(f"{s.label[:4]}:{s.score:>3}")
+                means.append(float(s.score))
+        mean = sum(means) / len(means) if means else 0.0
         print(f"{m:<24} " + " ".join(f"{c:>14}" for c in cells) + f"   {mean:>4.0f}")
-    print("\n(agency = trajectory across task shapes; n=1 per cell — classes, not rates)")
+    tail = "" if n > 1 else " — classes, not rates"
+    print(f"\n(agency = trajectory across task shapes; n={n} per cell{tail})")
     return 0
 
 
