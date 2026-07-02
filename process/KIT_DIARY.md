@@ -369,6 +369,19 @@ checks that could fail. Also found and repaired a pre-existing repo-wide CI fail
   "wait for ALL of what CI runs to finish." (Caught and corrected in the same session — twice, which
   is the point: the failure mode is claiming from a partial green, and it recurs unless the bar is the
   observed full conclusion.)
+- 37. **Agency is a model × TASK-SHAPE interaction — measure across shapes, and let STRUCTURE, not prose,
+  supply the policy.** Finding 34 says test the trajectory; 37 is what testing it across an n=3 grid of
+  task shapes revealed (RESEARCH R-19→R-20). The write-spinner (`qwen3-coder:480b`) is not uniformly a
+  bad agent: 0/3 VERIFIED on a pure blank-page build, but 3/3 on a seeded broken-file fix AND 3/3 on a
+  build-AND-test task. The task STRUCTURE that supplies the verify step — a broken artifact you must run
+  to fix, or "and test" named as a step — pulls even a poor agent into read→run→verify; a blank page
+  lets it produce-forever. Crucially, the same task's PROSE ("then PROVE it works by running it") did
+  NOT move it (0/3). So: (a) a single-task agency score is a shape score, not a model score — grid the
+  shapes; (b) the capability/policy split (finding 34) has a lever — the harness can SUPPLY the missing
+  verify policy structurally, and only structurally. This is why the same model posts a real benchmark
+  number on patch-existing work (the seeded shape) while spinning on open-ended build tasks. Extends 32
+  (enforce-vs-request) from within-topology guards to the task-shape level: the shape of the work is
+  itself an enforcement surface.
 
 ---
 
