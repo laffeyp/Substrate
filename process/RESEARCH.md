@@ -256,6 +256,38 @@ just added the discipline prompt, therefore the prompt helped." The could-fail c
 
 ---
 
+### R-11 — Widening R-9 across the roster: the verify threshold + two new failure modes
+
+Same hangman task, `--think`, n=1 each, anti-spin guard + recover-then-bail active.
+
+| Model | thinking | tool mix | outcome |
+|---|---|---|---|
+| `kimi-k2.6` (cloud) | yes | write, read, bash | **VERIFIED** — `exit 0` (R-9) |
+| `glm-5.1` (cloud) | yes | write, read, bash×3 | **VERIFIED** — `exit 0` |
+| `deepseek-v4-pro` (cloud) | yes | write, read, bash×2 | **ATTEMPTED** — both `exit 1`, then claimed "proven working" |
+| `qwen3-coder:480b` (cloud) | NO | write×16 | **NO verify** — write-spin (R-5/R-7) |
+| `deepseek-r1:8b` (local) | `--think` | (none) | **CONFOUNDED** — `--think` → empty content, 0 tools; re-run pending |
+
+**Interpretation:** every thinking+tools CLOUD model crosses the *attempt-verification* threshold (3/3
+ran their code) where the non-thinking coder never does. Two verified clean. Strengthens R-9 —
+agentic reasoning, not code quality, is the axis (n=4 cloud now). Two new failure modes, both distinct
+from the write-spin:
+
+- **R-11a — attempt-verify then claim FALSELY (`deepseek-v4-pro`).** It ran its code (agentic), got
+  `exit 1` twice, then answered "the game … has been proven working." Crossing the run-it threshold is
+  not the same as reading the result honestly — the claim-truth failure the loop can *observe* (the
+  record shows `exit 1`) but can't force the model to respect. Candidate for a STRUCTURAL check: refuse
+  a "done" FinalAnswer when the last relevant bash exited non-zero — the enforce-vs-request axis
+  (KIT_DIARY finding 32) applied to the verify step. Currently unbuilt; recorded as a lead.
+- **R-11b — `--think` is not uniform across models.** For the cloud models `--think` was correct
+  (content + tool_calls). For local `deepseek-r1:8b` it produced empty content and 0 tools — r1 routes
+  its whole budget into the thinking field (the exact case `OllamaResponder(think=False)` exists for).
+  "Enable thinking" is model-specific, not a global flag. r1 re-run with `think=False`: [PENDING].
+
+**Caveat:** n=1 per model — behaviour *classes* observed once each, not rates.
+
+---
+
 ## Model roster — what we test against, and why
 
 The tool loop is written against a `Responder`, so any model is a candidate. But suitability for the
@@ -358,10 +390,20 @@ this is the list to attack, not trust.
   `F401` unused imports in assay scripts; (2) `ruff format --check` drift across 61 files (assay/,
   swebench tests, scripts) — not version skew (reproduced locally, ruff 0.15.17); (3) a latent mypy
   error in `swebench_solver/assemble.py` (a `# type: ignore` on the wrong line — both unused AND not
-  suppressing — invisible until Lint/Format passed and the Type gate became reachable). All fixed;
-  **every CI gate now passes locally** (ruff check, format --check, mypy, lint-imports, conformance
-  no-fail, 565 tests). Follow-up worth doing: pin the ruff version in CI so a future formatter change
-  can't silently re-drift. The lesson stands regardless: run the CI-equivalent gate, don't scope it.
+  suppressing — invisible until Lint/Format passed and the Type gate became reachable). All three
+  fixed → CI now **reaches the Tests gate and passes on `macos-py3.12`** (my local env).
+  **CI IS STILL RED** on py3.13/3.14 (all OS): a FOURTH, deeper pre-existing failure the gate fixes
+  only just exposed — `test_committed_record_is_current` for three bundled topologies
+  (`intel_asymmetry`, `natural_conversation`, `prisoners_dilemma`): their committed records do NOT
+  regenerate byte-identically across Python versions (divergence at seq 0 `RunStarted`; passes on
+  py3.12 where they were generated, fails on 3.13/3.14). A real substrate CROSS-VERSION DETERMINISM
+  bug (candidate root: an unsorted set/frozenset in the RunStarted manifest whose iteration order
+  shifts across CPython versions) — pre-existing, not this session's code, NOT fixable by "regenerate"
+  (that just re-pins to one version's bytes), and not mine to hack blind. The remaining CI blocker;
+  surfaced for the build side. Follow-up: pin ruff in CI too.
+  **Self-inflicted repeat:** I wrote finding 33 ("run what CI runs, watch CI") and then said "CI
+  fixed" from a single-env local green (`macos-py3.12`) before the full matrix concluded — the same
+  class of error one turn later, now across the OS/Python matrix rather than scoped-vs-whole-repo.
 - **"Nothing else regressed" after the ~40-file adapter-move refactor:** now VERIFIED — full local
   suite **565 passed, 1 skipped** (2026-07-02, 4m43s), whole-repo `ruff check` clean, `mypy --strict`
   clean over 95 files. (Moved to verified; kept here as the record of the gap that was open.)
