@@ -499,6 +499,34 @@ and tasked "run it, fix it, re-run to confirm." Both thinking models **self-reco
 
 ---
 
+### R-19 — The agency SUITE: agency is a model × TASK-SHAPE interaction, not a pure model property
+
+Running the suite (`build_hangman` | `fix_runtime_bug` [seeds a broken file] | `build_and_test`):
+
+| Model | build_hangman | fix_runtime_bug | build_and_test | mean |
+|---|---|---|---|---|
+| `kimi-k2.6` (thinking) | VERI 100 | VERI 100 | VERI 100 | **100** |
+| `glm-5.1` (thinking) | VERI 100 | VERI 100 | VERI 100 | **100** |
+| `qwen3-coder:480b` (coder) | NO_V 50 | **VERI 100** | NO_V 50 | **67** |
+
+- **Thinking models are robust ACROSS shapes** (VERIFIED 100 on all three) — not a hangman fluke.
+- **The finding (my prediction of NO_VERIFY-across-the-board was WRONG, and the suite caught it):**
+  qwen3-coder — the write-spinner — VERIFIED the `fix_runtime_bug` task while spinning the two
+  BLANK-PAGE builds. Why: that task SEEDS a broken file, so there is nothing to spin — the natural
+  action is READ → fix → RUN. The task STRUCTURE pulls even a poor agent into the verify loop; a blank
+  page lets it produce-forever. So **agency is a model × task-shape interaction**, and a single hangman
+  task would have flatly stamped qwen `NO_VERIFY` and missed this. Measure across SHAPES.
+- **Ties R-13 / SWE-bench together.** SWE-bench = patch EXISTING code = the seeded-fix shape — exactly
+  where qwen engages and verifies. That explains qwen's real ~36% on SWE-bench (fix-existing) versus its
+  write-spin on blank-page agentic tasks: the task shape SUPPLIES the verify policy the model does not
+  hold (the capability/policy split of R-13, sharpened — a seeded artifact is a structural nudge, like a
+  harness enforcing the loop).
+
+**Caveat:** n=1 per cell; qwen's `fix_runtime_bug=VERIFIED` is a single run. But the mechanism (a seeded
+file removes the blank-page spin) is coherent and predicts — worth an n>1 confirmation.
+
+---
+
 ## Model roster — what we test against, and why
 
 The tool loop is written against a `Responder`, so any model is a candidate. But suitability for the
