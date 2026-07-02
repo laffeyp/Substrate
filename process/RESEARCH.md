@@ -462,9 +462,14 @@ Looping the assay (`--repeats`) turns R-16's n=1 snapshot into rates:
   succeeded, so the re-prompt never had a resistant model to convert. Catching it needs a
   FAILURE-INDUCING task (one these models actually stumble on), not more repeats of an easy one — a
   named next step, not a silent gap.
-- **Open (unverified):** a local `qwen2.5-coder:7b` ×3 scored `0/3 NO_ENGAGE` (0 tool calls) — expected
-  a write-spin, got no engagement. NOT yet verified (the inspection grabbed an in-progress cloud
-  record by mistake); re-checking with a clean full-trace run before recording it as a finding.
+- **`qwen2.5-coder:7b` → NO_ENGAGE, VERIFIED (clean full trace).** It emitted a prose preamble
+  ("Let's start by creating the Hangman game…") as its FinalAnswer and called ZERO tools. So the two
+  coders fail DIFFERENTLY: the 480B over-engages (write-spin, NO_VERIFY), the 7B under-engages (prose,
+  NO_ENGAGE). (My earlier confounded inspection had grabbed an in-progress cloud record — re-ran clean
+  before recording, per the ledger.)
+- **The assay's taxonomy is grounded — every label has a real exemplar:** VERIFIED = the cloud thinking
+  models; ATTEMPTED (false-claim) = deepseek-v4-pro (rare); NO_VERIFY (write-spin) = qwen3-coder:480b;
+  NO_ENGAGE (prose, 0 tools) = qwen2.5-coder:7b. A four-way behaviour taxonomy, each seen in the wild.
 
 ---
 
