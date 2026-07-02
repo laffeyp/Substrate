@@ -11,7 +11,25 @@ from __future__ import annotations
 
 from types import MappingProxyType
 
-from substrate.topologies.tool_loop.agency import score_agency
+from substrate.topologies.tool_loop.agency import AgencyScore, aggregate_agency, score_agency
+
+
+def _score(label, sc):
+    return AgencyScore(label, sc, 1, True, True, label == "VERIFIED", True, True, 1)
+
+
+def test_aggregate_agency_turns_runs_into_rates():
+    # N per-run scores -> a distribution (the honest upgrade from n=1). deepseek-v4-pro's variable
+    # agency (VERIFIED one run, ATTEMPTED the next) only shows up here.
+    r = aggregate_agency(
+        [_score("VERIFIED", 100), _score("VERIFIED", 100), _score("ATTEMPTED", 50)]
+    )
+    assert r.runs == 3 and r.verified == 2
+    assert r.mean_score == (100 + 100 + 50) / 3
+    assert r.labels == {"VERIFIED": 2, "ATTEMPTED": 1}
+    # nothing ran -> zeros, not a crash.
+    empty = aggregate_agency([])
+    assert empty.runs == 0 and empty.mean_score == 0.0 and empty.verified == 0
 
 
 def _tc(tool, args=None):

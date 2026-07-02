@@ -46,6 +46,32 @@ class AgencyScore(Struct, frozen=True):
     )
 
 
+class AgencyRates(Struct, frozen=True):
+    """N runs of one model aggregated into RATES — the honest upgrade from a single trajectory
+    (a behaviour class) to a distribution. `verified` / `runs` is the VERIFIED rate; `mean_score` is
+    the average agency; `labels` is the full label distribution. A model like deepseek-v4-pro whose
+    agency is variable (VERIFIED one run, false-claim the next) only shows up here, at n>1."""
+
+    runs: int
+    verified: int
+    mean_score: float
+    labels: dict[str, int]
+
+
+def aggregate_agency(scores: list[AgencyScore]) -> AgencyRates:
+    """Aggregate N per-run scores into rates. Empty in -> zeros (nothing ran)."""
+    n = len(scores)
+    labels: dict[str, int] = {}
+    for s in scores:
+        labels[s.label] = labels.get(s.label, 0) + 1
+    return AgencyRates(
+        runs=n,
+        verified=labels.get("VERIFIED", 0),
+        mean_score=(sum(s.score for s in scores) / n) if n else 0.0,
+        labels=labels,
+    )
+
+
 def score_agency(events: Iterable[Mapping[str, Any]]) -> AgencyScore:
     """Score a tool-loop run's trajectory from its record events (`read_record` output, or the live
     view payloads). Orthogonal to whether the produced artifact is correct — this measures whether the

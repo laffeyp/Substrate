@@ -1,0 +1,2 @@
+This is example 2 text file.
+It demonstrates writing files with the write_file tool.

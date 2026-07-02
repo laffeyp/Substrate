@@ -22,7 +22,7 @@ from pathlib import Path
 from substrate.adapters import OllamaResponder
 from substrate.api import Runtime, read_record
 from substrate.topologies.tool_loop import tool_loop_topology
-from substrate.topologies.tool_loop.agency import AgencyScore, score_agency
+from substrate.topologies.tool_loop.agency import AgencyScore, aggregate_agency, score_agency
 from substrate.topologies.tool_loop.tools import full_suite
 
 _DEFAULT_TASK = (
@@ -63,25 +63,42 @@ def main() -> int:
     ap.add_argument("--max-tokens", type=int, default=8192)
     ap.add_argument("--timeout", type=float, default=240.0)
     ap.add_argument("--think", action="store_true", help="enable thinking mode (reasoning models)")
+    ap.add_argument("--repeats", type=int, default=1, help="runs per model; n>1 prints RATES")
     args = ap.parse_args()
 
-    rows: list[tuple[str, AgencyScore | str]] = []
+    scored: dict[str, list[AgencyScore]] = {}
+    errs: dict[str, list[str]] = {}
     for m in args.models:
-        rows.append((m, asyncio.run(_score_one(m, args))))
+        for _ in range(args.repeats):
+            r = asyncio.run(_score_one(m, args))
+            (
+                scored.setdefault(m, []).append(r)
+                if isinstance(r, AgencyScore)
+                else errs.setdefault(m, []).append(r)
+            )
 
-    print(f"\n{'MODEL':<26} {'LABEL':<10} {'SCORE':>5}  ran saw0 resil honest  spin")
-    print("-" * 74)
-    ok = [(m, s) for m, s in rows if isinstance(s, AgencyScore)]
-    for m, s in sorted(ok, key=lambda r: -r[1].score):
-        b = lambda x: " ✓ " if x else " · "  # noqa: E731
-        print(
-            f"{m:<26} {s.label:<10} {s.score:>5}  {b(s.ran_code)}{b(s.saw_exit_zero)}"
-            f"{b(s.resilient)}  {b(s.honest_final)}  {s.max_same_file_writes:>4}"
-        )
-    for m, s in rows:
-        if isinstance(s, str):
-            print(f"{m:<26} ERROR      {'':>5}  {s[:60]}")
-    print("\n(agency = trajectory, NOT artifact correctness; n=1 each — classes, not rates)")
+    if args.repeats == 1:
+        rows = [(m, scored[m][0]) for m in args.models if scored.get(m)]
+        print(f"\n{'MODEL':<26} {'LABEL':<10} {'SCORE':>5}  ran saw0 resil honest  spin")
+        print("-" * 74)
+        for m, s in sorted(rows, key=lambda r: -r[1].score):
+            b = lambda x: " ✓ " if x else " · "  # noqa: E731
+            print(
+                f"{m:<26} {s.label:<10} {s.score:>5}  {b(s.ran_code)}{b(s.saw_exit_zero)}"
+                f"{b(s.resilient)}  {b(s.honest_final)}  {s.max_same_file_writes:>4}"
+            )
+    else:  # RATES: aggregate N runs per model into a distribution
+        print(f"\n{'MODEL':<26} {'runs':>4} {'VERIFIED':>9} {'mean':>5}   distribution")
+        print("-" * 74)
+        for m in args.models:
+            agg = aggregate_agency(scored.get(m, []))
+            dist = "  ".join(f"{k}:{v}" for k, v in sorted(agg.labels.items())) or "(none)"
+            vr = f"{agg.verified}/{agg.runs}" if agg.runs else "0/0"
+            print(f"{m:<26} {agg.runs:>4} {vr:>9} {agg.mean_score:>5.0f}   {dist}")
+    for m, elist in errs.items():
+        print(f"{m:<26} ERROR ×{len(elist)}: {elist[0][:50]}")
+    tag = f"n={args.repeats}" + (" — RATES" if args.repeats > 1 else " each — classes, not rates")
+    print(f"\n(agency = trajectory, NOT artifact correctness; {tag})")
     return 0
 
 
