@@ -389,6 +389,27 @@ carrying uncommitted work to undo a temporary edit.
 
 ---
 
+### R-15 — r1's no-engagement root-caused: it routes everything into `thinking`
+
+A single `achat_tools` probe to `deepseek-r1:8b` (`think=False`, trivial "use the bash tool to run
+`echo hi`") settles R-12's open question. Raw message: `content: ''`, `tool_calls: None`, and a
+populated `thinking` field that REASONS about using bash ("We are going to use the `bash` command…")
+but never emits the call. So r1:8b via Ollama's native `/api/chat` routes its whole output into the
+thinking field — empty content, no tool_calls — and `think=False` does NOT stop it for this model.
+The parser sees empty content + no tool_calls → "answer" with empty text → the empty FinalAnswer / 0
+tools of R-12.
+
+**It is an Ollama/r1 INTEGRATION limit, not a substrate loop bug and not a plain capability gap:** r1
+has the INTENT (its thinking says "use bash") but the routing never surfaces a tool_call. Remediations,
+none built: (a) fall back to the `thinking` field as the answer when content is empty — recovers the
+reasoning as TEXT, but yields no tool USE (the call isn't in thinking either); (b) r1-family models
+may need a JSON-in-content convention, but the tools-schema call didn't elicit one; (c) treat r1:8b as
+UNSUITABLE for the native tool loop — a clean negative control: "thinking"-tagged ≠ "tool-using". The
+roster's local-reasoning tier is therefore UNVALIDATED on real hardware; a different local reasoning
+model (or a larger r1) would need testing.
+
+---
+
 ## Model roster — what we test against, and why
 
 The tool loop is written against a `Responder`, so any model is a candidate. But suitability for the
