@@ -26,7 +26,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest", "pytest-asyncio", "pytest-benchmark", "pytest-timeout",
-  "mypy", "ruff", "hypothesis", "coverage",
+  # ruff PINNED: `ruff format` output is version-sensitive, so an unpinned ruff silently re-drifts the
+  # CI format gate across releases (it stranded the repo red before 2026-07-02). Bump deliberately +
+  # reformat in one commit. mypy/pytest are behaviour-stable enough to float.
+  "mypy", "ruff==0.15.17", "hypothesis", "coverage",
   "import-linter",                  # enforces the F-API-6 cli-imports-only-api contract (below)
   "httpx",                          # so dev + CI type-check/test the [openai-compat] reference adapter
 ]

@@ -709,7 +709,7 @@ requires-dist = [
     { name = "python-ulid" },
     { name = "rfc8785" },
     { name = "rich" },
-    { name = "ruff", marker = "extra == 'dev'" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = "==0.15.17" },
     { name = "typing-extensions" },
 ]
 provides-extras = ["dev", "openai-compat"]
