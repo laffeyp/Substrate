@@ -442,6 +442,32 @@ Honest reads:
 
 ---
 
+### R-17 — Agency RATES: the thinking models are RELIABLE verifiers, and "variable" was overstated
+
+Looping the assay (`--repeats`) turns R-16's n=1 snapshot into rates:
+
+| Model | runs | VERIFIED | mean | distribution |
+|---|---|---|---|---|
+| `kimi-k2.6` | 3 | 3/3 | 100 | VERIFIED:3 |
+| `deepseek-v4-pro` | 5 | 5/5 | 100 | VERIFIED:5 |
+
+- **Robust, not luck.** At n=5 `deepseek-v4-pro` verified clean every time; kimi 3/3. The thinking-
+  model verify behaviour holds across repeats — R-16's 100s were not first-try flukes.
+- **Correction to R-16's "variable agency."** Across R-11a + R-16 + this n=5, `deepseek-v4-pro`
+  verified cleanly ~6 times and false-claimed exactly ONCE (the original R-11a run). So it is a
+  RELIABLE verifier that occasionally false-claims (~1/7 observed), not the coin-flip I called it.
+  Overstated on n=1; the rates corrected it. (The claim ledger's "n=1 is a snapshot not a rate" biting
+  its own author again — the right move was exactly this: loop it.)
+- **The R-11a CONVERSION case was NOT caught.** None of these runs failed-then-insisted — they simply
+  succeeded, so the re-prompt never had a resistant model to convert. Catching it needs a
+  FAILURE-INDUCING task (one these models actually stumble on), not more repeats of an easy one — a
+  named next step, not a silent gap.
+- **Open (unverified):** a local `qwen2.5-coder:7b` ×3 scored `0/3 NO_ENGAGE` (0 tool calls) — expected
+  a write-spin, got no engagement. NOT yet verified (the inspection grabbed an in-progress cloud
+  record by mistake); re-checking with a clean full-trace run before recording it as a finding.
+
+---
+
 ## Model roster — what we test against, and why
 
 The tool loop is written against a `Responder`, so any model is a candidate. But suitability for the
