@@ -1,0 +1,31 @@
+# The tool-loop agent TEST ARENA — emphatically NOT the product.
+#
+# The product runs host-native: direct filesystem access, real autonomy, exactly like Claude
+# Code operating in your project. Containerizing THAT would be pointless — it needs your real
+# machine, your files, your Ollama.
+#
+# This image is a DISPOSABLE ARENA. A model drives the real FULL_SUITE (read/write/edit/bash/
+# glob/grep) against a throwaway filesystem, so we can let models go wild on open-ended tasks —
+# "build me X", weird questions, whatever — and capture the crashes and edge cases we'd never
+# think to script (the `glob **/*.py` → blob-offload → wedged-loop bug was exactly this shape).
+# Destructive tool use here costs nothing: `docker rm` and it's gone.
+#
+# The MODEL still runs on the HOST (Ollama, reached at host.docker.internal via OLLAMA_BASE_URL);
+# only the agent loop and its tool side-effects happen inside the container.
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+
+WORKDIR /substrate
+
+# Dependency layer first (cached across source edits): the lockfile + package metadata only.
+COPY pyproject.toml uv.lock README.md ./
+COPY src ./src
+RUN uv sync --extra openai-compat --no-dev --frozen
+
+COPY scripts ./scripts
+
+# The scratch workspace the agent writes into — disposable with the container.
+RUN mkdir -p /arena
+ENV OLLAMA_BASE_URL=http://host.docker.internal:11434
+
+# The single-task runbook entrypoint; the arena runner passes --model / --task / --workdir /arena.
+ENTRYPOINT ["uv", "run", "python", "scripts/run_tool_agent.py"]

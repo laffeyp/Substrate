@@ -20,7 +20,7 @@ from collections.abc import AsyncIterator, Callable, Sequence
 from typing import Any
 
 from .. import api
-from ..reference._models import OllamaResponder, Responder
+from ..adapters import OllamaResponder, Responder
 from ..topologies.swebench_solver.assemble import swebench_repair_topology
 from ..topologies.swebench_solver.records import SelectedPatch
 from .suite import Arm, Case, Suite

@@ -21,7 +21,7 @@ import tempfile
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
-from ...reference._models import Responder, call_responder_metered
+from ...adapters import Responder, call_responder_metered
 from ..best_of_n.contracts import Candidate, Verdict
 from .applier import ApplyResult, apply_candidate
 from .records import AppliedPatch

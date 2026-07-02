@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from ... import api
-from ...reference._models import DeterministicResponder, Responder
+from ...adapters import DeterministicResponder, Responder
 from ..conversation import Instrument, conversation_topology, speakers
 from ..instruments.common_ground import CommonGround, common_ground_factory
 from ..instruments.grader import Grade, grader_factory

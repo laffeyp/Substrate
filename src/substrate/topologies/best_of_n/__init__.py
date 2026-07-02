@@ -22,7 +22,7 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from ... import api
-from ...reference._models import ModelUsage
+from ...adapters import ModelUsage
 from .contracts import Candidate, Draft, Exhausted, Solved, Verdict
 
 __all__ = [

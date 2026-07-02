@@ -13,7 +13,7 @@ import re
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
-from ...reference._models import Responder, call_responder_metered
+from ...adapters import Responder, call_responder_metered
 from .records import EditLocations, SuspectFiles
 
 _Factory = Callable[[], Any]

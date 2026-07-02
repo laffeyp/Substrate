@@ -24,7 +24,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from ..reference._models import OllamaResponder
+from ..adapters import OllamaResponder
 from ..topologies.swebench_solver.assemble import swebench_solver_topology
 from ..topologies.swebench_solver.select_docker import (
     DockerTestRunner,

@@ -202,3 +202,41 @@ async def test_r3_composed_exports_only_artifact_ready(tmp_path):
     # the export map is observable in the outer RunStarted manifest (check 7 / F-COMP-1)
     rs = next(e for e in outer if e["kind"] == "substrate.RunStarted")
     assert rs["payload"]["topology"]["exports"] == {"ArtifactReady": "OuterArtifact"}
+
+
+def test_cli_responder_shells_any_command_line_model_and_fails_loud() -> None:
+    # CliResponder turns ANY command-line model into a Responder: it runs the command with the prompt
+    # as the final argument and returns stdout. A stub command (no real CLI needed) proves the
+    # mechanism; `claude -p` / `gemini -p` are the SAME shape, exercised live. Substrate's tool loop
+    # provides the tools, so even a plain prompt->text CLI drives FULL_SUITE.
+    from substrate.adapters import CliResponder
+
+    echo = CliResponder(["python3", "-c", "import sys; print('cli:' + sys.argv[-1])"])
+    assert echo.respond("hello") == "cli:hello"
+
+    # a non-zero exit is a LOUD failure, never a silent stub (the loop turns it into a typed
+    # ToolResult(ok=False); the Responder itself raises).
+    boom = CliResponder(["python3", "-c", "import sys; sys.exit(3)"], name="boom")
+    with pytest.raises(RuntimeError, match="exit 3"):
+        boom.respond("x")
+
+    # empty output also fails loud — a CLI that printed nothing is not a valid reply.
+    quiet = CliResponder(["python3", "-c", "pass"], name="quiet")
+    with pytest.raises(RuntimeError, match="no output"):
+        quiet.respond("x")
+
+
+def test_ollama_base_url_env_lets_a_run_reach_ollama_across_a_boundary(monkeypatch) -> None:
+    # The container test arena runs the agent INSIDE a container but the model stays on the HOST;
+    # OLLAMA_BASE_URL points the Responder at host.docker.internal without touching any call site.
+    from substrate.adapters import OllamaResponder
+
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
+    assert OllamaResponder("m")._endpoint == "http://host.docker.internal:11434/api/chat"
+
+    # an explicit base_url always wins over the env; with neither, the host default holds.
+    assert OllamaResponder("m", base_url="http://elsewhere:1234")._endpoint == (
+        "http://elsewhere:1234/api/chat"
+    )
+    monkeypatch.delenv("OLLAMA_BASE_URL")
+    assert OllamaResponder("m")._endpoint == "http://localhost:11434/api/chat"

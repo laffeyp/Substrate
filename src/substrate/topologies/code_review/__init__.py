@@ -26,7 +26,7 @@ from typing import Any
 from msgspec import Struct
 
 from ... import api
-from ...reference._models import Responder, call_responder
+from ...adapters import Responder, call_responder
 
 # A Producer factory: a zero-arg callable returning the `start` async-generator. Typed as
 # Callable[[], Any] for the same reason as r1_ensemble — an async-generator function does not

@@ -38,16 +38,38 @@ These are worked out as topology sketches in `docs/tool-loop-futures.md`.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
+from pathlib import Path
 from typing import Any
 
 from msgspec import Struct
 
 from ... import api
 from ...encoding import canonical_bytes
-from ...reference._models import Responder, call_responder
-from .tools import CALCULATOR, Tool, suite_describe
+from ...adapters import Responder, call_responder
+from .tools import CALCULATOR, Tool, ollama_tools, parse_tool_call, required_params, suite_describe
 
 _Factory = Callable[[], Any]
+_MAX_RESULT_BYTES = 12_000  # cap a tool output well under the 16 KiB blob-offload threshold (below)
+_MAX_CONSECUTIVE_FAILS = 3  # a real model gets room to self-correct; bail if it is clearly stuck
+
+# Loop discipline handed to the model every turn — the part that DRIVES the agent loop, not just the
+# tool list. Adapted (in our own words) from how best-in-class agent harnesses steer a tool loop, and
+# sharpened on the substrate's own spine: the results transcript IS the record of what happened, so
+# the model decides from what is OBSERVED, not from what it intended; a failed result is an
+# observation to act on, not a wall; and "written" is not "working" — verify against real output.
+# It targets the write-SPIN the arena surfaced (a strong model re-issued a succeeded `write_file` 16
+# times instead of running it). The generative escape is kept so the poem-refusal fix does not regress.
+_LOOP_DISCIPLINE = (
+    "Work the task one step at a time. Each turn, read the results above — they are the record of "
+    "what has actually happened — and choose your next move from that, not from what you meant to do:\n"
+    "- If an action already succeeded above, it is done. Do not repeat it — move on: read, run, or edit.\n"
+    "- A failed result (ok=false) is information, not a wall: read the error and correct your next call.\n"
+    "- Writing code is not the same as it working. After you create or change code, RUN it and read "
+    "the real output before you call anything done.\n"
+    "- Report what actually happened, failures included; do not claim success you have not observed.\n"
+    "- A purely generative ask (write a poem, explain, converse) needs no tool — just answer.\n"
+    "- When the task is done and verified, stop and give a concise final answer."
+)
 
 # The tool registry lives in tools.py — PURE (the calculator) for the deterministic CI demo, plus
 # the real READ-ONLY and WRITE/EXEC suite a real agent passes in. CALCULATOR is the default so the
@@ -78,7 +100,11 @@ class FinalAnswer(Struct, frozen=True):
 
 def _answer_text(results: list[dict[str, Any]]) -> str:
     """The model's final text: the last successful output, or a note that there isn't one."""
-    return str(results[-1]["output"]) if results and results[-1].get("ok", True) else "no result"
+    return (
+        str(results[-1].get("output", ""))
+        if results and results[-1].get("ok", True)
+        else "no result"
+    )
 
 
 def _model_factory(
@@ -86,6 +112,7 @@ def _model_factory(
     walkthrough: bool,
     script: list[tuple[str, list[Any]]] | None,
     tools: dict[str, Tool],
+    task: str,
 ) -> _Factory:
     async def model(inp: Any) -> AsyncIterator[ToolCall | FinalAnswer]:
         step = int(inp.get("step", 0)) if hasattr(inp, "get") else 0
@@ -95,40 +122,66 @@ def _model_factory(
         if final:
             yield FinalAnswer(text=_answer_text(results), steps=step)
             return
-        # a failed tool is an OBSERVATION: stop and report it (a stronger model could retry).
-        if results and not results[-1].get("ok", True):
+        # a failed tool is an OBSERVATION the model can act on — not a hard wall (that would contradict
+        # the loop discipline and neuter the anti-spin guard into a halt). The deterministic/default
+        # path (no real model to reason) stops on the first failure. A real model in WALKTHROUGH gets
+        # room to react — correct the call, or heed the anti-spin corrective and verify — but if it is
+        # clearly STUCK (a RUN of consecutive failures: it keeps re-issuing a refused write, as
+        # qwen3-coder:480b did on the arena's hangman build), the loop bails with a truthful report
+        # rather than flailing to the step budget and answering "no result".
+        trailing_fails = 0
+        for r in reversed(results):
+            if r.get("ok", True):
+                break
+            trailing_fails += 1
+        if trailing_fails and (not walkthrough or trailing_fails >= _MAX_CONSECUTIVE_FAILS):
             yield FinalAnswer(
-                text=f"stopped: {results[-1].get('error', 'tool failed')}", steps=step
+                text=f"stopped after {trailing_fails} failed tool call(s): "
+                f"{results[-1].get('error', 'tool failed')}",
+                steps=step,
             )
             return
         if walkthrough and responder is not None:
-            # real model: ask for the next action; the reply convention is one line, either
-            # "TOOL <name> <a> <b>" or "ANSWER <value>".
-            outputs = [r["output"] for r in results]
-            menu = suite_describe(tools)
-            reply = await call_responder(
-                responder,
-                f"Tools:\n{menu}\nResults so far: {outputs}. Compute (2 + 3) * 4. "
-                f"Reply with exactly one line: 'TOOL <name> <a> <b>' or 'ANSWER <value>'.",
+            achat = getattr(responder, "achat_tools", None)
+            if callable(achat):
+                # native tool-calling: hand the model the tool SCHEMAS + the task + the results so
+                # far, and parse its reply ROBUSTLY — native `tool_calls` OR a JSON call in `content`
+                # (parse_tool_call, verified against real llama/qwen output). String args + variable
+                # arity fall out of the named-args schema, not the calculator's two-int convention.
+                progress = [
+                    {"tool": r.get("tool"), "ok": r.get("ok", True), "output": r.get("output", "")}
+                    for r in results
+                ]
+                prompt = f"{task}\n\nTool results so far, in order: {progress}\n{_LOOP_DISCIPLINE}"
+                kind, chosen = parse_tool_call(await achat(prompt, ollama_tools(tools)), tools)
+                if kind == "tool":
+                    name, call_args = chosen
+                    yield ToolCall(call_id=f"c{step}", tool=name, args=list(call_args), step=step)
+                else:
+                    yield FinalAnswer(text=str(chosen), steps=step)
+                return
+            # fallback — a text Responder with no native tools-chat: a CLI model (CliResponder:
+            # claude/gemini/any command-line model) or any prompt->text seam. DESCRIBE the tools and
+            # ask for a JSON tool call OR a final answer, then parse robustly (parse_tool_call handles
+            # a JSON object anywhere in the reply). Substrate owns the tools, so even a plain
+            # prompt->text CLI becomes a tool-using agent ON substrate — the CliResponder path.
+            progress = [
+                {"tool": r.get("tool"), "ok": r.get("ok", True), "output": r.get("output", "")}
+                for r in results
+            ]
+            prompt = (
+                f"{task}\n\nTools you MAY use:\n{suite_describe(tools)}\n"
+                f"Tool results so far, in order: {progress}\n{_LOOP_DISCIPLINE}\n"
+                'Reply with EITHER a single JSON object {"name": "<tool>", "arguments": {...}} to '
+                "call a tool, OR your final answer as plain text. Output only one of those."
             )
-            head = reply.strip().splitlines()[0].split() if reply.strip() else ["ANSWER", ""]
-            tool_call: ToolCall | None = None
-            if head[0].upper() == "TOOL" and len(head) >= 4 and head[1] in tools:
-                try:
-                    tool_call = ToolCall(
-                        call_id=f"c{step}",
-                        tool=head[1],
-                        args=[int(head[2]), int(head[3])],
-                        step=step,
-                    )
-                except ValueError:
-                    # a weak model (llama3.2:1b) emits non-integer args -> fall through to an answer,
-                    # never crash the model Producer (which would wedge the loop).
-                    tool_call = None
-            if tool_call is not None:
-                yield tool_call
+            reply = await call_responder(responder, prompt)
+            kind, chosen = parse_tool_call({"content": reply, "tool_calls": []}, tools)
+            if kind == "tool":
+                name, call_args = chosen
+                yield ToolCall(call_id=f"c{step}", tool=name, args=list(call_args), step=step)
             else:
-                yield FinalAnswer(text=(head[-1] if len(head) > 1 else ""), steps=step)
+                yield FinalAnswer(text=str(chosen), steps=step)
             return
         # deterministic CI policy: a custom action script (a test hook, like recursive's `runaway`
         # or conversation's `converge_at`) or the default calculator agent.
@@ -144,19 +197,32 @@ def _model_factory(
         if step == 0:
             yield ToolCall(call_id="c0", tool="add", args=[2, 3], step=0)
         elif step == 1:
-            yield ToolCall(call_id="c1", tool="mul", args=[results[-1]["output"], 4], step=1)
+            yield ToolCall(call_id="c1", tool="mul", args=[results[-1].get("output", 0), 4], step=1)
         else:
-            yield FinalAnswer(text=str(results[-1]["output"]), steps=step)
+            yield FinalAnswer(text=str(results[-1].get("output", "")), steps=step)
 
     return lambda: model
 
 
 def _tool_factory(tools: dict[str, Tool]) -> _Factory:
+    # SDD anti-spin (arena finding, 2026-07-02): a strong model, told in-prompt not to, still re-wrote
+    # the SAME file 16x in a row without ever running it. A prompt is a request; the LOOP can enforce.
+    # Two CONSECUTIVE write_files to the same file with no run/read between is a redundant action — the
+    # second becomes a typed ToolResult(ok=False) telling the model to verify (bash/read) before
+    # rewriting. Errors-as-observations on the record, not exhortation the model can ignore.
+    # `prev_write` persists across firings (the factory is instantiated once per run); the CI
+    # calculator never writes, so committed records stay byte-identical.
+    state: dict[str, str | None] = {"prev_write": None}
+
     async def run_tool(inp: Any) -> AsyncIterator[ToolResult]:
         tool = str(inp.get("tool")) if hasattr(inp, "get") else ""
         args = list(inp.get("args", [])) if hasattr(inp, "get") else []
         call_id = str(inp.get("call_id", "?")) if hasattr(inp, "get") else "?"
         step = int(inp.get("step", 0)) if hasattr(inp, "get") else 0
+        prev_write = state["prev_write"]
+        state["prev_write"] = (
+            None  # any action other than a fresh successful write breaks the streak
+        )
         entry = tools.get(tool)
         if entry is None:
             # unknown tool -> a typed failure the model reads, NOT a crash.
@@ -169,11 +235,42 @@ def _tool_factory(tools: dict[str, Tool]) -> _Factory:
                 error=f"unknown tool '{tool}'",
             )
             return
+        missing = required_params(tool)[len(args) :]
+        if missing:
+            # under-specified call (model supplied too few args) -> a CLEAR typed error it can act on,
+            # not the raw IndexError the tool body would throw (surfaced by a live llama3.2:1b run).
+            yield ToolResult(
+                call_id=call_id,
+                tool=tool,
+                output="",
+                step=step,
+                ok=False,
+                error=f"{tool}: missing required argument(s): {', '.join(missing)}",
+            )
+            return
+        if tool == "write_file" and args and Path(str(args[0])).name == prev_write:
+            # a SECOND consecutive write to the same file, with no run/read between — a spin. Do not
+            # write again; hand back a typed observation that redirects to verification.
+            yield ToolResult(
+                call_id=call_id,
+                tool=tool,
+                output="",
+                step=step,
+                ok=False,
+                error=(
+                    f"you already wrote {prev_write} and have not run or read it — run it (bash) or "
+                    "read it to verify before writing it again"
+                ),
+            )
+            state["prev_write"] = (
+                prev_write  # keep the marker so a 3rd consecutive write is caught too
+            )
+            return
         try:
             output = entry.run(args)
             # pre-validate encodability so a non-RFC-8785-encodable return becomes a typed failure
             # HERE, not an emit-time crash (the yield's encode runs in the runtime, outside this try).
-            canonical_bytes(output)
+            raw = canonical_bytes(output)
         except (
             Exception
         ) as exc:  # bad args / not-found / IO / non-encodable output -> ok=False, no crash
@@ -186,6 +283,16 @@ def _tool_factory(tools: dict[str, Tool]) -> _Factory:
                 error=f"{type(exc).__name__}: {exc}",
             )
             return
+        if len(raw) > _MAX_RESULT_BYTES:
+            # keep the ToolResult INLINE (under the 16 KiB blob-offload threshold). An offloaded
+            # payload strips the loop-control fields (step) off the frame AND hands the model a $blob
+            # ref instead of the output — wedging the loop (a live glob over a big tree hit exactly
+            # this). One general byte-cap covers every tool; the model reads a bounded notice instead.
+            output = (
+                f"[{tool} output was {len(raw)} bytes — too large to inline; narrow the request]"
+            )
+        if tool == "write_file" and args:
+            state["prev_write"] = Path(str(args[0])).name  # arm the streak marker for the next call
         yield ToolResult(call_id=call_id, tool=tool, output=output, step=step, ok=True)
 
     return lambda: run_tool
@@ -199,6 +306,7 @@ def tool_loop_topology(
     walkthrough: bool = False,
     deterministic: bool = True,
     tools: dict[str, Tool] | None = None,
+    task: str | None = None,
 ) -> Callable[[api.TopologyBuilder], None]:
     """Build the tool-using loop. The `model` emits a ToolCall or a FinalAnswer; the named tool
     runs and its ToolResult re-fires the model with the result appended, until a FinalAnswer
@@ -207,7 +315,7 @@ def tool_loop_topology(
     ToolResult(ok=False) the model reacts to. CI uses a deterministic calculator agent (or a
     `script` of (tool, args) calls as a test hook); `walkthrough=True` swaps in a real local LLM."""
 
-    from ...reference._models import OllamaResponder
+    from ...adapters import OllamaResponder
 
     responder = (model or OllamaResponder("llama3.2:1b")) if walkthrough else model
     # default to the PURE calculator (the byte-reproducible CI demo); a real agent passes FULL_SUITE.
@@ -217,9 +325,17 @@ def tool_loop_topology(
     suite = tools if tools is not None else CALCULATOR
     det = deterministic and not walkthrough and all(t.deterministic for t in suite.values())
 
+    def _step(ctx: Any) -> int:
+        # the loop-control step lives on the ToolResult payload. If a tool returned something so large
+        # the payload BLOB-OFFLOADED (the fields leave the frame), `step` is unreadable — default to
+        # max_steps so the loop WRAPS UP cleanly (a final answer) instead of the predicate crashing and
+        # quarantining (which wedges the run). Tools cap their output so this shouldn't happen; this is
+        # the belt-and-braces so an oversized result can never hard-wedge the loop.
+        return int(ctx.event.payload.get("step", max_steps))
+
     def _continue_input(ctx: Any, *, final: bool) -> dict[str, Any]:
         return {
-            "step": int(ctx.event.payload["step"]) + 1,
+            "step": _step(ctx) + 1,
             "results": list(ctx.views["results"].value()),
             "final": final,
         }
@@ -229,7 +345,9 @@ def tool_loop_topology(
             "model",
             schemas=[ToolCall, FinalAnswer],
             schema_version=1,
-            factory=_model_factory(responder, walkthrough, script, suite),
+            factory=_model_factory(
+                responder, walkthrough, script, suite, task or "Use the available tools to help."
+            ),
             deterministic=det,
         )
         b.producer_kind(
@@ -261,7 +379,7 @@ def tool_loop_topology(
         b.trigger(
             "continue",
             subscription=api.Subscription(kinds=frozenset({"ToolResult"})),
-            predicate=lambda ctx: int(ctx.event.payload["step"]) + 1 < max_steps,
+            predicate=lambda ctx: _step(ctx) + 1 < max_steps,
             starts="model",
             input_builder=lambda ctx: _continue_input(ctx, final=False),
             policy=api.PerEvent(),
@@ -271,7 +389,7 @@ def tool_loop_topology(
         b.trigger(
             "wrap-up",
             subscription=api.Subscription(kinds=frozenset({"ToolResult"})),
-            predicate=lambda ctx: int(ctx.event.payload["step"]) + 1 >= max_steps,
+            predicate=lambda ctx: _step(ctx) + 1 >= max_steps,
             starts="model",
             input_builder=lambda ctx: _continue_input(ctx, final=True),
             policy=api.PerEvent(),

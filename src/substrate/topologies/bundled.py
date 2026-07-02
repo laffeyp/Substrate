@@ -16,7 +16,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .. import api
-from ..reference._models import DeterministicResponder
+from ..adapters import DeterministicResponder
 from .adversarial_pair import adversarial_pair_topology
 from .code_review import DEFAULT_ROLES, code_review_topology
 from .debate import debate_topology

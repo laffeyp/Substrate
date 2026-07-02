@@ -41,7 +41,7 @@ from typing import Any
 from msgspec import Struct
 
 from ... import api
-from ...reference._models import (
+from ...adapters import (
     DeterministicResponder,
     ModelUsage,
     OllamaResponder,

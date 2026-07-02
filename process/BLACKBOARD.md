@@ -2,6 +2,8 @@
 
 *Single writer per section. Discipline, not code-enforced. See `sdd-kit-2/AGENTS.md` § The BLACKBOARD protocol. The Architect reads `## Surfaced for review`; the Agent surfaces what matters there plus plain-English summaries in chat.*
 
+*This file is current STATE. Long-form empirical findings (agent behaviour, model ceilings) and the tiered model roster we test against live in `process/RESEARCH.md`; kit-methodology findings in `process/KIT_DIARY.md`.*
+
 ---
 
 ## Surfaced for review

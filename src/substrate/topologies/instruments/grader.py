@@ -18,7 +18,7 @@ from typing import Any
 
 from msgspec import Struct
 
-from ...reference._models import Responder, call_responder
+from ...adapters import Responder, call_responder
 from .scoring import Outcome, Prediction, ScoringRule
 
 _Factory = Callable[[], Any]

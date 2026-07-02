@@ -34,7 +34,7 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from ... import api
-from ...reference._models import (
+from ...adapters import (
     DeterministicResponder,
     ModelUsage,
     OllamaResponder,

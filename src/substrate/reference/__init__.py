@@ -11,6 +11,7 @@ import it from `substrate.reference`, not the underscore `_models` module.
 """
 
 from ._models import (
+    CliResponder,
     DeterministicResponder,
     ModelUsage,
     OllamaResponder,
@@ -23,6 +24,7 @@ __all__ = [
     "Responder",
     "DeterministicResponder",
     "OllamaResponder",
+    "CliResponder",
     "call_responder",
     "ModelUsage",
     "call_responder_metered",

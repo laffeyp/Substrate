@@ -35,11 +35,20 @@ runs FULL_SUITE knowing it is autonomous; sandbox the run if that autonomy is un
 
 from __future__ import annotations
 
+import json
+import re
 import subprocess
 import urllib.request
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any, NamedTuple
+
+_MAX_READ_LINES = 2000  # read_file window cap — paginated, never a silent mid-content cut
+_MAX_GREP_HITS = 100  # grep match cap — reported when hit, never a silent drop
+_MAX_GLOB_HITS = (
+    200  # glob result cap — a huge match set would blob-offload the ToolResult and wedge the loop
+)
 
 
 class Tool(NamedTuple):
@@ -58,60 +67,145 @@ def _mul(a: list[Any]) -> int:
     return int(a[0]) * int(a[1])
 
 
+# ── the workspace root ────────────────────────────────────────────────────────
+# Every path-taking tool resolves relative paths against a per-conversation WORKSPACE root — the
+# directory you start a chat in, the way Claude Code operates inside a repo. This is ERGONOMICS, not
+# a jail: an ABSOLUTE path still goes exactly where the model names it (pathlib's `root / "/abs"`
+# yields `/abs`), so the autonomy is unchanged — the root just gives relative paths and `bash` a home
+# instead of resolving against wherever the server process happened to launch. `full_suite(root)`
+# binds the root into each tool; `FULL_SUITE` (root=".") preserves the old cwd-relative behavior.
+def _resolve(root: Path, p: Any) -> Path:
+    """A path arg resolved against the workspace root; an absolute path overrides it (pathlib rule)."""
+    return root / Path(str(p))
+
+
+def _as_bool(v: Any) -> bool:
+    """Coerce a bool tool arg the value-preserving way `int()` coerces add/mul's numbers. A small
+    local model routinely STRINGIFIES scalars, and `bool("false")` is True — so a naive `bool(arg)`
+    would read "false"/"0"/"no" as True and silently DISABLE edit_file's unique-or-error guard (the
+    destructive mis-splice class). Treat the falsey spellings as False."""
+    if isinstance(v, str):
+        return v.strip().lower() not in ("", "false", "0", "no", "off")
+    return bool(v)
+
+
 # ── READ-ONLY (real I/O — deterministic=False) ────────────────────────────────
-def _read_file(a: list[Any]) -> str:
-    return Path(str(a[0])).read_text(encoding="utf-8")[:8000]
+def _read_file(root: Path, a: list[Any]) -> str:
+    # canonical `read`: line-numbered ("<n>\t<line>") so the model can cite and edit precise lines,
+    # with an optional 1-based `offset` line and a `limit` count. No silent byte truncation — when
+    # the window doesn't reach EOF, a trailing marker says how to page the rest (old code cut at 8000
+    # chars mid-content and said nothing).
+    path = _resolve(root, a[0])
+    offset = int(a[1]) if len(a) > 1 and a[1] is not None else 1
+    limit = int(a[2]) if len(a) > 2 and a[2] is not None else _MAX_READ_LINES
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if not lines:
+        # an empty read must say so — a bare "" reads as "the read failed" to the model, which then
+        # retries or gives up. An explicit marker is unambiguous (Claude Code does the same).
+        return "(file is empty)"
+    start = max(offset, 1)
+    window = lines[start - 1 : start - 1 + max(limit, 0)]
+    if not window:
+        # an out-of-range offset (past EOF) or limit<=0 yields an EMPTY window — which without this
+        # would return a bare "" (the same ambiguity the empty-file marker kills) or a pagination
+        # marker pointing back to the same offset (a re-page loop). Say what actually happened.
+        return f"(no lines at offset {start}; the file has {len(lines)} line(s))"
+    out = [f"{start + i}\t{line}" for i, line in enumerate(window)]
+    shown_end = start - 1 + len(window)
+    if shown_end < len(lines):
+        out.append(
+            f"… {len(lines) - shown_end} more line(s); read_file(path, {shown_end + 1}) for the rest"
+        )
+    return "\n".join(out)
 
 
-def _list_dir(a: list[Any]) -> list[str]:
-    p = Path(str(a[0]) if a else ".")
+def _list_dir(root: Path, a: list[Any]) -> list[str]:
+    p = _resolve(root, a[0]) if a else root
     return sorted(e.name + ("/" if e.is_dir() else "") for e in p.iterdir())
 
 
-def _grep(a: list[Any]) -> list[str]:
-    pat, root = str(a[0]), Path(str(a[1]) if len(a) > 1 else ".")
-    files = [root] if root.is_file() else root.rglob("*")
+def _glob(root: Path, a: list[Any]) -> list[str]:
+    # canonical `glob`: fast pattern file-find (e.g. "**/*.py"), sorted + CAPPED. Uncapped, a match
+    # over a big tree ("**/*.py" in a repo) returns 100s of KB, which blob-offloads the whole ToolResult
+    # payload and strips the loop-control fields off the frame — wedging the loop. Cap + report instead.
+    pattern, where = str(a[0]), (_resolve(root, a[1]) if len(a) > 1 else root)
+    hits = sorted(str(p) for p in where.glob(pattern) if p.is_file())
+    if len(hits) > _MAX_GLOB_HITS:
+        return [
+            *hits[:_MAX_GLOB_HITS],
+            f"… (+{len(hits) - _MAX_GLOB_HITS} more; narrow the pattern or root)",
+        ]
+    return hits
+
+
+def _grep(root: Path, a: list[Any]) -> list[str]:
+    # canonical `grep`: a real REGEX, not a substring test. An invalid pattern is a typed failure the
+    # model reads, not a crash. Files walked in sorted order so the hit list is stable across runs.
+    pat_s, where = str(a[0]), (_resolve(root, a[1]) if len(a) > 1 else root)
+    try:
+        pat = re.compile(pat_s)
+    except re.error as e:
+        raise ValueError(f"grep: invalid regex {pat_s!r}: {e}") from e
+    files = [where] if where.is_file() else sorted(where.rglob("*"))
     hits: list[str] = []
     for f in files:
         if not f.is_file():
             continue
         try:
             for n, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
-                if pat in line:
+                if pat.search(line):
                     hits.append(f"{f}:{n}: {line.strip()[:120]}")
-                    if len(hits) >= 50:
+                    if len(hits) >= _MAX_GREP_HITS:
+                        hits.append(
+                            f"… (capped at {_MAX_GREP_HITS} matches; narrow the pattern or path)"
+                        )
                         return hits
         except (UnicodeDecodeError, OSError):
             continue
     return hits
 
 
-def _web_fetch(a: list[Any]) -> str:
+def _web_fetch(a: list[Any]) -> str:  # no path arg — the workspace root doesn't apply
     req = urllib.request.Request(str(a[0]), headers={"User-Agent": "substrate-tool-loop"})
     with urllib.request.urlopen(req, timeout=20) as r:  # noqa: S310 — explicit agent tool
         return str(r.read(20000).decode("utf-8", "replace"))
 
 
 # ── WRITE / EXEC (side effects — deterministic=False) ─────────────────────────
-def _edit_file(a: list[Any]) -> str:
+def _edit_file(root: Path, a: list[Any]) -> str:
     # the primary code tool across all three agents: a surgical search/replace, not a full rewrite
-    # (aider EditBlock / Cline edit_file). A missing search string is a typed failure, not a crash.
-    path, search, replace = Path(str(a[0])), str(a[1]), str(a[2])
+    # (aider EditBlock / Cline edit_file). Canonical `str_replace` semantics: replace EXACTLY ONE
+    # occurrence — error on 0 OR >1. A first-occurrence replace silently edits the WRONG region when
+    # `search` is not unique (the `y = 1` corrupting `y = 1234` class); rejecting is the fix the
+    # swebench applier already made (KIT_DIARY #15). A missing/ambiguous search is a typed failure,
+    # not a crash and not a silent mis-splice.
+    path, search, replace = _resolve(root, a[0]), str(a[1]), str(a[2])
+    replace_all = _as_bool(a[3]) if len(a) > 3 and a[3] is not None else False
     text = path.read_text(encoding="utf-8")
-    if search not in text:
+    n = text.count(search)
+    if n == 0:
         raise ValueError(f"edit_file: search text not found in {path}")
-    path.write_text(text.replace(search, replace, 1), encoding="utf-8")
-    return f"edited {path} (1 replacement)"
+    if n > 1 and not replace_all:
+        # default stays UNIQUE-or-error (guards the `y = 1` corrupting `y = 1234` mis-splice class);
+        # replace_all is the explicit opt-out for a deliberate rename-everywhere (Claude Code parity).
+        raise ValueError(
+            f"edit_file: search text is not unique in {path} ({n} occurrences) — add surrounding "
+            "context to match one place, or pass replace_all=true to change every occurrence"
+        )
+    path.write_text(text.replace(search, replace), encoding="utf-8")
+    return f"edited {path} ({n} replacement{'s' if n != 1 else ''})"
 
 
-def _write_file(a: list[Any]) -> str:
-    Path(str(a[0])).write_text(str(a[1]), encoding="utf-8")
-    return f"wrote {len(str(a[1]))} bytes to {a[0]}"
+def _write_file(root: Path, a: list[Any]) -> str:
+    path = _resolve(root, a[0])
+    path.parent.mkdir(parents=True, exist_ok=True)  # a nested path in a fresh workspace just works
+    path.write_text(str(a[1]), encoding="utf-8")
+    return f"wrote {len(str(a[1]))} bytes to {path}"
 
 
-def _bash(a: list[Any]) -> dict[str, Any]:
+def _bash(root: Path, a: list[Any]) -> dict[str, Any]:
     proc = subprocess.run(  # noqa: S602 — explicit agent shell tool (opt-in, not CI)
-        str(a[0]), shell=True, capture_output=True, text=True, timeout=60
+        str(a[0]), shell=True, capture_output=True, text=True, timeout=60, cwd=str(root)
     )
     return {"exit": proc.returncode, "stdout": proc.stdout[:8000], "stderr": proc.stderr[:2000]}
 
@@ -121,28 +215,218 @@ CALCULATOR: dict[str, Tool] = {
     "mul": Tool("mul", "mul(a, b) -> a*b", True, _mul),
 }
 
-FULL_SUITE: dict[str, Tool] = {
-    **CALCULATOR,
-    "read_file": Tool("read_file", "read_file(path) -> the file's text", False, _read_file),
-    "list_dir": Tool("list_dir", "list_dir(path) -> directory entries", False, _list_dir),
-    "grep": Tool("grep", "grep(pattern, path) -> matching 'file:line: text'", False, _grep),
-    "web_fetch": Tool("web_fetch", "web_fetch(url) -> the page text", False, _web_fetch),
-    "edit_file": Tool(
-        "edit_file",
-        "edit_file(path, search, replace) -> surgical search/replace (SIDE EFFECT)",
-        False,
-        _edit_file,
-    ),
-    "write_file": Tool(
-        "write_file",
-        "write_file(path, text) -> create/overwrite a file (SIDE EFFECT)",
-        False,
-        _write_file,
-    ),
-    "bash": Tool("bash", "bash(cmd) -> {exit, stdout, stderr} (SIDE EFFECT)", False, _bash),
-}
+
+def full_suite(root: Path | str = ".") -> dict[str, Tool]:
+    """The full tool suite rooted at a WORKSPACE directory (default: the process cwd, the old behavior).
+    Relative paths and `bash` resolve against `root`; absolute paths still go where named. Pass the
+    per-conversation workspace here so the agent operates inside it, the way Claude Code works in a repo."""
+    r = Path(root)
+    return {
+        **CALCULATOR,
+        "read_file": Tool(
+            "read_file",
+            "read_file(path, offset=1, limit) -> line-numbered text ('<n>\\t<line>'); offset is a 1-based line",
+            False,
+            partial(_read_file, r),
+        ),
+        "list_dir": Tool(
+            "list_dir", "list_dir(path) -> directory entries", False, partial(_list_dir, r)
+        ),
+        "glob": Tool(
+            "glob",
+            "glob(pattern, root='.') -> file paths matching a glob like '**/*.py' (sorted)",
+            False,
+            partial(_glob, r),
+        ),
+        "grep": Tool(
+            "grep",
+            "grep(regex, path='.') -> matching 'file:line: text' (a real regex, not a substring)",
+            False,
+            partial(_grep, r),
+        ),
+        "web_fetch": Tool("web_fetch", "web_fetch(url) -> the page text", False, _web_fetch),
+        "edit_file": Tool(
+            "edit_file",
+            "edit_file(path, search, replace, replace_all=false) -> surgical search/replace; `search` "
+            "must match the file's exact bytes EXACTLY ONE place or it errors (add context to "
+            "disambiguate, or pass replace_all=true to change every occurrence, e.g. a rename). Match "
+            "file content only — do NOT include read_file's leading '<n>\\t' line-number prefix; keep "
+            "`search` minimal (1-3 lines, just enough to be unique) (SIDE EFFECT)",
+            False,
+            partial(_edit_file, r),
+        ),
+        "write_file": Tool(
+            "write_file",
+            "write_file(path, text) -> create/overwrite a file (SIDE EFFECT)",
+            False,
+            partial(_write_file, r),
+        ),
+        "bash": Tool(
+            "bash", "bash(cmd) -> {exit, stdout, stderr} (SIDE EFFECT)", False, partial(_bash, r)
+        ),
+    }
+
+
+# the default rooted at the process cwd — preserves the pre-workspace behavior for existing call sites.
+FULL_SUITE: dict[str, Tool] = full_suite(".")
 
 
 def suite_describe(suite: dict[str, Tool]) -> str:
     """One line per tool — the available-tool surface to hand a model in its prompt."""
     return "\n".join(f"  {t.describe}" for t in suite.values())
+
+
+# ── native tool-calling: per-tool JSON schemas + a robust dual-path parser ────────────────────────
+# Per-tool input schemas (canonical function-tool `parameters`). PROPERTY ORDER IS THE ARG ORDER: a
+# model tool-call arrives as a NAMED dict, and `_named_to_positional` maps it back to the positional
+# `run(args)` list in this order. Required params are always the leading, contiguous ones.
+_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
+    "add": {
+        "type": "object",
+        "properties": {"a": {"type": "number"}, "b": {"type": "number"}},
+        "required": ["a", "b"],
+    },
+    "mul": {
+        "type": "object",
+        "properties": {"a": {"type": "number"}, "b": {"type": "number"}},
+        "required": ["a", "b"],
+    },
+    "read_file": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"},
+        },
+        "required": ["path"],
+    },
+    "list_dir": {
+        "type": "object",
+        "properties": {"path": {"type": "string"}},
+        "required": ["path"],
+    },
+    "glob": {
+        "type": "object",
+        "properties": {"pattern": {"type": "string"}, "root": {"type": "string"}},
+        "required": ["pattern"],
+    },
+    "grep": {
+        "type": "object",
+        "properties": {"regex": {"type": "string"}, "path": {"type": "string"}},
+        "required": ["regex"],
+    },
+    "web_fetch": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]},
+    "edit_file": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string"},
+            "search": {"type": "string"},
+            "replace": {"type": "string"},
+            "replace_all": {"type": "boolean"},
+        },
+        "required": ["path", "search", "replace"],
+    },
+    "write_file": {
+        "type": "object",
+        "properties": {"path": {"type": "string"}, "text": {"type": "string"}},
+        "required": ["path", "text"],
+    },
+    "bash": {"type": "object", "properties": {"cmd": {"type": "string"}}, "required": ["cmd"]},
+}
+
+
+def ollama_tools(suite: dict[str, Tool]) -> list[dict[str, Any]]:
+    """The suite as Ollama `/api/chat` function tools — name + one-line description + JSON schema."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": t.name,
+                "description": t.describe,
+                "parameters": _TOOL_SCHEMAS[t.name],
+            },
+        }
+        for t in suite.values()
+        if t.name in _TOOL_SCHEMAS
+    ]
+
+
+def _loads_obj(s: Any) -> Any:
+    """Parse the FIRST balanced JSON object out of a string; None if there isn't one. Scans from the
+    first `{` to its matching `}` (brace depth, respecting string literals + escapes) rather than
+    grabbing first-`{`-to-last-`}`. That old greedy span broke on a real qwen behavior the arena
+    surfaced: a model that BATCHES several tool calls into one message emits `{..}\\n{..}\\n{..}`, whose
+    outer span is invalid JSON -> the call degraded to a no-op FinalAnswer and zero tools ran. Taking
+    the first balanced object turns that into the first tool call; the loop runs it and the model
+    continues sequentially (KIT_DIARY #28 — parse REAL model output, not the canned single-object shape)."""
+    if not isinstance(s, str):
+        return None
+    start = s.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(s)):
+        c = s[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+        elif c == '"':
+            in_str = True
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(s[start : i + 1])
+                except (ValueError, TypeError):
+                    return None
+    return None
+
+
+def required_params(name: str) -> list[str]:
+    """The tool's required parameter names (schema order) — used to turn a model's under-specified
+    call (too few args) into a CLEAR typed error the model can act on, instead of a raw IndexError
+    from the tool body. Surfaced by a live llama3.2:1b run that re-called write_file with no args."""
+    return list(_TOOL_SCHEMAS.get(name, {}).get("required", []))
+
+
+def _named_to_positional(name: str, args: dict[str, Any]) -> list[Any]:
+    """Map a model's NAMED tool args back to the positional list `Tool.run` expects, in schema order.
+    Stops at the first missing param so a later arg can never mis-align onto an earlier slot (required
+    params are contiguous leading ones, so a trailing optional the model omitted just isn't passed)."""
+    out: list[Any] = []
+    for p in _TOOL_SCHEMAS.get(name, {}).get("properties", {}):
+        if p not in args:
+            break
+        out.append(args[p])
+    return out
+
+
+def parse_tool_call(message: dict[str, Any], suite: dict[str, Tool]) -> tuple[str, Any]:
+    """Turn one Ollama chat message into the loop's next action, ROBUST across models (verified
+    against real output: llama3.2 returns native `tool_calls`; qwen2.5-coder puts the same call as a
+    JSON object in `content`). Native `tool_calls` first, then a JSON-in-content fallback; anything
+    else is a final answer. Returns ("tool", (name, positional_args)) or ("answer", text)."""
+    for call in message.get("tool_calls") or []:
+        fn = call.get("function", {})
+        name = str(fn.get("name", ""))
+        raw = fn.get("arguments", {})
+        args = raw if isinstance(raw, dict) else _loads_obj(raw)
+        if name in suite and isinstance(args, dict):
+            return "tool", (name, _named_to_positional(name, args))
+    content = str(message.get("content", "")).strip()
+    obj = _loads_obj(content)
+    if (
+        isinstance(obj, dict)
+        and str(obj.get("name", "")) in suite
+        and isinstance(obj.get("arguments"), dict)
+    ):
+        return "tool", (str(obj["name"]), _named_to_positional(str(obj["name"]), obj["arguments"]))
+    return "answer", content

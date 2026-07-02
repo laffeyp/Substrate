@@ -80,3 +80,9 @@ full autonomy. The substrate-native `delegate`/`run_topology` tool (a tool whose
 - A `toModelOutput`-style projection (opencode) if raw results get noisy for small local models.
 - The natural-language tool-calling convention for the full suite (string args, variable arity) —
   belongs with the interactive-agent work, which needs its own usage/theory pass first.
+- **Read-before-edit precondition** (backlog — from Claude Code's leaked edit tool, 2026-07-01). CC
+  fails an `edit_file` on a file not `read` earlier in the conversation, forcing the model to ground
+  its `search` in real bytes. We get MOST of this free — a blind edit with the wrong `search` already
+  fails with a typed "not found" (the uniqueness guard) — so the marginal value is low and it needs
+  conversation-scoped read-tracking state our stateless tool closures don't carry. Deferred, not
+  rejected: revisit if arena runs show weak models mis-editing files they never read.

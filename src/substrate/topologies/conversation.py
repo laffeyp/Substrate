@@ -26,7 +26,7 @@ from typing import Any, NamedTuple
 from msgspec import Struct
 
 from .. import api
-from ..reference._models import DeterministicResponder, OllamaResponder, Responder, call_responder
+from ..adapters import DeterministicResponder, OllamaResponder, Responder, call_responder
 from .instruments.repair import (
     REPAIR_OK,
 )  # the cue sentinel a speaker reads; instruments live demo-side

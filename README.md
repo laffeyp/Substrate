@@ -141,6 +141,11 @@ ships with a deterministic `ast.parse` stand-in so it can carry a replayable rec
   re-execution is post-1.0 — don't rely on it yet.)
 - **API reference** — `docs/api.md`: the public surface (`substrate.api`),
   generated from the code.
+- **Research log** — `process/RESEARCH.md`: the long-form empirical findings from driving real
+  models through the agent tool loop (what breaks, where a prompt stops working and the model
+  ceiling begins), plus the tiered model roster — local and cloud, suitable tiers and known-
+  unsuitable negative controls — we test against. The *why it behaves this way*, beyond the current
+  state (`process/BLACKBOARD.md`) and the kit-methodology findings (`process/KIT_DIARY.md`).
 - **Conformance** — `uv run substrate conformance` runs the release gate: a suite
   of checks that exercises the runtime against the spec's required behaviors (one
   canonical topology per property). It runs in CI on every push. (The throughput
@@ -172,7 +177,7 @@ The runtime implements a four-document spec corpus. The **canonical** drafts are
 Everything else under `docs/specs/` is history, not load-bearing: superseded drafts
 are relocated into each spec dir's `history/` (kept, not deleted — the audit trail).
 And `docs/proof/`, plus everything under `process/` (`BLACKBOARD.md`, `KIT_DIARY.md`,
-`sprints/`, `signals/`, `archive/`, `WORKING_AGREEMENT.md`, `PHASE2.md`), is the
+`RESEARCH.md`, `sprints/`, `signals/`, `archive/`, `WORKING_AGREEMENT.md`, `PHASE2.md`), is the
 Signal-Driven Development record of how it was built — read it for the *why*, skip it
 to use or contribute. `CONTRIBUTING.md` has the full layout + the SDD notes.
 

@@ -18,7 +18,7 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from ... import api
-from ...reference._models import ModelUsage, Responder
+from ...adapters import ModelUsage, Responder
 from ..best_of_n import seeder_factory, select_first_judge_factory
 from ..best_of_n.contracts import Candidate, Draft, Exhausted, Solved, Verdict
 from .localize import localizer_factory
