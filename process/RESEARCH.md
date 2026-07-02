@@ -227,6 +227,35 @@ can be (anti-spin, recover-then-bail, errors-as-observations); and the ceiling t
 
 ---
 
+### R-10 — The discipline PROMPT is inert; the levers are the guard and the model (A/B, under challenge)
+
+Claim under test (mine): "the SDD-sharpened discipline prompt helps compliant models." It was built to
+NOT fail — I added the prompt, saw kimi succeed *with* it (R-9), and asserted the prompt helped. That
+green never isolated the prompt's contribution. Under an SDD skeptic challenge I built the check that
+*could* fail: A/B, `kimi-k2.6 --think`, same hangman task, anti-spin guard still active, the discipline
+text swapped for the thin "tools are optional" prompt.
+
+**Reading (thin prompt):** tool mix `write_file(1), read_file(1), bash(2)`; the two bash runs read
+`exit: 1` then `exit: 0`, stdout `=== HANGMAN ===`. kimi wrote the file, read it, ran it, hit an error
+(exit 1), FIXED it, and re-ran to a clean exit 0 — the full agentic recover loop — **without** the
+discipline prose.
+
+**Verdict — claim RETRACTED.** The discipline PROMPT is inert as an agentic lever: kimi verified with
+or without it (n=1 each arm), and it did nothing for qwen either (R-5). kimi's verify-and-recover
+behaviour is the MODEL. The *verified* levers are (a) the structural anti-spin guard (R-6) and (b) model
+choice (R-9); the prompt stays only as the cheap generative-escape carrier (the poem fix), not as a
+proven lever. n=1 both arms is not enough to rip it out (that would be the same over-correction), but
+it is enough to stop claiming it works.
+
+**Bonus (independent confirmation):** the `exit 1 → fix → exit 0` recovery is a real capable model
+recovering from a tool failure unprompted — direct evidence that recover-then-bail (R-6) is the right
+shape, not just my design preference.
+
+**Method note:** this is what the challenge is for. The green that lied was "kimi succeeded, and I had
+just added the discipline prompt, therefore the prompt helped." The could-fail check separated the two.
+
+---
+
 ## Model roster — what we test against, and why
 
 The tool loop is written against a `Responder`, so any model is a candidate. But suitability for the

@@ -52,13 +52,14 @@ _Factory = Callable[[], Any]
 _MAX_RESULT_BYTES = 12_000  # cap a tool output well under the 16 KiB blob-offload threshold (below)
 _MAX_CONSECUTIVE_FAILS = 3  # a real model gets room to self-correct; bail if it is clearly stuck
 
-# Loop discipline handed to the model every turn — the part that DRIVES the agent loop, not just the
-# tool list. Adapted (in our own words) from how best-in-class agent harnesses steer a tool loop, and
-# sharpened on the substrate's own spine: the results transcript IS the record of what happened, so
-# the model decides from what is OBSERVED, not from what it intended; a failed result is an
-# observation to act on, not a wall; and "written" is not "working" — verify against real output.
-# It targets the write-SPIN the arena surfaced (a strong model re-issued a succeeded `write_file` 16
-# times instead of running it). The generative escape is kept so the poem-refusal fix does not regress.
+# Loop discipline handed to the model every turn — adapted (in our own words) from best-in-class
+# agent-loop prompts and sharpened on the substrate's spine (decide from the observed record; a failed
+# result is information not a wall; "written" is not "working").
+# HONEST NOTE (R-10, A/B-verified 2026-07-02): as an AGENTIC LEVER this prose is INERT — kimi-k2.6
+# verified its own code with OR without it, and qwen ignored it either way. What actually kills the
+# write-spin is the STRUCTURAL guard in `_tool_factory` (errors-as-observations on the record), not
+# this text. Kept only as the cheap generative-escape carrier (the poem-refusal fix) and low-cost
+# guidance; it is NOT a proven behavioural lever, so do not claim it drives anything.
 _LOOP_DISCIPLINE = (
     "Work the task one step at a time. Each turn, read the results above — they are the record of "
     "what has actually happened — and choose your next move from that, not from what you meant to do:\n"
