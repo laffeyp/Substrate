@@ -266,7 +266,7 @@ Same hangman task, `--think`, n=1 each, anti-spin guard + recover-then-bail acti
 | `glm-5.1` (cloud) | yes | write, read, bash×3 | **VERIFIED** — `exit 0` |
 | `deepseek-v4-pro` (cloud) | yes | write, read, bash×2 | **ATTEMPTED** — both `exit 1`, then claimed "proven working" |
 | `qwen3-coder:480b` (cloud) | NO | write×16 | **NO verify** — write-spin (R-5/R-7) |
-| `deepseek-r1:8b` (local) | `--think` | (none) | **CONFOUNDED** — `--think` → empty content, 0 tools; re-run pending |
+| `deepseek-r1:8b` (local) | yes | — | **INCONCLUSIVE** — `ReadTimeout` after 3 attempts (too slow on this hardware), both with and without `--think`. No agentic data. |
 
 **Interpretation:** every thinking+tools CLOUD model crosses the *attempt-verification* threshold (3/3
 ran their code) where the non-thinking coder never does. Two verified clean. Strengthens R-9 —
@@ -279,10 +279,16 @@ from the write-spin:
   record shows `exit 1`) but can't force the model to respect. Candidate for a STRUCTURAL check: refuse
   a "done" FinalAnswer when the last relevant bash exited non-zero — the enforce-vs-request axis
   (KIT_DIARY finding 32) applied to the verify step. Currently unbuilt; recorded as a lead.
-- **R-11b — `--think` is not uniform across models.** For the cloud models `--think` was correct
-  (content + tool_calls). For local `deepseek-r1:8b` it produced empty content and 0 tools — r1 routes
-  its whole budget into the thinking field (the exact case `OllamaResponder(think=False)` exists for).
-  "Enable thinking" is model-specific, not a global flag. r1 re-run with `think=False`: [PENDING].
+- **R-11b — `deepseek-r1:8b` is INCONCLUSIVE (timeout), and I nearly mis-attributed it twice.** First
+  read (with `--think`): empty output, 0 tools — I called it a think-routing confound. Second read
+  (`think=False`): STILL 0 useful output — I was about to call it a tool-calling incapacity. The record
+  told the truth: `substrate.ProducerFailed :: RuntimeError("OllamaResponder(deepseek-r1:8b) failed
+  after 3 attempts: ReadTimeout")`. It is a **timeout** — an 8B reasoning model generating up to 8192
+  tokens is too slow on this machine for the 120s call timeout — so there is **no agentic data** for
+  r1 here, in either mode. Lesson (again): read the `ProducerFailed` error on the record; do not infer
+  a capability finding from empty output. To evaluate r1 we need a longer timeout or faster hardware.
+  (The narrower point survives: `--think` is model-specific, not a global — but r1 didn't test it,
+  it timed out.)
 
 **Caveat:** n=1 per model — behaviour *classes* observed once each, not rates.
 
@@ -392,15 +398,19 @@ this is the list to attack, not trust.
   error in `swebench_solver/assemble.py` (a `# type: ignore` on the wrong line — both unused AND not
   suppressing — invisible until Lint/Format passed and the Type gate became reachable). All three
   fixed → CI now **reaches the Tests gate and passes on `macos-py3.12`** (my local env).
-  **CI IS STILL RED** on py3.13/3.14 (all OS): a FOURTH, deeper pre-existing failure the gate fixes
-  only just exposed — `test_committed_record_is_current` for three bundled topologies
-  (`intel_asymmetry`, `natural_conversation`, `prisoners_dilemma`): their committed records do NOT
-  regenerate byte-identically across Python versions (divergence at seq 0 `RunStarted`; passes on
-  py3.12 where they were generated, fails on 3.13/3.14). A real substrate CROSS-VERSION DETERMINISM
-  bug (candidate root: an unsorted set/frozenset in the RunStarted manifest whose iteration order
-  shifts across CPython versions) — pre-existing, not this session's code, NOT fixable by "regenerate"
-  (that just re-pins to one version's bytes), and not mine to hack blind. The remaining CI blocker;
-  surfaced for the build side. Follow-up: pin ruff in CI too.
+  Then a FOURTH, deeper pre-existing failure the gate fixes exposed — `test_committed_record_is_current`
+  for three bundled topologies (`intel_asymmetry`, `natural_conversation`, `prisoners_dilemma`) whose
+  committed records did NOT regenerate byte-identically across Python versions (divergence at seq 0
+  `RunStarted`; passed on py3.12, failed on 3.13/3.14). **ROOT-CAUSED + FIXED.** My first guess (an
+  unsorted set in the manifest) was WRONG — reproducing on a real py3.14 env and diffing the actual
+  manifest bytes found it: the differing field is the msgspec-schema `description`, i.e. the Struct's
+  DOCSTRING, and **CPython 3.13 dedents docstrings at compile time**, so a multi-line docstring
+  serializes to different bytes on 3.13/3.14 vs 3.12. Fix: strip `description` from the schemas
+  embedded in the RunStarted manifest (`runtime._manifest`) — the manifest pins the STRUCTURAL contract
+  (types/required/versions), not prose; regenerated all 12 committed records. Verified cross-version:
+  the real `test_committed_record_is_current` passes on **py3.12 (29) AND py3.14 (29)**, full py3.12
+  suite 565 passed. (The "unsorted set" guess is exactly why you reproduce and diff instead of infer.)
+  Follow-up still worth doing: pin ruff in CI so the formatter can't re-drift.
   **Self-inflicted repeat:** I wrote finding 33 ("run what CI runs, watch CI") and then said "CI
   fixed" from a single-env local green (`macos-py3.12`) before the full matrix concluded — the same
   class of error one turn later, now across the OS/Python matrix rather than scoped-vs-whole-repo.

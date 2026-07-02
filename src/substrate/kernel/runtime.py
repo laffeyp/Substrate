@@ -442,9 +442,25 @@ class Runtime:
         self._cyc.cycle(_Lifecycle(kind, payload))  # appends with producer=null; fires triggers
 
     def _manifest(self, reg: Registration) -> dict[str, Any]:
+        def _no_desc(obj: Any) -> Any:
+            # Drop `description` from the embedded JSON schemas. It carries the Struct's docstring,
+            # which is prose, not part of the structural contract the manifest pins (types / required
+            # / schema_version). It is also NON-DETERMINISTIC ACROSS PYTHON VERSIONS: CPython 3.13+
+            # dedents docstrings at compile time, so a multi-line Struct docstring serializes to
+            # different bytes on 3.13/3.14 vs 3.12 — which stranded three bundled topologies' committed
+            # records cross-version (RunStarted divergence, CI red on the py3.13/3.14 matrix cells).
+            # Stripping it makes the manifest depend only on structure, byte-identical across versions.
+            if isinstance(obj, dict):
+                return {k: _no_desc(v) for k, v in obj.items() if k != "description"}
+            if isinstance(obj, list):
+                return [_no_desc(x) for x in obj]
+            return obj
+
         producer_kinds = []
         for pk in reg.producer_kinds.values():
-            schemas = {name: msgspec.json.schema(t) for name, (t, _v) in pk.schemas.items()}
+            schemas = {
+                name: _no_desc(msgspec.json.schema(t)) for name, (t, _v) in pk.schemas.items()
+            }
             version = next(iter(pk.schemas.values()))[1] if pk.schemas else 1
             pk_entry: dict[str, Any] = {
                 "kind": pk.kind,
