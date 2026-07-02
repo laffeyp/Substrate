@@ -206,6 +206,56 @@ async def test_refuse_done_when_the_last_run_exited_nonzero(tmp_path):
     assert finals and "unverified" in finals[-1]["payload"]["text"].lower()
 
 
+async def test_reprompt_CONVERTS_an_answer_attempt_into_a_fix(tmp_path):
+    # R-11a conversion path (the branch the test above does NOT cover): a model runs a FAILING command,
+    # tries to declare done, gets re-prompted — and this time RESPONDS with a tool call that fixes it.
+    # The loop must CONTINUE (not halt), the fix must run clean, and the final answer must be clean (no
+    # [unverified]). Deterministic: a stub that fails, answers, then on the re-prompt runs a passing cmd.
+    from substrate.topologies.tool_loop.agency import score_agency
+    from substrate.topologies.tool_loop.tools import FULL_SUITE
+
+    class _Stub:
+        def __init__(self) -> None:
+            self.n = 0
+
+        async def achat_tools(self, prompt: str, tools: list) -> dict:  # noqa: ANN001, ARG002
+            self.n += 1
+            if self.n == 1:  # run a failing command
+                return {
+                    "tool_calls": [{"function": {"name": "bash", "arguments": {"cmd": "exit 3"}}}]
+                }
+            if self.n == 2:  # try to declare done over the failure -> triggers the re-prompt
+                return {"content": "All done."}
+            if self.n == 3:  # the re-prompt CONVERTS: respond with a fix that runs clean
+                return {
+                    "tool_calls": [{"function": {"name": "bash", "arguments": {"cmd": "echo ok"}}}]
+                }
+            return {"content": "Fixed and verified — it runs cleanly now."}
+
+    result = await Runtime(tmp_path / "run").run(
+        tool_loop_topology(
+            model=_Stub(),
+            walkthrough=True,
+            deterministic=False,
+            tools=FULL_SUITE,
+            task="run it, fix it, verify",
+            max_steps=8,
+        )
+    )
+    assert result.status == "finalised"
+    envs = list(read_record(tmp_path / "run"))
+    bash = [
+        e["payload"]["output"]["exit"]
+        for e in envs
+        if e["kind"] == "ToolResult" and e["payload"]["tool"] == "bash"
+    ]
+    assert bash == [3, 0]  # failed first, then the re-prompt drove a clean run
+    finals = [e for e in envs if e["kind"] == "FinalAnswer"]
+    assert finals and "unverified" not in finals[-1]["payload"]["text"].lower()  # honest, clean
+    # the trajectory is VERIFIED: ran, recovered from the failure, saw exit 0.
+    assert score_agency(envs).label == "VERIFIED" and score_agency(envs).resilient
+
+
 def test_edit_file_replace_all_is_the_explicit_opt_out_for_renames(tmp_path):
     # unique-or-error stays the DEFAULT (the mis-splice guard above); replace_all=true is the explicit
     # opt-out for a deliberate rename-everywhere (Claude Code parity). The uniqueness safety is only
