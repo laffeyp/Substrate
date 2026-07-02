@@ -1,3 +1,0 @@
-Hello, this is a demonstration file.
-It shows how I can create and manipulate files.
-I can also perform calculations like 2 + 3 = ?
