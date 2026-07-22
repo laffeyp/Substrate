@@ -37,8 +37,15 @@ records live in `process/BLACKBOARD.md`.
 
 ## Gates
 
-Every change must keep these green (they run in CI — `.github/workflows/ci.yml` — on
-the matrix {ubuntu, macOS} × Python {3.12, 3.13, 3.14}):
+**The default gate is local: `scripts/ci_local.sh`** (the same stack, py3.12/3.13/3.14 in
+isolated envs; `scripts/ci_local_ubuntu.sh` for the linux cells via Docker). As of
+2026-07-22 hosted GitHub Actions is unavailable (Actions minutes exhausted) and the
+verification bar must not depend on a hosted runner — "gates green" means the local
+matrix exiting 0, watched to conclusion. The workflow file stays; when Actions returns
+it is a backstop, not the bar.
+
+Every change must keep these green (the per-version stack, identical local and hosted —
+`.github/workflows/ci.yml` runs it on {ubuntu, macOS} × Python {3.12, 3.13, 3.14}):
 
 ```
 uv run ruff check          # lint

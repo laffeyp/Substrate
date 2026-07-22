@@ -114,6 +114,7 @@ Superseded drafts under `docs/specs/product_spec/`, `docs/specs/technical_spec/`
 
 *The Architect runs these; the Agent does not silently retry failed builds (reports exit code + last 200 lines).*
 
+- **THE DEFAULT GATE (Architect ruling 2026-07-22): `scripts/ci_local.sh`** — the exact CI stack (ruff check, format --check, strict mypy, pytest, lint-imports, conformance --no-perf) across py3.12/3.13/3.14 in isolated envs, locally. Hosted GitHub Actions is unavailable (minutes exhausted) and the verification bar must never depend on a hosted runner: "gates green" = this script exiting 0, watched to conclusion (the finding-33/36 bar, local form). `scripts/ci_local_ubuntu.sh` covers the linux axis via Docker. When Actions returns it becomes a backstop, not the bar.
 - **Primary build / test:** `uv run pytest` — expected exit 0
 - **Release gate:** `uv run substrate conformance` (the 17 checks) — expected exit 0
 - **Type gate (public API):** `uv run mypy --strict` — expected exit 0

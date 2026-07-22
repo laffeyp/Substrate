@@ -385,6 +385,36 @@ checks that could fail. Also found and repaired a pre-existing repo-wide CI fail
 
 ---
 
+### 2026-07-22 — The gate must not live on someone else's runner
+
+**What happened:** Watching a push conclude (finding 36's own discipline) revealed every CI cell
+dying at job startup — ~2s, zero steps, no logs — on this push AND the three preceding 07-02
+pushes. Root cause is account infrastructure, not code: GitHub Actions minutes exhausted on the
+private repo (the macOS×3 matrix burns included minutes at 10×). CI had been startup-dead since
+`3ed3f1b` (the last observed-green run) and nobody watched the pushes after it. The Architect
+ruled Actions out for the duration; the gate moved local: `scripts/ci_local.sh` mirrors the
+workflow stack step for step across py3.12/3.13/3.14 in isolated envs, `ci_local_ubuntu.sh`
+covers the linux axis in Docker.
+
+**What worked:** finding 36 applied as written is what caught it — the failure was invisible from
+"gates clean locally" and only visible by watching the hosted run conclude. And the workflow being
+nothing but six plain commands made the local mirror a 40-line script.
+
+**What got in the way:** the verification bar was defined in terms of a hosted service
+("CI-observed green") that can fail for reasons unrelated to the code — and when it does, the
+bar becomes unmeetable rather than falling back.
+
+**What this says about the next kit version:**
+- 38. **The CI-equivalent gate must be RUNNABLE LOCALLY, and the hosted runner is a backstop, not
+  the bar.** Finding 33 set the bar at "the CI-equivalent gate, observed"; 38 adds: define that
+  gate as commands the repo itself can run (an isolated-env local matrix), so runner
+  unavailability — billing, outage, deprecation — degrades the OS-coverage axis, never the bar
+  itself. A hosted-only gate is a single point of failure for the project's ability to verify
+  its own claims. Corollary: a startup-dead run (zero steps, no logs) is an INFRASTRUCTURE
+  signature — diagnose it as such before reading it as a code failure.
+
+---
+
 ## Phase boundary syntheses
 
 *(one per phase close)*
