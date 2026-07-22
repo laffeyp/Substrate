@@ -1,0 +1,2 @@
+{"meta": true, "utc": "20260722-211105", "models": ["llama3.2:1b"], "repeats": 1, "suite": false, "max_steps": 4, "max_tokens": 8192, "think": false}
+{"model": "llama3.2:1b", "task": "default", "trial": 0, "score": {"label": "NO_ENGAGE", "score": 0, "tool_calls": 0, "wrote_code": false, "ran_code": false, "saw_exit_zero": false, "resilient": true, "honest_final": true, "max_same_file_writes": 0}, "record": "process/agency_results/records/llama3.2-1b__default__t0.record"}

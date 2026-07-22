@@ -36,3 +36,6 @@ substrate-coding-flow.*.json
 # Container-arena run logs — transient per-(model,task) research artifacts, regenerable by
 # scripts/agent_arena.py; the findings they support live in process/RESEARCH.md, not the logs.
 arena-logs*/
+
+# Local disposal archive (2026-07-22 top-level cleanup) — disk-only, never history.
+process/archive/root-debris-20260722/

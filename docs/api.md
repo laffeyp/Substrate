@@ -268,7 +268,7 @@ authoring surface.
 - `instrument(self, name: 'str', *, on: 'str', schemas: 'Sequence[type]', input_builder: 'Callable[[TriggerContext], Any]', factory: 'Callable[[], Producer] | None' = None, start: 'Producer | None' = None, schema_version: 'int' = 1, deterministic: 'bool' = False, into: 'str | None' = None, via: 'Callable[[Any], Any] | None' = None) -> 'None'` — Wire a side-Producer INSTRUMENT in one call — the common observe-(and-stage) pattern.
 - `producer_kind(self, kind: 'str', *, schemas: 'Sequence[type]', schema_version: 'int', factory: 'Callable[[], Producer] | None' = None, start: 'Producer | None' = None, deterministic: 'bool' = False, author_version: 'str | None' = None) -> 'None'` — Register a Producer kind: its name, the frozen msgspec Struct event schemas it may emit (+ schema_version), and the Producer to run.
 - `route(self, id: 'str', *, subscription: 'Subscription', slot: 'str', transform: 'Callable[[Any], Any]') -> 'None'` — Register a Route: on an event matching `subscription`, stage `transform(event)` into the named `slot` so a later Trigger's input_builder can read it (carrying context — e.g. a failure reason — forward into the Producer it starts).
-- `termination(self, policy: 'TerminationPolicy', *, scope: 'str' = 'run') -> 'None'` — Set the TerminationPolicy that decides when the run ends (see the termination recipes: quiescence_with_watchdog, threshold_count, all_completed, pause_await_input, ...). v0.1 ships run-scoped termination; per-Producer scoping is a documented extension.
+- `termination(self, policy: 'TerminationPolicy', *, scope: 'str' = 'run') -> 'None'` — Set the TerminationPolicy that decides when the run ends (see the termination recipes: quiescence_with_watchdog, threshold_count, all_completed, pause_await_input, ...).
 - `trigger(self, id: 'str', *, subscription: 'Subscription', predicate: 'Callable[[TriggerContext], bool]', starts: 'str', input_builder: 'Callable[[TriggerContext], Any]', policy: 'FiringPolicy | None' = None, cooldown: 'Cooldown | None' = None) -> 'None'` — Register a Trigger: when an event matching `subscription` is appended and `predicate` (over the Views) holds, start a `starts` Producer with the input from `input_builder`. `policy` (default PerEvent) controls how often it fires — Once, PerEvent, PerKey, WhileTrue; `cooldown` throttles it.
 - `view(self, name: 'str', view: 'View') -> 'None'` — Register a named View — a deterministic incremental projection over the bus (e.g. KindBuffer, KindCount) that Predicates read.
 
@@ -305,6 +305,12 @@ Yield every recoverable envelope in seq order: sealed segments (by filename),
 then the recoverable prefix of the hot segment. Does not depend on the manifest
 (segments are authoritative, §3.5). Read-only, symlink-not-followed (§17); does not
 modify anything.
+
+Validates seq contiguity on the read path (§3.5/§3.6): seqs are dense from 0, so a hole — a
+deleted sealed segment, a mid-frame-truncated one, or a sealed segment that lost its tail —
+raises RecordGapError instead of silently folding the loss away. The hot segment's torn tail is
+the one legitimate truncation (framing.recover trims it to the last good frame); a SEALED
+segment must be complete, so a non-newline-terminated sealed segment is data loss, not a tail.
 
 ### `recover_open_segment(root: 'Path | str') -> 'int'`
 
@@ -450,7 +456,7 @@ Run the replay and raise if it is not honestly supported at `level`: a Level-2
 hash mismatch or a failed Level-3(a) precondition raises ReplayError (honest refusal,
 F-RPLY-1). Returns the ReplayResult on success.
 
-### `ReplayResult(level: str, frame_count: int, counts: dict[str, int], complete: bool, decisions_verified: int = 0, mismatches: tuple[substrate.replay.HashMismatch, ...] = (), preconditions_ok: bool | None = None, refusal_reason: str | None = None)`
+### `ReplayResult(level: str, frame_count: int, counts: dict[str, int], complete: bool, decisions_verified: int = 0, mismatches: tuple[substrate.projections.replay.HashMismatch, ...] = (), preconditions_ok: bool | None = None, refusal_reason: str | None = None)`
 
 The typed outcome of a replay (technical §12). `level` is the tier actually run.
 `counts` is the per-kind frame count (Level 1+). `decisions_verified` is the number of
@@ -565,7 +571,7 @@ TriggerFired / ProducerStarted-Completed-Failed-Cancelled lifecycle events (the 
 parent links the inspect provenance surface uses). Instances are returned in spawn order
 (by started_seq).
 
-### `TopologyGraph(producers: tuple[substrate.graph.ProducerNode, ...], triggers: tuple[substrate.graph.TriggerEdge, ...], routes: tuple[substrate.graph.RouteEdge, ...], views: tuple[str, ...], termination: tuple[str, ...])`
+### `TopologyGraph(producers: tuple[substrate.projections.graph.ProducerNode, ...], triggers: tuple[substrate.projections.graph.TriggerEdge, ...], routes: tuple[substrate.projections.graph.RouteEdge, ...], views: tuple[str, ...], termination: tuple[str, ...])`
 
 The static structure of a run's topology, read from its RunStarted manifest: Producer-kind
 nodes, Trigger spawn-edges, Route staging-edges, the View names, and the TerminationPolicy
@@ -594,17 +600,20 @@ A Route: stages data forward into `slot` for a later Trigger's input. The manife
 the route's id and target slot (the citable identity); the source subscription and transform
 are code, surfaced at runtime as the InjectionApplied events in the run-as-graph.
 
-### `RunGraph(instances: tuple[substrate.graph.ProducerInstance, ...], status: str, final_reason: str | None, paused_on: str | None)`
+### `RunGraph(instances: tuple[substrate.projections.graph.ProducerInstance, ...], status: str, final_reason: str | None, paused_on: str | None)`
 
 The dynamic run-as-graph: every Producer instance (the spawn forest, in spawn-seq order)
 with its span and emitted events, plus the run-level outcome the handoff's outcome surface
-needs. `status` matches RunResult.status: "running" | "paused" | "finalised" | "failed".
-**"failed"** is a RUN-level failure (the run itself died: view_failure / kernel_error /
-stuck_quiescent) — distinct from a clean "finalised" run that had Producer-level failures
-inside it (that finished-!=-worked case is the per-instance statuses, not the run status).
-"paused" (awaiting external input) is distinct from still-"running". `final_reason` is the
-RunFinalised reason (None for an ordinary finalise; the failure reason for a "failed" run).
-`paused_on` is the resume_condition when status == "paused" (what input the run awaits).
+needs. `status` is "incomplete" | "paused" | "finalised" | "failed" (the last three match
+RunResult.status). **"failed"** is a RUN-level failure with a terminal RunFinalised (the run
+died: view_failure / kernel_error / stuck_quiescent) — distinct from a clean "finalised" run
+that had Producer-level failures inside it (that finished-!=-worked case is the per-instance
+statuses, not the run status). **"incomplete"** is no terminal RunFinalised: either still
+being written (if live-followed) OR torn/medium-failed (the fsync-gate path fails WITHOUT a
+terminal — absence-of-terminal encodes medium failure); a static "incomplete" read is NOT a
+clean "running", so a torn record never reads as fine (§7.2). "paused" awaits external input.
+`final_reason` is the RunFinalised reason (None for an ordinary finalise; the failure reason
+for a "failed" run). `paused_on` is the resume_condition when status == "paused".
 
 ### `ProducerInstance(kind: str, instance: str, parent: str | None, trigger_id: str | None, firing_key: str | None, input_sha256: str | None, fired_seq: int | None, started_seq: int | None, ended_seq: int | None, status: str, emitted: tuple[str, ...])`
 
@@ -612,8 +621,10 @@ One Producer INSTANCE in a run: its kind, its spawn link (`parent` instance + th
 `trigger_id` that started it — `__initial__` for an initial Producer), its lifecycle SPAN
 (`fired_seq` when its Trigger SCHEDULED it; `started_seq` .. `ended_seq` when it actually ran,
 `ended_seq` None while still running) and end `status` (completed / failed / cancelled /
-running), the resolved-input hash it ran on, and the application event kinds it `emitted`
-(in seq order).
+running / interrupted), the resolved-input hash it ran on, and the application event kinds it
+`emitted` (in seq order). **"interrupted"** = started, no end-record, AND the run is over
+(terminal or paused) — it will never complete (e.g. a Producer cut off by a pause); "running"
+is reserved for an un-ended instance in a still-INCOMPLETE run (genuinely live).
 
 RENDERING CONCURRENCY — read this before drawing a run-as-graph. The seq-span faithfully
 encodes bus-timeline concurrency (a Producer is running at seq N iff started_seq <= N <
@@ -688,4 +699,10 @@ record (technical §12). Carries a typed reason; the run record path is the evid
 ### `RecordIncompleteError`
 
 A record has no terminal substrate.RunFinalised (e.g. torn at seq N, §5.2).
+
+### `RecordGapError`
+
+The read path found a hole in the seq sequence — a sealed segment lost (deleted, truncated
+mid-frame, or corrupted) so the yielded stream is non-contiguous. Per technical §3.5/§3.6 a gap
+proves data loss and the reader MUST report it rather than silently fold it away.
 

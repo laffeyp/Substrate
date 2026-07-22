@@ -16,8 +16,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import tempfile
+import time
 from pathlib import Path
+
+import msgspec
 
 from substrate.adapters import OllamaResponder
 from substrate.api import Runtime, read_record
@@ -38,13 +42,58 @@ _DEFAULT_TASK = (
 )
 
 
+class _Sink:
+    """Persist every scored cell as a JSONL row, so the board is an ARTIFACT, not just stdout.
+
+    The R-20 board originally existed only as a printed table (the trajectories died with their
+    tempdirs) — unreproducible from disk, which contradicts the project's own record-is-the-evidence
+    discipline. One row per (model, task, trial): the full AgencyScore (or the error string) plus the
+    run-record root when `--keep-records` retained it. First line is a meta row (args + timestamp)."""
+
+    def __init__(self, out_dir: Path, args: argparse.Namespace) -> None:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+        self.path = out_dir / f"agency-{stamp}.jsonl"
+        meta = {
+            "meta": True,
+            "utc": stamp,
+            "models": args.models,
+            "repeats": args.repeats,
+            "suite": bool(args.suite),
+            "max_steps": args.max_steps,
+            "max_tokens": args.max_tokens,
+            "think": bool(args.think),
+        }
+        self.path.write_text(json.dumps(meta) + "\n")
+
+    def row(
+        self, model: str, task: str, trial: int, result: AgencyScore | str, record: str | None
+    ) -> None:
+        payload: dict[str, object] = {"model": model, "task": task, "trial": trial}
+        if isinstance(result, AgencyScore):
+            payload["score"] = msgspec.to_builtins(result)
+        else:
+            payload["error"] = result
+        if record is not None:
+            payload["record"] = record
+        with self.path.open("a") as f:
+            f.write(json.dumps(payload) + "\n")
+
+
 async def _score_one(
-    model: str, prompt: str, seed: dict[str, str], args: argparse.Namespace
-) -> AgencyScore | str:
+    model: str,
+    prompt: str,
+    seed: dict[str, str],
+    args: argparse.Namespace,
+    *,
+    record_root: Path | None = None,
+) -> tuple[AgencyScore | str, str | None]:
     workdir = Path(tempfile.mkdtemp(prefix="agency-"))
     for name, content in seed.items():  # seed files (e.g. a broken program to fix) before the run
         (workdir / name).write_text(content)
-    record = workdir / "record"
+    # --keep-records puts the run record (the trajectory, the actual evidence) at a durable root;
+    # without it the record lives in the tempdir workspace and dies with it (scores still persist).
+    record = record_root if record_root is not None else workdir / "record"
     task = prompt.replace("{workdir}", str(workdir))
     try:
         await Runtime(record).run(
@@ -60,8 +109,16 @@ async def _score_one(
             )
         )
     except Exception as exc:  # noqa: BLE001 — a model/daemon failure is data, not a crash of the assay
-        return f"{type(exc).__name__}: {exc}"
-    return score_agency(read_record(record))
+        return f"{type(exc).__name__}: {exc}", None
+    kept = str(record) if record_root is not None else None
+    return score_agency(read_record(record)), kept
+
+
+def _record_root(args: argparse.Namespace, model: str, task: str, trial: int) -> Path | None:
+    if not args.keep_records:
+        return None
+    safe = lambda s: "".join(c if c.isalnum() or c in "._-" else "-" for c in s)  # noqa: E731
+    return Path(args.keep_records) / f"{safe(model)}__{safe(task)[:40]}__t{trial}.record"
 
 
 def _run_suite(args: argparse.Namespace) -> int:
@@ -69,12 +126,18 @@ def _run_suite(args: argparse.Namespace) -> int:
     a per-(model,task) grid + a per-model mean. n=1 cells show label:score; n>1 cells show the
     VERIFIED-rate + mean (the defensible board). Agency measured across shapes, not one lucky task."""
     n = args.repeats
+    sink = _Sink(Path(args.out), args)
     grid: dict[str, dict[str, list[AgencyScore]]] = {}
     for m in args.models:
         for t in AGENCY_SUITE:
             scores: list[AgencyScore] = []
-            for _ in range(n):
-                r = asyncio.run(_score_one(m, t.prompt, t.seed, args))
+            for i in range(n):
+                r, kept = asyncio.run(
+                    _score_one(
+                        m, t.prompt, t.seed, args, record_root=_record_root(args, m, t.name, i)
+                    )
+                )
+                sink.row(m, t.name, i, r, kept)
                 if isinstance(r, AgencyScore):
                     scores.append(r)
             grid.setdefault(m, {})[t.name] = scores
@@ -103,6 +166,7 @@ def _run_suite(args: argparse.Namespace) -> int:
         print(f"{m:<24} " + " ".join(f"{c:>14}" for c in cells) + f"   {mean:>4.0f}")
     tail = "" if n > 1 else " — classes, not rates"
     print(f"\n(agency = trajectory across task shapes; n={n} per cell{tail})")
+    print(f"(rows persisted to {sink.path})")
     return 0
 
 
@@ -118,16 +182,30 @@ def main() -> int:
     ap.add_argument(
         "--suite", action="store_true", help="run the AGENCY_SUITE (a grid of task shapes)"
     )
+    ap.add_argument(
+        "--out",
+        default="process/agency_results",
+        help="dir for the per-cell JSONL rows (the persisted board; always written)",
+    )
+    ap.add_argument(
+        "--keep-records",
+        default="",
+        help="dir to retain each cell's full run record (the trajectory evidence); off by default",
+    )
     args = ap.parse_args()
 
     if args.suite:
         return _run_suite(args)
 
+    sink = _Sink(Path(args.out), args)
     scored: dict[str, list[AgencyScore]] = {}
     errs: dict[str, list[str]] = {}
     for m in args.models:
-        for _ in range(args.repeats):
-            r = asyncio.run(_score_one(m, args.task, {}, args))
+        for i in range(args.repeats):
+            r, kept = asyncio.run(
+                _score_one(m, args.task, {}, args, record_root=_record_root(args, m, "default", i))
+            )
+            sink.row(m, "default", i, r, kept)
             (
                 scored.setdefault(m, []).append(r)
                 if isinstance(r, AgencyScore)
@@ -156,6 +234,7 @@ def main() -> int:
         print(f"{m:<26} ERROR ×{len(elist)}: {elist[0][:50]}")
     tag = f"n={args.repeats}" + (" — RATES" if args.repeats > 1 else " each — classes, not rates")
     print(f"\n(agency = trajectory, NOT artifact correctness; {tag})")
+    print(f"(rows persisted to {sink.path})")
     return 0
 
 

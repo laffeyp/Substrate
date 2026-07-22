@@ -243,7 +243,7 @@ the `python -m`, so the project's pinned pytest is used rather than whatever
 ```
 uv venv --python 3.12 && uv pip install -e ".[dev]"
 bash demo.sh                       # the whole walk, against committed records
-uv run python -m pytest            # the full suite (~300 tests)
+uv run python -m pytest            # the full suite (575+ tests; realmodel tests run live when Ollama is present)
 uv run substrate conformance       # the release gate (includes the perf floor)
 ```
 

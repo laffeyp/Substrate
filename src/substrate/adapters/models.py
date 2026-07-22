@@ -15,9 +15,12 @@ model; the mode is chosen by which Responder the run is handed.
     actually needs to work (a naive single-shot call silently breaks reasoning models and
     long transcripts). The WALKTHROUGH mode.
 
-Local models only: the walkthrough uses llama3.2:1b (weak ensemble members / quick runs)
-and huihui_ai/qwen2.5-coder-abliterate:7b (R-1 adjudicator / R-3 writer); cloud models are
-avoided (the demonstration runs on the Architect's machine).
+Model reach: the R-1..R-3 walkthroughs pin small local models (llama3.2:1b members;
+huihui_ai/qwen2.5-coder-abliterate:7b adjudicator/writer) so the documented demonstrations run
+on any Ollama box. Beyond the walkthroughs, every Ollama model is a legitimate driver — local
+or `:cloud` tags alike (the 2026-06-27 correction: all models are on the free tier here, so
+there is no local-vs-cloud cost tier; the only distinction that matters is sample size) — and
+`CliResponder` extends the seam to any command-line model or agent.
 """
 
 from __future__ import annotations

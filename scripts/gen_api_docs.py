@@ -110,6 +110,7 @@ GROUPS: dict[str, list[str]] = {
         "InputTypeError",
         "ReplayError",
         "RecordIncompleteError",
+        "RecordGapError",
     ],
 }
 

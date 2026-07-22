@@ -105,12 +105,14 @@ Each of these is a topology — a short Python program against the runtime:
 - A tool-using loop as a chain of model → tool → model Producers, each call
   independently replayable.
 
-All of these ship as runnable topologies with committed run records you can read back.
-Browse them with `substrate topology list`, then read one back with `substrate demo
-replay <name>`; a few committed records also live under `docs/walkthroughs/records/`.
+All of these ship as runnable code with committed run records you can read back.
+Most are bundled topologies — browse those with `substrate topology list`, then read one
+back with `substrate demo replay <name>`. The retry/escalate/pause pipeline ships as the
+R-2 reference walkthrough rather than a bundled topology; its committed record (and a few
+others) lives under `docs/walkthroughs/records/`.
 The streaming-writer-with-checker
 ships with a deterministic `ast.parse` stand-in so it can carry a replayable record;
-`coding_flow` is the sibling that runs a real `ruff check . && mypy . && pytest` gate.
+`coding_flow` is the sibling that runs a real `ruff check && mypy --strict && pytest` gate.
 
 ## Docs
 

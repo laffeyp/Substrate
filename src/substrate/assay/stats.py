@@ -53,7 +53,10 @@ UNDERPOWERED = (
 def equivalence_power_floor(margin: float) -> int:
     """Minimum paired cases to be ALLOWED to claim equivalence within ±margin. Equivalence sample size
     scales ~1/δ²; this yields ~90 / 160 / 360 at margin 0.20 / 0.15 / 0.10 (the figures the power
-    analysis fixed). A looser margin needs fewer cases — which is exactly WHY the margin must be
+    analysis fixed). The 3.6 constant is a HEURISTIC, not a σ-derived quantity: it approximates ~80%
+    TOST power at α=.05 under the worst-case Bernoulli variance (σ²=0.5, independent arms); pairing
+    reduces variance, so the floor is conservative-leaning, but it is a round pre-registered figure,
+    not a tight derivation. A looser margin needs fewer cases — which is exactly WHY the margin must be
     pre-registered, not chosen after seeing the data (the report binds it to the run's recorded config).
     The floor only stops an underpowered run from PRINTING equivalence; it never blocks a real
     difference (superior/inferior fire regardless of n)."""

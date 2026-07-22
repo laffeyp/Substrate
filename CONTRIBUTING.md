@@ -21,6 +21,9 @@ the base draft (the base stays as the audit trail):
   the D-8 supplementary-metadata exclusion set.
 - `docs/specs/product_spec/draft7_amendment_A2_nperf1.md` — the N-PERF-1 throughput floor
   re-baseline.
+- `docs/specs/product_spec/draft7_amendment_A3.md` — the code↔spec reconciliations
+  (check-5 wall-clock half, F-LIFE-2 let-finish/subtree deferral, RunStarted-manifest
+  fidelity, L1-replay scope, read-API naming).
 
 ## Signal-Driven Development
 

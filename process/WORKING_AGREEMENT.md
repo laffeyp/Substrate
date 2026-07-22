@@ -23,7 +23,9 @@
 
 ## Project scope (verbatim from BLACKBOARD ## Decisions)
 
-> *Pending first Architect ratification. The proposed scope is in `process/BLACKBOARD.md ## Surfaced for review` (PROPOSED_DECISION, 2026-06-12). Once ratified into `## Decisions`, restate it here verbatim.*
+> Substrate is a concurrent streaming dataflow runtime: an importable Python 3.12+ library plus a `substrate` CLI, Apache-2.0. It runs Producers concurrently, coordinates them through one totally-ordered append-only bus, creates new Producers dynamically when predicates over the log are satisfied, and persists every run as a replayable, diffable, provenance-complete record — the record is the product surface. v1.0 is the full build per product spec DRAFT 7 (all eight primitives, both persistence modes, replay Levels 1–3a, composition, the CLI, the inspection API), gated by the 17 conformance checks with R-1..R-3 as integration proofs. Out of scope for v1.0: a UI in-repo (substrate-ui is the separate companion), distributed execution, Windows persistent bus. Corrections folded from 2026-06-27: ALL models are legitimate arms (no local-vs-cloud cost tier — the only surviving distinction is sample size), and running command-line models/agents as Producers is baseline substrate capability, not a cockpit feature.
+
+*(Ratified into `## Decisions` 2026-07-22, recording the Architect's 2026-06-12 verbal endorsement + 2026-06-27 corrections. The same ruling opened `## Decisions` to any writer recording a made decision.)*
 
 ---
 
@@ -49,18 +51,21 @@ Superseded drafts under `docs/specs/product_spec/`, `docs/specs/technical_spec/`
 | Type / module | Canonical home (planned) | Notes |
 |---|---|---|
 | `Event`, `BlobRef`, `ProducerRef`, `Subscription` | `substrate/types.py` | Frozen msgspec Structs; the on-disk envelope (tech §3.4). Sole declaration. |
-| `Producer`, `View` (Protocols) | `substrate/protocols.py` | `start(input) -> AsyncIterable[Event]`; `update`/`value`. |
-| `TopologyBuilder`, registry | `substrate/topology.py` | One builder method per primitive (design §4.1). |
-| `Runtime`, `RunResult`, the append cycle / writer | `substrate/runtime.py` | Single writer; the append cycle (tech §6). |
-| Admission queue, control queue | `substrate/runtime.py` | Bounded `asyncio.Queue`; control bypasses admission. |
-| Firing policies (`Once`, `PerEvent`, `PerKey`, `WhileTrue`), cooldowns (`Logical`, `WallClock`) | `substrate/triggers.py` | Tech §10. |
-| Standard Views (`BufferView`, `KindCount`, `PerKindLatest`, started/completed counts) | `substrate/views.py` | F-VIEW-2. |
-| Standard policies (`cancel_all_others`, `let_finish`, `quiescence_with_watchdog`, `threshold_count`, `all_completed`, `subtree_cancellation`, `pause_await_input`, `any_of`, `all_of`) | `substrate/policies.py` | F-LIFE-2. |
+| `Producer`, `View`, `Responder`, `TriggerContext` (Protocols) | `substrate/protocols.py` | `(input) -> AsyncIterable[Event]`; `update`/`value`. |
+| `TopologyBuilder`, registry | `substrate/kernel/topology.py` | One builder method per primitive (design §4.1). *(Post-reorg path; the 2026-06-19 subpackage split moved the flat modules under `kernel/ record/ projections/ conformance/`.)* |
+| `Runtime`, `RunResult`, the writer loop | `substrate/kernel/runtime.py` | Single writer; run lifecycle + termination (tech §6). |
+| The append cycle (`AppendCycle`), admission/control queues | `substrate/kernel/sequencer.py` + `substrate/kernel/runstate.py` | Six-step cycle; bounded inbox; control bypasses admission. |
+| Firing policies (`Once`, `PerEvent`, `PerKey`, `WhileTrue`), cooldowns (`Logical`, `WallClock`) | `substrate/kernel/triggers.py` | Tech §10. |
+| Standard Views (`BufferView`, `KindBuffer`, `KindCount`, `PerKindLatest`, started/completed counts) | `substrate/kernel/views.py` | F-VIEW-2. |
+| Standard policies (`cancel_all_others`, `quiescence_with_watchdog`, `threshold_count`, `all_completed`, `pause_await_input`, `any_of`, `all_of`) | `substrate/kernel/policies.py` | F-LIFE-2. *(`let_finish` REMOVED pre-1.0 — dead no-op path, audit #8; `subtree_cancellation` DEFERRED post-1.0 — vocab-blocked; both in the CONTRIBUTING deferral list.)* |
+| Composition (`embedded_substrate`, `EmbeddedRunFailed`) | `substrate/kernel/composition.py` | Tech §20; F-COMP. |
 | Canonical encoding (RFC 8785 pipeline, type whitelist, `B_hash`/`B_disk`) | `substrate/encoding.py` | Tech §4. |
-| Run record on disk (segments, sealing, frame/CRC, manifest, blob store, recovery) | `substrate/record.py` | Tech §3, §5. |
-| Replay engine (Levels 1–3b) | `substrate/replay.py` | Tech §12. |
-| Live attach (follower) | `substrate/attach.py` | Tech §13. |
-| Inspection / provenance / divergence | `substrate/inspect.py` | Tech §14; `explain_producer`, `trace_ancestry`, `view_at`, `decisions_between`, `first_divergence`. |
+| Run record on disk (segments, sealing, frame/CRC, manifest, blob store, recovery, locking, sidecars) | `substrate/record/` (`record.py`, `framing.py`, `blobstore.py`, `sealing.py`, `locking.py`, `sidecar.py`) | Tech §3, §5. |
+| Replay engine (Levels 1–3b) | `substrate/projections/replay.py` | Tech §12. |
+| Live attach (follower) | `substrate/projections/attach.py` | Tech §13. |
+| Inspection / provenance / divergence | `substrate/projections/inspect.py` | Tech §14; `explain_producer`, `trace_ancestry`, `view_at`, `decisions_between`, `first_divergence`. |
+| Narration + graph projections | `substrate/projections/narrate.py`, `substrate/projections/graph.py` | Wave 14 / Wave 12 prep. |
+| Model adapters (`DeterministicResponder`, `OllamaResponder`, `CliResponder`, `ModelUsage`, metered calls) | `substrate/adapters/models.py` | The Responder seam; re-exported via `substrate.reference` for back-compat. |
 | Test helpers (`assert_event`, `assert_no_event`, `assert_sequence`) | `substrate/testing.py` | F-API-4 / tech §15. |
 | Public API re-exports | `substrate/api.py` | F-API-6: `substrate.cli` may import only this. |
 | CLI (`run`, `replay`, `inspect`, `validate`, `tail`, `conformance`, `resume`, `stats`) | `substrate/cli.py` | Click + Rich; public API only. |
