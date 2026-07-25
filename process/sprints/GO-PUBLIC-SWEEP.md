@@ -1,6 +1,6 @@
 # GO-PUBLIC-SWEEP — the readiness work, scoped
 
-*The work that gates the repo-public + `1.0.0rc1` moment. Reference: **laffeyp/cascade-img** — a WRITING example only (register, cadence, how comments
+*The work that gates the repo-public + `1.0.0` moment. Reference: **laffeyp/cascade-img** — a WRITING example only (register, cadence, how comments
 state constraints), per Architect ruling 2026-07-24. Nothing structural is copied from it; the
 file set this repo ships is decided by what THIS repo needs, each file ruled on its own merit.
 Its bar, in one line: every human-facing surface has a named audience and plain register; every
@@ -29,7 +29,7 @@ Files, modeled directly on the exemplar's set:
   fixed); opening a stranger's record is safe, running a stranger's topology module is code
   execution and always was; the tool suite is library functions like `subprocess` — nothing
   runs until composed and invoked. Plus where to report.
-- **CHANGELOG.md** — starts at `1.0.0rc1`; Keep-a-Changelog shape; the BLACKBOARD is history,
+- **CHANGELOG.md** — starts at `1.0.0`; Keep-a-Changelog shape; the BLACKBOARD is history,
   not a changelog an outsider can read.
 - **CODE_OF_CONDUCT.md**, **SUPPORT.md** (what's welcome now: issues, topologies, ports;
   what's explicitly not yet: large kernel PRs while the spec corpus governs — solo-maintainer
@@ -109,7 +109,7 @@ given only AGENT_RUNDOWN.md produces a correct system summary (test it on a real
 
 ## W6 — Release mechanics
 
-- `pyproject.toml`: name `substrate-kernel`, version `1.0.0rc1`, real description, license
+- `pyproject.toml`: name `substrate-kernel`, version `1.0.0`, real description, license
   expression, classifiers, URLs, `requires-python >=3.12`.
 - Wheel-content gate: fresh venv, `pip install dist/*.whl`, `substrate demo replay code_review`
   works offline — proves the committed records ship.

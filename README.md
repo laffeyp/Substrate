@@ -116,7 +116,7 @@ read one back. The retry/escalate/pause pipeline ships as a reference walkthroug
 
 ## Status
 
-1.0.0rc1. Ships: the eight pieces above, both persistence modes, replay Levels 1,
+1.0.0. Ships: the eight pieces above, both persistence modes, replay Levels 1,
 2, and 3(a), the read projections (provenance, diff, narration, graphs),
 composition, the 17-check conformance suite, and the bundled topologies with their
 committed records. Deferred, with recorded rationale: byte-identical Level-3(b)
