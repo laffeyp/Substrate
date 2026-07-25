@@ -1,5 +1,7 @@
 # Substrate
 
+![Substrate — a Python runtime that coordinates models and anything else you want through a single append-only log](.github/assets/substrate-banner-1600x400.png)
+
 [![PyPI](https://img.shields.io/pypi/v/substrate-kernel)](https://pypi.org/project/substrate-kernel/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)](pyproject.toml)
@@ -23,6 +25,15 @@ every runtime decision from a real run, numbered and replayable offline.
 topology, step by step.
 
 ## How it works
+
+If you use a coding agent — Claude Code, Codex, and their kin — you already know
+the shape: a model that can only read and write text, wrapped in a harness of
+tools and procedures that decides how that text becomes work on a computer. The
+harness is most of the product. Substrate lets you build your own — your models,
+local or cloud, your tools, your loop — with a property none of those harnesses
+have: every step of the run lands on a replayable record. And because the harness
+is just one arrangement of the same pieces, the runtime covers much more than the
+agent loop.
 
 Say you have several computations that need to work together: a few models
 answering the same question, or a parser feeding a checker feeding a fixer, or a
@@ -58,10 +69,6 @@ computation starts, each condition that fires, how the run ends — is written o
 that same log, the log is a complete, ordered account of the run. You can read back
 exactly what happened and why, replay it, or inspect any point in it. Nothing
 important is stranded in memory or hidden in control flow.
-
-The same shape covers the agent case: the loop that lets a model direct tools on a
-computer is a topology like any other, built from models you choose — local or
-cloud — with every step of the loop on the record.
 
 ## The pieces
 
