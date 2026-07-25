@@ -43,7 +43,7 @@ Three moving parts, all on the log:
 `DeterministicResponder` for the CI stand-in). The topology is written against the Responder, not any
 model; you choose the model by which Responder you hand it.
 
-**Native tool-calling, robust across models.** `OllamaResponder.achat_tools(prompt, tools)` passes the
+**Native tool-calling, tolerant across models.** `OllamaResponder.achat_tools(prompt, tools)` passes the
 tool JSON schemas to Ollama's `/api/chat` `tools` field and returns the raw reply. `parse_tool_call`
 then handles it **two ways**, because real models differ — verified live: `llama3.2:1b` returns a
 native `tool_calls` array; `qwen2.5-coder:7b` emits the *same* call as a JSON object in `content`. The

@@ -1,7 +1,8 @@
 # GO-PUBLIC-SWEEP — the readiness work, scoped
 
-*The work that gates the repo-public + `1.0.0rc1` moment. Exemplar: **laffeyp/cascade-img** — the
-Architect's previously open-sourced, de-LLM-ized repo, characterized 2026-07-24 from a full read.
+*The work that gates the repo-public + `1.0.0rc1` moment. Reference: **laffeyp/cascade-img** — a WRITING example only (register, cadence, how comments
+state constraints), per Architect ruling 2026-07-24. Nothing structural is copied from it; the
+file set this repo ships is decided by what THIS repo needs, each file ruled on its own merit.
 Its bar, in one line: every human-facing surface has a named audience and plain register; every
 machine-facing surface has a stable typed contract; comments state a constraint and cite its
 source; no LLM lexicon, no AI attribution (enforced even in the shipped onboarding prompt);
@@ -18,7 +19,7 @@ Order is by leverage; waves are independent except W6 last. Every wave has a run
 
 ---
 
-## W1 — Community scaffolding (½ day)
+## W1 — Community scaffolding
 
 Files, modeled directly on the exemplar's set:
 
@@ -41,7 +42,7 @@ Files, modeled directly on the exemplar's set:
 *Check:* every file exists; a cold reader can find "is my record safe to share" and "where do I
 report" in under a minute.
 
-## W2 — README reconstruction (½–1 day)
+## W2 — README reconstruction
 
 Rebuild to the exemplar's proven order: badges → one-line what-it-is → **cold-open demo BEFORE
 install** → Quick Start → the topology/pane table → How This Differs (with honest concessions,
@@ -56,7 +57,7 @@ gate is the bar until Actions returns — a red/never-run badge reads as abandon
 `python -m pytest tests/` untouched; every claim in the new README traceable to a runnable
 command.
 
-## W3 — The comment sweep, recalibrated (1–2 days, 35 files)
+## W3 — The comment sweep, recalibrated
 
 The exemplar KEEPS review tags — `# …could mis-bind a pending /video job (review #9 F2)` — so
 the rule is not deletion. Per reference, one of three dispositions:
@@ -75,7 +76,7 @@ the talkative register is a feature; the archaeology is not).
 *Check:* `grep -rE "soundfield" src/` returns zero; every surviving `review #N`/finding ref sits
 on a line (or block) that states its constraint; `scripts/ci_local.sh` green.
 
-## W4 — Prose cadence pass (½ day, down from the earlier estimate)
+## W4 — Prose cadence pass
 
 Lexicon is already clean; finish it: the 2 "robust" + 1 "powerful" go. Then a read-aloud pass
 over README (post-W2), tutorial, demo, walkthroughs for LLM cadence — the exemplar's register is
@@ -85,7 +86,7 @@ better. Em-dashes stay wherever they're doing appositive work.
 
 *Check:* zero lexicon hits repo-wide; spot-read three docs cold.
 
-## W5 — Named-audience docs + agent onboarding (1 day)
+## W5 — Named-audience docs + agent onboarding
 
 The exemplar's docs each declare an audience. Map ours and fill the two gaps:
 
@@ -106,7 +107,7 @@ The exemplar's docs each declare an audience. Map ours and fill the two gaps:
 *Check:* the docs table in the new README lists every doc with its audience; a fresh agent
 given only AGENT_RUNDOWN.md produces a correct system summary (test it on a real session).
 
-## W6 — Release mechanics (½ day; last)
+## W6 — Release mechanics
 
 - `pyproject.toml`: name `substrate-kernel`, version `1.0.0rc1`, real description, license
   expression, classifiers, URLs, `requires-python >=3.12`.
@@ -122,5 +123,6 @@ record in under five minutes.
 
 ---
 
-**Total: 4–6 working days.** W1/W2/W4/W5 are parallelizable; W3 is the careful one; W6 is last
-and small. Nothing here blocks TestPyPI dry runs at any point.
+**Total: agent-speed — minutes-to-hours of execution, not days.** The only real time is the
+Architect reading the diffs. W1/W2/W4/W5 run in parallel; W3 is the judgment-per-reference one;
+W6 is last. Nothing here blocks TestPyPI dry runs at any point.

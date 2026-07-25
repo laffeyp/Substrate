@@ -1,4 +1,4 @@
-"""Bundled topology registry — makes `substrate run --topology <name>` work (review #16, HAT B).
+"""Bundled topology registry — makes `substrate run --topology <name>` work (review #16).
 
 The CLI advertises `--topology <name>` and an error that names a registry, but the registry
 ships empty, so a newcomer hits a dead end. This module populates it with CI-default (no-network,
@@ -69,14 +69,14 @@ BUNDLED: dict[str, Callable[[], _Topo]] = {
     "prisoners_dilemma": prisoners_dilemma_topology,
     "intel_asymmetry": intel_asymmetry_topology,
     "natural_conversation": lambda: natural_conversation_topology(instruments=True),
-    # the WITHOUT arm, so the ablation is a runnable WITH-vs-WITHOUT contrast (review #17 HAT B):
+    # the WITHOUT arm, so the ablation is a runnable WITH-vs-WITHOUT contrast (review #17):
     # run both and diff the records to SEE what the instruments buy.
     "natural_conversation_bare": lambda: natural_conversation_topology(instruments=False),
     "adversarial_pair": adversarial_pair_topology,
     "tool_loop": tool_loop_topology,
     "game_of_life": game_of_life_topology,
     # an asymmetric, MOVING glider (vs the symmetric blinker) — the fixture that lets the pixel-decode
-    # harness catch a pure mirror render bug (review #50 mirror-blind spot).
+    # harness catch a pure mirror render bug the mirror-symmetric blinker cannot show.
     "game_of_life_glider": lambda: game_of_life_topology(initial=glider(), generations=4),
 }
 

@@ -202,7 +202,7 @@ verdict returned — stays on the outer log and is replayable regardless of the 
 ## Prior art, and what is different here
 
 The agent field has a name for letting a model's action space be code: **code-as-action** (CodeAct
-and kin), where the agent writes Python and an interpreter runs it. It is powerful and dangerous —
+and kin), where the agent writes Python and an interpreter runs it. It is capable and dangerous —
 arbitrary execution, no replay, no typed boundary. Actor systems (Erlang's `spawn`) give dynamic
 process creation; self-modifying programs and reflection give live mutation; dynamic dataflow
 frameworks give runtime graph construction.
