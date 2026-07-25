@@ -1,22 +1,26 @@
 # Substrate
 
+[![PyPI](https://img.shields.io/pypi/v/substrate-kernel)](https://pypi.org/project/substrate-kernel/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue)](pyproject.toml)
+
 Substrate is a Python runtime for running many computations together — LLMs, ML
 models, deterministic transforms, subprocesses, parsers, simulators: anything that
 takes typed input and emits typed events — and coordinating them through a single
 shared, append-only log.
 
-> **New here?** The fastest way in is the [tutorial](docs/tutorial.md) — install to a
-> running two-Producer topology, step by step. The [docs index](docs/README.md) lays out
-> the rest of the path.
+## Quick start
 
-## What it is
-Substrate is a way of working with LLMs that happens to do much more. If you're familiar with Codex, Claude, or Amp: they each combine an LLM, which can only input and output text, with a harness of tools and procedures that determines how that text can direct work on a computer. They make an API that LLMs can use — an orchestration system, or harness. Substrate lets you build *your own harness*, with open-source models running on your machine or in the cloud.
+```
+pip install substrate-kernel          # the import name is `substrate`
+substrate demo replay code_review     # read a committed run record back — no model, no network
+substrate demo run debate             # run one live
+```
 
-But you can also recreate whole parts of a traditional software workflow. Say you want to run three teams of pair-coding LLMs with varying acceptance criteria across teams and rounds, and you want some external data stream to change the direction of work when specific conditions are met. Substrate can help you do that.
-
-Say you want LLMs to play any kind of game-theoretical game, or to do research on how different kinds of LLMs respond to the same kind of inputs, or to run some kind of adversarial critiquing process on a set of documents to refine them. Substrate can help you do that. In fact, many of these applications are already built and available to use and view with substrate-ui.
-
-We do this by drastically simplifying the mental model of what we're doing here. Once that's done, key concepts emerge that we use as the building blocks of an abstract system. Substrate is that system.
+`demo replay` reads back a run record that ships with the package: every event and
+every runtime decision from a real run, numbered and replayable offline.
+[docs/tutorial.md](docs/tutorial.md) goes from install to a running two-Producer
+topology, step by step.
 
 ## How it works
 
@@ -55,10 +59,9 @@ that same log, the log is a complete, ordered account of the run. You can read b
 exactly what happened and why, replay it, or inspect any point in it. Nothing
 important is stranded in memory or hidden in control flow.
 
-That combination — concurrent computations, one shared log, conditions that create
-new work as the run goes, and a complete replayable record of it — is what makes
-ensembles-with-adjudication and retry-with-context straightforward to build (see the
-next section).
+The same shape covers the agent case: the loop that lets a model direct tools on a
+computer is a topology like any other, built from models you choose — local or
+cloud — with every step of the loop on the record.
 
 ## The pieces
 
@@ -105,69 +108,51 @@ Each of these is a topology — a short Python program against the runtime:
 - A tool-using loop as a chain of model → tool → model Producers, each call
   independently replayable.
 
-All of these ship as runnable code with committed run records you can read back.
-Most are bundled topologies — browse those with `substrate topology list`, then read one
-back with `substrate demo replay <name>`. The retry/escalate/pause pipeline ships as the
-R-2 reference walkthrough rather than a bundled topology; its committed record (and a few
-others) lives under `docs/walkthroughs/records/`.
-The streaming-writer-with-checker
-ships with a deterministic `ast.parse` stand-in so it can carry a replayable record;
-`coding_flow` is the sibling that runs a real `ruff check && mypy --strict && pytest` gate.
+All of these ship as runnable code. Most are bundled topologies with committed run
+records — `substrate topology list` to browse, `substrate demo replay <name>` to
+read one back. The retry/escalate/pause pipeline ships as a reference walkthrough
+(`docs/walkthroughs/`); `coding_flow` runs a real
+`ruff check && mypy --strict && pytest` gate on generated code.
+
+## Status
+
+1.0.0rc1. Ships: the eight pieces above, both persistence modes, replay Levels 1,
+2, and 3(a), the read projections (provenance, diff, narration, graphs),
+composition, the 17-check conformance suite, and the bundled topologies with their
+committed records. Deferred, with recorded rationale: byte-identical Level-3(b)
+re-execution, and the persistent bus on Windows.
+
+The verification gate is `scripts/ci_local.sh` — the full stack (lint, format,
+strict types, tests, import contract, conformance) across Python 3.12/3.13/3.14.
+The conformance throughput floor is hardware-dependent and is graded on controlled
+hardware rather than in the matrix (`CONTRIBUTING.md`).
 
 ## Docs
 
-- **Run a bundled demo** — `substrate topology list` to see them, then
-  `substrate demo replay code_review` (tail a committed record, no run) or
-  `substrate demo run debate` (live). Runnable demonstration topologies, no network, each
-  producing a replayable record; the `natural_conversation` ablation (vs
-  `natural_conversation_bare`) shows what the instruments buy, and `substrate score <root>`
-  surfaces the calibration payoff. See `src/substrate/topologies/README.md`.
-- **See it run** — `docs/demo.md` (or `bash demo.sh`): a guided read of the
-  runtime working — three reference topologies, their logs annotated line by line,
-  replay and provenance queries, and the conformance gate. All against committed
-  records, no LLM or network. The fastest way to see what the thing actually does.
-- **Write your first topology** — `docs/tutorial.md`: from install to a running
-  two-Producer topology, step by step. Start here.
-- **Add a topology** — `docs/adding-a-topology.md`: the next step after the
-  tutorial — package a topology as a factory, run it from the CLI, make it
-  dual-mode (deterministic in CI, real models in a walkthrough), and register it
-  in the bundled catalogue. The contributor on-ramp.
-- **Worked example topologies** — `docs/walkthroughs/README.md`: three complete
-  topologies that ship with the runtime — an ensemble-and-adjudicator, an
-  error-cascade pipeline, and code-synthesis with concurrent checking. Each ships
-  with a committed (deterministic, CI-mode) run record you can read back, plus an
-  illustrative transcript from a real local-LLM run you can reproduce.
-- **What replay means** — `docs/replay.md`: replaying a run from its log has four
-  levels of fidelity; this explains which ship in v1.0. (Short version: state and
-  decision reconstruction plus log-equivalence diffing ship; full byte-for-byte
-  re-execution is post-1.0 — don't rely on it yet.)
-- **API reference** — `docs/api.md`: the public surface (`substrate.api`),
-  generated from the code.
-- **Research log** — `process/RESEARCH.md`: the long-form empirical findings from driving real
-  models through the agent tool loop (what breaks, where a prompt stops working and the model
-  ceiling begins), plus the tiered model roster — local and cloud, suitable tiers and known-
-  unsuitable negative controls — we test against. The *why it behaves this way*, beyond the current
-  state (`process/BLACKBOARD.md`) and the kit-methodology findings (`process/KIT_DIARY.md`).
-- **Conformance** — `uv run substrate conformance` runs the release gate: a suite
-  of checks that exercises the runtime against the spec's required behaviors (one
-  canonical topology per property). It runs in CI on every push. (The throughput
-  floor is hardware-dependent, so it's checked on controlled hardware, not the CI
-  matrix — see `CONTRIBUTING.md`.)
+| Doc | What it is |
+|---|---|
+| [docs/tutorial.md](docs/tutorial.md) | Install to a running two-Producer topology, step by step. Start here. |
+| [docs/demo.md](docs/demo.md) | A guided read of three reference topologies against their committed records — logs annotated line by line, replay and provenance queries. Also runnable: `bash demo.sh`. |
+| [docs/adding-a-topology.md](docs/adding-a-topology.md) | Package a topology, run it from the CLI, register it in the bundled catalogue. The contributor on-ramp. |
+| [docs/walkthroughs/](docs/walkthroughs/README.md) | Three complete worked topologies, each with a committed record and a reproducible real-model transcript. |
+| [docs/replay.md](docs/replay.md) | The four replay fidelity levels and which ship in v1.0. |
+| [docs/api.md](docs/api.md) | The public surface (`substrate.api`), generated from the code. |
 
 ## Develop
 
 ```
 uv venv --python 3.12
 uv pip install -e ".[dev]"
-uv run pytest
+scripts/ci_local.sh
 ```
+
+`CONTRIBUTING.md` has the gates, the spec corpus, and the layout.
 
 ## Repository layout
 
 To use or contribute, you need `src/` (the runtime), `docs/` (how to use it), and
-`CONTRIBUTING.md` (how to develop). Everything else is the development record.
-
-The runtime implements a four-document spec corpus. The **canonical** drafts are:
+`CONTRIBUTING.md` (how to develop). The runtime implements a four-document spec
+corpus; the canonical drafts:
 
 | Spec | Canonical |
 |---|---|
@@ -176,11 +161,10 @@ The runtime implements a four-document spec corpus. The **canonical** drafts are
 | Technical (byte layout, writer cycle, public API) | `docs/specs/technical_spec/draft5.md` + amendment `A1` |
 | Design (API ergonomics, CLI/error UX) | `docs/specs/design_spec/draft1.md` |
 
-Everything else under `docs/specs/` is history, not load-bearing: superseded drafts
-are relocated into each spec dir's `history/` (kept, not deleted — the audit trail).
-And `docs/proof/`, plus everything under `process/` (`BLACKBOARD.md`, `KIT_DIARY.md`,
-`RESEARCH.md`, `sprints/`, `signals/`, `archive/`, `WORKING_AGREEMENT.md`, `PHASE2.md`), is the
-Signal-Driven Development record of how it was built — read it for the *why*, skip it
-to use or contribute. `CONTRIBUTING.md` has the full layout + the SDD notes.
+Superseded drafts live in each spec dir's `history/`, kept, not deleted. Everything
+under `process/` is the development record — how this was built, kept append-only.
+Read it for the why; skip it to use or contribute.
 
-Working name "substrate" (official package name deferred). Apache-2.0.
+---
+
+Substrate. On PyPI as `substrate-kernel` (the import name is `substrate`). Apache-2.0.

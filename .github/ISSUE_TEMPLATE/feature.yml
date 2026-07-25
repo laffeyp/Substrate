@@ -1,0 +1,10 @@
+name: Feature or topology idea
+description: Something the runtime should do, or a topology worth bundling.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: The idea
+    validations:
+      required: true

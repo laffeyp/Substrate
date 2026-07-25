@@ -1,0 +1,17 @@
+name: Bug report
+description: Something behaves wrong or crashes.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got. A run record that shows the problem helps most.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / Python / OS
+    validations:
+      required: true
