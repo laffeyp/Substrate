@@ -663,8 +663,8 @@ wheels = [
 ]
 
 [[package]]
-name = "substrate"
-version = "0.0.0"
+name = "substrate-kernel"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },

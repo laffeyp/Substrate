@@ -1,17 +1,31 @@
 # Substrate — concurrent streaming dataflow runtime.
-# Working dist name "substrate" is a placeholder (B-Q-1 deferred; official package
-# name picked before any publish — product D-2). NOT published. Import name: substrate.
+# Distribution name: substrate-kernel (the bare "substrate" is registered to an unrelated
+# party on PyPI). Import name: substrate. Decided 2026-07-24 (BLACKBOARD ## Decisions).
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "substrate"
-version = "0.0.0"
-description = "Concurrent streaming dataflow runtime (working name; see B-Q-1)."
+name = "substrate-kernel"
+version = "1.0.0"
+description = "Concurrent streaming dataflow runtime: run many computations — LLMs, transforms, subprocesses — coordinated through one append-only log; every run a replayable, diffable record."
 requires-python = ">=3.12"          # D-6: 3.12+ only (msgspec C ext, per-task eager exec)
 license = "Apache-2.0"              # D-1
 readme = "README.md"
+authors = [{ name = "Green Rose Systems" }]
+keywords = ["dataflow", "runtime", "event-sourcing", "llm", "orchestration", "replay", "append-only-log"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed",
+]
+
 dependencies = [
   "msgspec>=0.21,<0.22",            # D-3: validation + encoding + schema + to_builtins
   "rfc8785",                        # D-7: RFC 8785 canonical JSON (the bytes everything hashes over)
@@ -34,6 +48,10 @@ dev = [
   "httpx",                          # so dev + CI type-check/test the [openai-compat] reference adapter
 ]
 openai-compat = ["httpx"]           # optional extra; kernel imports none of these
+
+[project.urls]
+Repository = "https://github.com/laffeyp/Substrate"
+Changelog = "https://github.com/laffeyp/Substrate/blob/main/CHANGELOG.md"
 
 [project.scripts]
 substrate = "substrate.cli:main"
