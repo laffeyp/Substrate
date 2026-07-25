@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 — unreleased
+## 1.0.0 — 2026-07-24
 
 First release: the full runtime. The eight primitives, both persistence
 modes, replay Levels 1/2/3(a), the read projections (provenance, diff, narration,
