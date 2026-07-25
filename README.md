@@ -24,52 +24,6 @@ every runtime decision from a real run, numbered and replayable offline.
 [docs/tutorial.md](docs/tutorial.md) goes from install to a running two-Producer
 topology, step by step.
 
-## How it works
-
-If you use a coding agent — Claude Code, Codex, and their kin — you already know
-the shape: a model that can only read and write text, wrapped in a harness of
-tools and procedures that decides how that text becomes work on a computer. The
-harness is most of the product. Substrate lets you build your own — your models,
-local or cloud, your tools, your loop — with a property none of those harnesses
-have: every step of the run lands on a replayable record. And because the harness
-is just one arrangement of the same pieces, the runtime covers much more than the
-agent loop.
-
-Say you have several computations that need to work together: a few models
-answering the same question, or a parser feeding a checker feeding a fixer, or a
-planner that hands pieces of work to solvers. The awkward part is rarely running
-any one of them — it's getting them to coordinate, and being able to say afterward
-what actually happened.
-
-The usual ways to wire that up are to connect the pieces directly to each other, or
-to let them share and mutate some common state. Both get tangled as the number of
-pieces grows, and both leave the history of a run implicit — spread across logs,
-in-memory state, and control flow you can't replay.
-
-Substrate takes one approach throughout: everything goes through a single,
-totally-ordered, append-only log — think of an accountant's ledger, where you only
-ever add a new entry, never erase an old one, and any total you care about is
-*derived* by replaying the entries rather than kept on the side. Each computation
-reads from the log and emits typed events back onto it; none of them talk to each
-other directly. That one shared log is the only place coordination happens.
-
-The set of running computations isn't fixed ahead of time. Instead of declaring a
-static graph, you write small conditions over the log — "once three answers are
-in", "when this step fails" — and when a condition holds, the runtime starts
-another computation. The shape of a run grows as it unfolds, including computations
-that start more of themselves (so recursion falls out for free).
-
-What you actually write is called a **topology**: a small Python program that
-declares which computations can run, which conditions start them, and how data
-flows between them. You hand the topology to the runtime; it executes it and
-produces the log.
-
-And because every event *and* every decision the runtime makes — each time a
-computation starts, each condition that fires, how the run ends — is written onto
-that same log, the log is a complete, ordered account of the run. You can read back
-exactly what happened and why, replay it, or inspect any point in it. Nothing
-important is stranded in memory or hidden in control flow.
-
 ## The pieces
 
 A topology is assembled from a small, fixed set of named pieces:
@@ -120,6 +74,52 @@ records — `substrate topology list` to browse, `substrate demo replay <name>` 
 read one back. The retry/escalate/pause pipeline ships as a reference walkthrough
 (`docs/walkthroughs/`); `coding_flow` runs a real
 `ruff check && mypy --strict && pytest` gate on generated code.
+
+## How it works
+
+If you use a coding agent — Claude Code, Codex, and their kin — you already know
+the shape: a model that can only read and write text, wrapped in a harness of
+tools and procedures that decides how that text becomes work on a computer. The
+harness is most of the product. Substrate lets you build your own — your models,
+local or cloud, your tools, your loop — with a property none of those harnesses
+have: every step of the run lands on a replayable record. And because the harness
+is just one arrangement of the same pieces, the runtime covers much more than the
+agent loop.
+
+Say you have several computations that need to work together: a few models
+answering the same question, or a parser feeding a checker feeding a fixer, or a
+planner that hands pieces of work to solvers. The awkward part is rarely running
+any one of them — it's getting them to coordinate, and being able to say afterward
+what actually happened.
+
+The usual ways to wire that up are to connect the pieces directly to each other, or
+to let them share and mutate some common state. Both get tangled as the number of
+pieces grows, and both leave the history of a run implicit — spread across logs,
+in-memory state, and control flow you can't replay.
+
+Substrate takes one approach throughout: everything goes through a single,
+totally-ordered, append-only log — think of an accountant's ledger, where you only
+ever add a new entry, never erase an old one, and any total you care about is
+*derived* by replaying the entries rather than kept on the side. Each computation
+reads from the log and emits typed events back onto it; none of them talk to each
+other directly. That one shared log is the only place coordination happens.
+
+The set of running computations isn't fixed ahead of time. Instead of declaring a
+static graph, you write small conditions over the log — "once three answers are
+in", "when this step fails" — and when a condition holds, the runtime starts
+another computation. The shape of a run grows as it unfolds, including computations
+that start more of themselves (so recursion falls out for free).
+
+What you actually write is called a **topology**: a small Python program that
+declares which computations can run, which conditions start them, and how data
+flows between them. You hand the topology to the runtime; it executes it and
+produces the log.
+
+And because every event *and* every decision the runtime makes — each time a
+computation starts, each condition that fires, how the run ends — is written onto
+that same log, the log is a complete, ordered account of the run. You can read back
+exactly what happened and why, replay it, or inspect any point in it. Nothing
+important is stranded in memory or hidden in control flow.
 
 ## Status
 
