@@ -89,7 +89,7 @@ def main() -> int:
         "--workdir", default=None, help="scratch dir the agent may use (default: a temp dir)"
     )
     ap.add_argument("--max-steps", type=int, default=6, help="tool-call budget (default: 6)")
-    ap.add_argument("--max-tokens", type=int, default=256, help="per model call (default: 256)")
+    ap.add_argument("--max-tokens", type=int, default=0, help="per model call; 0 = no cap (default)")
     ap.add_argument(
         "--read-only", action="store_true", help="inspect-only suite (no edit/write/bash)"
     )
@@ -101,7 +101,7 @@ def main() -> int:
     ap.add_argument(
         "--timeout",
         type=float,
-        default=180.0,
+        default=300.0,
         help="per model-call timeout in seconds (raise for slow local reasoning models)",
     )
     return asyncio.run(_run(ap.parse_args()))

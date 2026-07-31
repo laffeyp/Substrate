@@ -116,10 +116,10 @@ class OllamaResponder:
         base_url: str | None = None,
         api_key: str | None = None,
         temperature: float = 0.0,
-        max_tokens: int = 512,
+        max_tokens: int = 0,  # 0 = uncapped; generation is bounded by num_ctx and timeout
         num_ctx: int = 32768,
         think: bool = False,
-        timeout: float = 120.0,
+        timeout: float = 300.0,
         max_retries: int = 3,
         system: str | None = None,
     ) -> None:
@@ -295,7 +295,7 @@ class CliResponder:
     cancellable and Producers overlap, matching OllamaResponder's concurrency contract."""
 
     def __init__(
-        self, command: list[str], *, timeout: float = 180.0, name: str | None = None
+        self, command: list[str], *, timeout: float = 600.0, name: str | None = None
     ) -> None:
         if not command:
             raise ValueError("CliResponder needs a non-empty command, e.g. ['claude', '-p']")
