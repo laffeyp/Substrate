@@ -83,13 +83,20 @@ def _reader_factory(question: str, reader: Responder) -> _Factory:
         index = int(inp.get("index", 0)) if hasattr(inp, "get") else 0
         source = str(inp.get("source", "")) if hasattr(inp, "get") else ""
         content = str(inp.get("content", "")) if hasattr(inp, "get") else ""
-        note = await call_responder(
-            reader,
-            f"Research question: {question}\n\nRead this source and state, in one or two sentences, only "
-            f"what it contributes to the question (or that it contributes nothing).\n\n"
-            f"SOURCE {source}:\n{content}",
-        )
-        yield Finding(index=index, source=source, note=note.strip())
+        # Exactly one Finding per ReadRequest, even on reader failure: the fan-in counts to n, so a
+        # single failed/empty read cannot stall the sweep. A dead reader becomes a recorded empty
+        # contribution that the completeness critic then names — not a run that finalises with no answer.
+        try:
+            note = await call_responder(
+                reader,
+                f"Research question: {question}\n\nRead this source and state, in one or two sentences, "
+                f"only what it contributes to the question (or that it contributes nothing).\n\n"
+                f"SOURCE {source}:\n{content}",
+            )
+            note = note.strip() or "(no contribution)"
+        except Exception as exc:  # a reader failure is a recorded gap, not a hung run
+            note = f"(read failed: {type(exc).__name__})"
+        yield Finding(index=index, source=source, note=note)
 
     return lambda: read
 
