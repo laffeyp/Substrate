@@ -13,5 +13,6 @@ from __future__ import annotations
 
 from .best_of_n_verified import best_of_n_verified_topology
 from .fanout_review import changed_files, fanout_review_topology
+from .research_sweep import gather, research_sweep_topology
 
-__all__ = ["best_of_n_verified_topology", "changed_files", "fanout_review_topology"]
+__all__ = ["best_of_n_verified_topology", "changed_files", "fanout_review_topology", "gather", "research_sweep_topology"]

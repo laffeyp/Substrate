@@ -1,0 +1,201 @@
+"""research_sweep — fan out readers over a document set, critique gaps, synthesize (workflow-parity W1.3).
+
+The map-reduce of the workflow library: where fanout_review and best_of_n_verified fan out over ONE
+input and select/judge, research_sweep fans out over DIFFERENT inputs (a document set) and SYNTHESIZES.
+A seeder emits one ReadRequest per document; a reader extracts findings from each for the research
+question; a completeness critic names what is still missing across all findings; a synthesizer writes
+the answer grounded in findings + gaps.
+
+No existing whole topology composes cleanly for map-reduce (code_review's reviewers share one `code`;
+best_of_n's slots all attempt one task), so this is authored from the standard builder primitives — the
+same way code_review and best_of_n were. The four Structs below are topology-local application event
+kinds (like code_review's CritiquePosted), not the locked lifecycle vocabulary.
+"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator, Callable
+from pathlib import Path
+from typing import Any
+
+from msgspec import Struct
+
+from ... import api
+from ...adapters import Responder, call_responder
+
+_Factory = Callable[[], Any]
+
+# Bound each document so a large corpus cannot blow the reader prompt (the tool-result byte-cap lesson).
+_MAX_DOC_CHARS = 8_000
+
+
+class ReadRequest(Struct, frozen=True):
+    """A document handed to one reader: its index in the sweep, a source label, its (bounded) content."""
+
+    index: int
+    source: str
+    content: str
+
+
+class Finding(Struct, frozen=True):
+    """One reader's finding for the research question, from its own document."""
+
+    index: int
+    source: str
+    note: str
+
+
+class Gaps(Struct, frozen=True):
+    """The completeness critic's account of what the findings do NOT yet cover."""
+
+    note: str
+
+
+class Synthesis(Struct, frozen=True):
+    """The synthesizer's answer, grounded in the findings and the named gaps."""
+
+    text: str
+
+
+def gather(paths: list[str | Path]) -> list[tuple[str, str]]:
+    """Read each path read-only into (source, bounded-content). A missing path raises FileNotFoundError
+    (surfaced, not swallowed). Content over the cap is truncated with a visible marker."""
+    out: list[tuple[str, str]] = []
+    for p in paths:
+        path = Path(p).expanduser()
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if len(text) > _MAX_DOC_CHARS:
+            text = text[:_MAX_DOC_CHARS] + f"\n\n[{path.name} truncated at {_MAX_DOC_CHARS} chars]"
+        out.append((path.name, text))
+    return out
+
+
+def _seeder_factory(documents: list[tuple[str, str]]) -> _Factory:
+    async def seed(_inp: Any) -> AsyncIterator[ReadRequest]:
+        for i, (source, content) in enumerate(documents):
+            yield ReadRequest(index=i, source=source, content=content)
+
+    return lambda: seed
+
+
+def _reader_factory(question: str, reader: Responder) -> _Factory:
+    async def read(inp: Any) -> AsyncIterator[Finding]:
+        index = int(inp.get("index", 0)) if hasattr(inp, "get") else 0
+        source = str(inp.get("source", "")) if hasattr(inp, "get") else ""
+        content = str(inp.get("content", "")) if hasattr(inp, "get") else ""
+        note = await call_responder(
+            reader,
+            f"Research question: {question}\n\nRead this source and state, in one or two sentences, only "
+            f"what it contributes to the question (or that it contributes nothing).\n\n"
+            f"SOURCE {source}:\n{content}",
+        )
+        yield Finding(index=index, source=source, note=note.strip())
+
+    return lambda: read
+
+
+def _critic_factory(question: str, critic: Responder) -> _Factory:
+    async def criticize(inp: Any) -> AsyncIterator[Gaps]:
+        findings = list(inp.get("findings", [])) if hasattr(inp, "get") else []
+        joined = "\n".join(f"- {f['source']}: {f['note']}" for f in findings)
+        note = await call_responder(
+            critic,
+            f"Research question: {question}\n\nHere are the findings gathered so far:\n{joined}\n\n"
+            f"In one or two sentences, name what is still MISSING to answer the question well — the "
+            f"gaps these findings do not cover.",
+        )
+        yield Gaps(note=note.strip())
+
+    return lambda: criticize
+
+
+def _synthesizer_factory(question: str, synthesizer: Responder) -> _Factory:
+    async def synthesize(inp: Any) -> AsyncIterator[Synthesis]:
+        findings = list(inp.get("findings", [])) if hasattr(inp, "get") else []
+        gaps = str(inp.get("gaps", "")) if hasattr(inp, "get") else ""
+        joined = "\n".join(f"- {f['source']}: {f['note']}" for f in findings)
+        text = await call_responder(
+            synthesizer,
+            f"Research question: {question}\n\nFindings:\n{joined}\n\nKnown gaps: {gaps}\n\n"
+            f"Write a concise answer to the question grounded in these findings; note where the gaps "
+            f"limit the answer.",
+        )
+        yield Synthesis(text=text.strip())
+
+    return lambda: synthesize
+
+
+def _round_findings(ctx: api.TriggerContext) -> list[dict[str, Any]]:
+    return list(ctx.views["findings"].value())
+
+
+def research_sweep_topology(
+    question: str,
+    documents: list[tuple[str, str]],
+    *,
+    reader: Responder,
+    critic: Responder,
+    synthesizer: Responder,
+    deterministic: bool = False,
+    watchdog_seconds: float = 30.0,
+) -> Callable[[api.TopologyBuilder], None]:
+    """Fan a reader over each of `documents` for `question`, run a completeness critic over all the
+    findings, then synthesize the answer. `reader`/`critic`/`synthesizer` are Responders (may be the
+    same model or different). Authored from primitives — seeder-fan-out (best_of_n shape) + fan-in
+    quorum trigger (code_review shape) — with the four topology-local Structs above."""
+    n = len(documents)
+
+    def topo(b: api.TopologyBuilder) -> None:
+        b.producer_kind("seeder", schemas=[ReadRequest], schema_version=1,
+                        factory=_seeder_factory(documents), deterministic=deterministic)
+        b.producer_kind("reader", schemas=[Finding], schema_version=1,
+                        factory=_reader_factory(question, reader), deterministic=deterministic)
+        b.producer_kind("critic", schemas=[Gaps], schema_version=1,
+                        factory=_critic_factory(question, critic), deterministic=deterministic)
+        b.producer_kind("synthesizer", schemas=[Synthesis], schema_version=1,
+                        factory=_synthesizer_factory(question, synthesizer), deterministic=deterministic)
+        b.view("findings", api.KindBuffer("Finding"))
+        b.initial("seeder", input=None)
+        # map: one reader per document.
+        b.trigger(
+            "read",
+            subscription=api.Subscription(kinds=frozenset({"ReadRequest"})),
+            predicate=lambda ctx: True,
+            starts="reader",
+            input_builder=lambda ctx: {
+                "index": int(ctx.event.payload["index"]),
+                "source": ctx.event.payload["source"],
+                "content": ctx.event.payload["content"],
+            },
+            policy=api.PerEvent(),
+        )
+        # fan-in: when all N findings are in, the critic fires ONCE (code_review's quorum shape).
+        b.trigger(
+            "critique",
+            subscription=api.Subscription(kinds=frozenset({"Finding"})),
+            predicate=lambda ctx: len(_round_findings(ctx)) >= n,
+            starts="critic",
+            input_builder=lambda ctx: {"findings": _round_findings(ctx)},
+            policy=api.Once(),
+        )
+        # reduce: the synthesizer fires once on the gaps, reading all findings.
+        b.trigger(
+            "synthesize",
+            subscription=api.Subscription(kinds=frozenset({"Gaps"})),
+            predicate=lambda ctx: True,
+            starts="synthesizer",
+            input_builder=lambda ctx: {
+                "findings": _round_findings(ctx),
+                "gaps": ctx.event.payload["note"],
+            },
+            policy=api.Once(),
+        )
+        b.termination(
+            api.any_of(
+                api.threshold_count("Synthesis", 1),
+                api.all_completed(),
+                api.quiescence_with_watchdog(seconds=watchdog_seconds),
+            )
+        )
+
+    return topo
