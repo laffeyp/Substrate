@@ -25,6 +25,7 @@ from pathlib import Path
 from substrate.api import Runtime, read_record
 from substrate.adapters import OllamaResponder
 from substrate.topologies.tool_loop import tool_loop_topology
+from substrate.topologies.tool_loop.delegate import make_delegate
 from substrate.topologies.tool_loop.tools import CALCULATOR, Tool, full_suite
 
 
@@ -41,6 +42,20 @@ async def _run(args: argparse.Namespace) -> int:
     # the suite is ROOTED at the workspace: relative paths and bash resolve inside workdir (the way
     # Claude Code operates in a repo), so the task can say "out.txt", not just an absolute path.
     suite = _read_only_suite(workdir) if args.read_only else full_suite(workdir)
+    if args.delegate:
+        # a real sub-agent seam: the model can hand a subtask to a child agent (same model, same suite),
+        # which runs to an answer as its own record and folds it back. Depth/fan-out capped.
+        suite = {
+            **suite,
+            "delegate": make_delegate(
+                responder=OllamaResponder(
+                    args.model, max_tokens=args.max_tokens, think=args.think, timeout=args.timeout
+                ),
+                root=workdir,
+                walkthrough=True,
+                timeout_seconds=args.timeout * (args.max_steps + 1),
+            ),
+        }
 
     print(
         f"model={args.model}  workdir={workdir}  tools={'read-only' if args.read_only else 'FULL_SUITE'}"
@@ -92,6 +107,11 @@ def main() -> int:
     ap.add_argument("--max-tokens", type=int, default=0, help="per model call; 0 = no cap (default)")
     ap.add_argument(
         "--read-only", action="store_true", help="inspect-only suite (no edit/write/bash)"
+    )
+    ap.add_argument(
+        "--delegate",
+        action="store_true",
+        help="add the delegate tool: the agent can hand a subtask to a child agent (own record, folds back)",
     )
     ap.add_argument(
         "--think",

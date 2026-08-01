@@ -332,6 +332,15 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "required": ["path", "text"],
     },
     "bash": {"type": "object", "properties": {"cmd": {"type": "string"}}, "required": ["cmd"]},
+    # delegate's impl lives in delegate.py (make_delegate), but its schema must register HERE: a tool
+    # absent from _TOOL_SCHEMAS is invisible to native tool-calling — ollama_tools drops it and
+    # _named_to_positional can't map its args. A real-model walkthrough caught exactly this (the model
+    # reported "I don't see a delegate tool"). One arg: the subtask string.
+    "delegate": {
+        "type": "object",
+        "properties": {"task": {"type": "string"}},
+        "required": ["task"],
+    },
 }
 
 
