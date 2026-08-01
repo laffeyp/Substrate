@@ -34,7 +34,13 @@ No new event kind. `delegate` is a tool; its result is an ordinary `ToolResult` 
 
 ### Invariants
 
-- No new vocabulary; `tool_loop/__init__.py` and `tools.py` are not modified.
+- No new vocabulary; `tool_loop/__init__.py` and `tools.py` are not modified. **AMENDED (2026-07-31,
+  review F-26): this invariant was BROKEN and the sprint closed on it anyway. `tools.py` WAS modified —
+  to register `delegate`'s schema in `_TOOL_SCHEMAS`, without which the tool is invisible to native
+  tool-calling (the walkthrough caught it). The "no engine change" framing was the premise this
+  invariant expressed, and registering a schema for a new tool is a (small) engine change. The Built
+  entry narrated the fix honestly; this card did not. Corrected: delegate touches `tools.py`'s schema
+  registry by necessity — a tool absent there cannot be called by a real model.**
 - The child runs at its OWN record root (a `delegate-runs/` subdir of the parent workspace); the parent's ToolResult carries `child_root` so the child record is citable (run-granularity provenance).
 - Depth cap: a delegate at `depth >= max_depth` returns a typed failure, never spawns — no unbounded recursion.
 - Fan-out cap: at most `max_children` spawns per delegate instance; the next returns a typed failure.

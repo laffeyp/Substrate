@@ -21,7 +21,7 @@ from pathlib import Path
 
 from substrate.adapters import OllamaResponder
 from substrate.api import Runtime, read_record
-from substrate.topologies.workflows import best_of_n_verified_topology
+from substrate.topologies.applications import best_of_n_verified_topology
 
 
 async def _run(args: argparse.Namespace) -> int:
@@ -54,17 +54,29 @@ async def _run(args: argparse.Namespace) -> int:
         elif k == "Exhausted":
             print(f"  ✗ exhausted after {p['rounds']} round(s) — nothing passed")
     print(f"\nfull replayable record: {record}")
-    print("view it: SUBSTRATE_UI_PORT=8799 uv run python ../substrate-ui/server.py  →  http://127.0.0.1:8799/")
+    print(
+        "view it: SUBSTRATE_UI_PORT=8799 uv run python ../substrate-ui/server.py  →  http://127.0.0.1:8799/"
+    )
     return 0 if result.status == "finalised" else 1
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="generate N candidates, verify each with an independent judge, select the survivor")
+    ap = argparse.ArgumentParser(
+        description="generate N candidates, verify each with an independent judge, select the survivor"
+    )
     ap.add_argument("--task", required=True, help="the task to solve")
-    ap.add_argument("--model", default="kimi-k2.6:cloud", help="the drafter model (generates candidates)")
-    ap.add_argument("--verifier-model", default=None, help="the independent judge model (default: same as --model)")
+    ap.add_argument(
+        "--model", default="kimi-k2.6:cloud", help="the drafter model (generates candidates)"
+    )
+    ap.add_argument(
+        "--verifier-model",
+        default=None,
+        help="the independent judge model (default: same as --model)",
+    )
     ap.add_argument("--n", type=int, default=3, help="candidates per round (default: 3)")
-    ap.add_argument("--max-rounds", type=int, default=2, help="correction rounds before giving up (default: 2)")
+    ap.add_argument(
+        "--max-rounds", type=int, default=2, help="correction rounds before giving up (default: 2)"
+    )
     ap.add_argument("--record", default=None, help="record root (default: a temp dir)")
     return asyncio.run(_run(ap.parse_args()))
 

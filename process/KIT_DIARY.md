@@ -437,6 +437,43 @@ The single biggest structural finding of the phase: **the kit's in-loop checks d
 
 ---
 
+### 2026-07-31 — Application-parity wave (W1 library + W2.1 delegate) close
+
+**Did the wave deliver?** The CODE, yes: four launchable patterns — fanout_review, best_of_n_verified,
+research_sweep (the W1 library), delegate (W2.1, the first engine seam) — each composing existing
+topologies or authored from primitives, each a replayable record, `mypy --strict` clean, the full suite
+green. The PROCESS, no — and that gap is the synthesis. The wave closed against a gate it never ran
+(`ruff format --check` red on ten files; the phase-W1 gate `substrate run fanout_review` was never a real
+command because the apps live in a script-launched library, not `BUNDLED`), on a W1.INT card that was
+committed empty, with no diary entry and no phase synthesis until this one — declared "PHASE W1 COMPLETE"
+in the board while the process record was thinner than the work.
+
+**The through-line (extends finding 30).** The Phase-1 close named three truths — trace, contract, claim.
+This wave surfaced a fourth the kit still under-defends: **behavior-truth on a stochastic seam.** A green
+suite proved every topology WIRED (events in the right order, kinds present) while twelve of thirteen
+mutations that severed the model's actual input stayed green, and the one feature with an engine seam
+(delegate) was verified through the single path that bypassed its own model. Trace-truth checks what the
+log SAYS; behavior-truth asks whether the real input reached the model and the documented path actually
+runs — and neither the Rubber Duck Pass (grounded in the trace) nor a counting test defends it. The
+remediation's answer: spy responders asserting the model-facing text, each mutation-verified to turn red;
+exercise the default/documented construction, not just the test-injected one; and a real-model walkthrough
+as a required leg, since it is what caught both delegate bugs the deterministic tests could not.
+
+**The recurrences.** Two prior findings came back verbatim: finding 16 (death-resilience is a CLASS —
+patch every model-call producer, not the one the failure surfaced on) reappeared when 140.1 hardened the
+reader and left the critic/synthesizer twins; finding 33 (a required gate on someone else's runner becomes
+optional) reappeared as the skipped format gate — now backed by a version-controlled pre-commit hook. A
+finding that recurs is a sign the FOLD didn't reach the practice; both are now enforced in code/tests, not
+just intended.
+
+**Hypotheses:** H2 held (the four patterns composed through the dual contract and the vocabulary lock — the
+record kinds are now locked in `applications-vocabulary.md`, retroactively, which is itself the H2-adjacent
+lesson: lock BEFORE code, not at close). H4 got its first near-controlled data point the wrong way — the
+external review WAS the paired adversary the project never sets up internally, and it found what the
+in-loop passes did not; the standing gap is that this defense is external, not native to the kit.
+
+---
+
 ## Project-close synthesis
 
 *(top 5–10 structural findings for the next sdd-kit revision, at project close)*
@@ -467,7 +504,12 @@ The Substrate build is the first project of its class (a runtime / event-sourcin
 
 ---
 
-### Post-Phase-1 addendum (2026-06-26, SWE-bench vanilla solver — design + review loop)
+### Post-Phase-1 running findings ledger (opened 2026-06-26; findings 10-30, each DATED INLINE)
+
+> SHAPE NOTE (2026-07-31, review F-24): this section began as one dated addendum and grew into the
+> running post-Phase-1 findings log — findings 10 through 30 span 2026-06-26 to 2026-07-31 and are NOT
+> in numeric order (the SWE-bench arc was logged out of sequence). The header date no longer bounds the
+> contents; each finding carries its own date inline. Relabelled as a ledger rather than back-dating it.
 
 10. **SDD adherence can be NOMINAL — describing the discipline is not practicing it.** The vanilla solver design (`docs/swebench-solver-design.md`) asserted a §7 "SDD adherence" (vocabulary-first, dual+observation contract, canonical-home registry, diary), but the independent review (req #56) found the discipline REAL only where it had ARTIFACTS (the repo's WORKING_AGREEMENT / sprint-000 vocabulary session / this diary) and NOMINAL for the solver: the record vocabulary was named in prose with no locked payload schema, the shared types weren't registered, and this diary had ZERO solver entries (this entry closes that). FOLD: §7 became a list of PRE-BUILD OBLIGATIONS (run a solver vocabulary session + #25 dual-contract audit BEFORE the skeleton; register the records + the shared sub-topology in WORKING_AGREEMENT; open diary entries) rather than claimed-done process. Same claim-truth gap as finding 9, one level up: **a doc that DESCRIBES SDD is not a build that DOES it.**
 
@@ -507,8 +549,10 @@ The Substrate build is the first project of its class (a runtime / event-sourcin
 
 28. **When a generated artifact lands, KEEP THE EXACT INPUT — I rewrote a winning prompt instead of recovering it, and lost the result for four rounds.** Generating the repo's art through the cascade-img MCP, one image landed that the Architect wanted variations on. I did not re-read the prompt that produced it; I wrote fresh prompts from my memory of the *picture*, each time paraphrasing the scene description. They drifted worse every round. The Architect's diagnosis ("these ribbons aren't big enough, it doesn't match the original") was a symptom — I chased the symptom, made a "wider tape" prompt, and drifted further, because the actual defect was that I had replaced the whole scene ("a reading gate", "a new robot lifted up and switched on", "tickets fed back onto the loop") with generic language. The fix took one query: read the exact prompt string out of the job DB and re-fire it verbatim. **Two transferable lessons.** (1) *A generated artifact's provenance is its input, and paraphrase is not provenance.* The system recorded the exact prompt the whole time; I was reasoning from a rendering of it. This is the same failure as reconstructing a claim from an absent event instead of reading the record — the substrate's own thesis, applied to my own workflow. (2) *Use the tool's real affordances before inventing your own.* Midjourney has a variation chain (Vary Strong on an upscaled solo); I was doing "variations" by re-prompting, which is a different and much noisier operation. Getting onto the real chain required knowing that grid jobs must be fired with `upscale="all"` first, and that adopted grids can't be U-pressed — both documented in the tool's own manual, which is gated behind a `cascade_guide` call I had made and then not mined. The generalisation: when a tool has a documented state machine, read it and drive it; do not simulate it from outside with repeated fresh calls.
 
+30. **The application-parity wave (sprints 137-141) shipped four working patterns and then FAILED its own review on the process, not the code — and the review is the finding (2026-07-31).** Built fanout_review / best_of_n_verified / research_sweep (the W1 library) + delegate (W2.1, the first engine seam), each composing or authored-from primitives, each a replayable record. An independent adversarial review (12 reviewers × 6 dimensions, refuted, 26 surviving findings; `docs/review/REVIEW-2026-07-31-workflow-parity.md`) then caught a cluster the green suite hid, and the cluster is the lesson. **(a) The tests could not see the model.** Twelve of thirteen input-severing mutations left the suite green — every assertion counted events and kinds, none checked the model-facing TEXT, though `DeterministicResponder` hashes its prompt and a spy makes the check trivial. The fix (assert the diff reaches the panel, the question reaches the reader, the task reaches the drafter, the candidate reaches the judge — each mutation-verified to turn red) is finding 15's "be your own skeptic on the seam" applied to the INPUT path, not just the output. **(b) delegate was verified through its one working path.** The deterministic CI test injected a scripted child, so the DEFAULT factory — the documented form — was never constructed; it ran the calculator demo and discarded the model AND the task, folding a canned "20" back for every delegation, with zero model calls. A real-model walkthrough would have caught it (one did, for the sibling tool-presentation bug); the child path never got the same skeptic. **(c) death-resilience-as-a-SET (finding 16) reappeared verbatim:** sprint 140.1 hardened research_sweep's READER against a failed model call and left the critic and synthesizer — the twin producers — unguarded, the exact same silent-no-answer the fix was opened to close. A crash the review finds is a CLASS; 140.1 patched the instance. **(d) process-truth gaps the code didn't have:** the W1.INT card committed at ZERO BYTES while the board described it in full (I trusted a heredoc's echo, never verified the write); the ruled `ruff format --check` gate was red on ten files because the bar had degraded to "a human remembers to run the script" (finding 33) with no hook; and the package shipped `topologies/workflows/` — "workflow" is a word the project's own lexicon BANS as a marketing reframe, in a published import path. **The transferable rule:** a green suite over a stochastic seam proves WIRING, not BEHAVIOR — assert the real input reaches the model, exercise the default/documented path (not just the test-injected one), audit resilience across the whole set of model-call producers, and treat a required gate that a human can skip as already skipped. The remediation closed all 26 with mutation-verified regressions; the code was sound, the CONFIDENCE in it was not.
+
 29. **Defaults are inherited, not chosen — and a token cap is the only limit that fails silently at the worst point.** A live cockpit symptom ("this model never writes the code, is it poor?") resolved into a defaults audit. The record made the diagnosis mechanical: answers ending at a colon exactly where the tool call would begin — a cap kills the *last* thing in a reply, and in an agent loop the last thing is always the action; a blown context degrades visibly and a timeout raises, but a hit cap just returns a shorter reply that reads as the model's choice. The A/B (512 = announce-and-stop; big budget = write→run→hit error→fix→verified) flipped the verdict from "model problem" to "orchestration problem" in two runs. Three of my claims fell to the Architect's demanded verification on the way — "hardcoded" (it was a parameter), "no caller sets it" (two scripts do), "8192 is evidence-based" (the assay chose it the same arbitrary way) — and the resolution each time was to say only what the code and the record show. The end state is the principled one: no cap by default (`num_predict` omitted; Ollama's own default is unlimited), because the knob guards nothing here (no meter) and the two real bounds (num_ctx, timeout) already exist. Transferable: (a) round-number defaults are lineage, not judgment — audit them when they gate capability; (b) judge a capability only through the configuration the assay validated — the product seam ran 512 while the agency assay scored the same models at 8192, so a top-scored agent looked broken in the product; config parity between assay and surface is a contract, not a coincidence; (c) the silent-starvation class also reached an eval script and every conversational walkthrough — one bare constructor default quietly shaped months of impressions of model quality.
 
 ---
 
-*process/KIT_DIARY.md for Substrate. Rounds 0–15 logged; Phase 1 (Implementation) closed 2026-06-13; two post-Phase-1 addenda (finding 9, the currency gate; findings 10–13, the SWE-bench solver design — a doc DESCRIBING SDD is not a build DOING it, claim-truth one level up). H1/H2/H3 confirmed, H4 partially. NINE structural findings filed for upstream propagation by the kit maintainer — the headline being that the kit defends trace-truth and contract-truth but had no native defense for claim-truth (an honest kernel shipped a dishonest surface, caught only by an external audit + clean-room CI); finding 9 extends that to currency-truth (replay-green is not regeneration-green).*
+*process/KIT_DIARY.md for Substrate. Rounds 0–15 logged; Phase 1 (Implementation) closed 2026-06-13; a running post-Phase-1 findings ledger (findings 9–30, each dated inline, covering the currency gate, the SWE-bench solver arc, and the 2026-07-31 application-parity wave + its external review). H1/H2/H3 confirmed, H4 partially. **THIRTY structural findings on file** for upstream propagation by the kit maintainer. The through-line across the phase syntheses: the kit defends trace-truth and contract-truth natively but under-defends the truths that live OUTSIDE the log — claim-truth (an honest kernel shipped a dishonest surface; caught by an external audit + clean-room CI, findings after 13), currency-truth (replay-green is not regeneration-green, finding 9), and behavior-truth on a stochastic seam (a green suite proves wiring, not that real input reached the model; finding 30). Each was caught by a surface outside the project's own state — the standing gap is that these defenses are external, not in-loop.*

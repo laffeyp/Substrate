@@ -14,9 +14,16 @@ cadence_band: auto-within-phase
 
 ---
 
+> PROCESS NOTE (2026-07-31, review F-25): this card omits an explicit `## signal contract` and
+> `## context_files` (sprint 137 had both). It was an `auto-within-phase` card written at close; the
+> signal contract (the four topology-local Structs) and observation contract lived in the BLACKBOARD
+> Built entry and `tests/test_research_sweep.py`. The four record kinds are now locked in
+> `process/signals/applications-vocabulary.md` (review F-17) — the before-code lock the card should have
+> carried. Acknowledged, not hidden.
+
 ## why
 
-Workflow-parity W1.3 (`docs/cockpit/WORKFLOW-PARITY-SPRINTS-2026-07-31.md`), the third and last W1 application, and the one distinct from the first two: fanout_review and best_of_n_verified both fan out over ONE input and SELECT/judge; research_sweep fans out over DIFFERENT inputs (a document set) and SYNTHESIZES — map then reduce. No existing whole topology composes cleanly for map-reduce (code_review's reviewers all take the same `code`; best_of_n's slots all attempt one task), so this is a NEW topology authored from the standard builder primitives — the same way code_review and best_of_n were authored. In-pattern (producer_kind / trigger / view / termination, topology-local frozen Structs), not novel machinery; reuses the seeder-fan-out shape (best_of_n) and the fan-in-quorum trigger (code_review).
+Application-parity W1.3 (`docs/cockpit/WORKFLOW-PARITY-SPRINTS-2026-07-31.md`), the third and last W1 application, and the one distinct from the first two: fanout_review and best_of_n_verified both fan out over ONE input and SELECT/judge; research_sweep fans out over DIFFERENT inputs (a document set) and SYNTHESIZES — map then reduce. No existing whole topology composes cleanly for map-reduce (code_review's reviewers all take the same `code`; best_of_n's slots all attempt one task), so this is a NEW topology authored from the standard builder primitives — the same way code_review and best_of_n were authored. In-pattern (producer_kind / trigger / view / termination, topology-local frozen Structs), not novel machinery; reuses the seeder-fan-out shape (best_of_n) and the fan-in-quorum trigger (code_review).
 
 ## scope
 

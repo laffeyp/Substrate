@@ -8,7 +8,7 @@ id: 140.1
 status: closed
 phase: 2
 pass_kind: functional
-cadence_band: hardening
+cadence_band: auto-within-phase
 ---
 ```
 

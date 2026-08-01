@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# pre-commit — the fast lint gates, enforced so they cannot be silently skipped (review F-1).
+# ruff format --check is one of the six ci_local.sh gates; hosted Actions is startup-dead and the
+# bar had degraded to "a human remembers to run the script". This runs the two fast gates on every
+# commit. The FULL stack (mypy, pytest, lint-imports, conformance) stays in scripts/ci_local.sh —
+# run it before every push/milestone. Activate once per clone: git config core.hooksPath .githooks
+set -u
+cd "$(git rev-parse --show-toplevel)" || exit 1
+RUFF="$(command -v ruff || echo .venv/bin/ruff)"
+fail=0
+echo "pre-commit: ruff format --check"
+"$RUFF" format --check || { echo "  -> run: ruff format"; fail=1; }
+echo "pre-commit: ruff check"
+"$RUFF" check || fail=1
+[ "$fail" -ne 0 ] && echo "pre-commit FAILED — fix the above (or: git commit --no-verify to override deliberately)"
+exit $fail

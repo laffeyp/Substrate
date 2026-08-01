@@ -16,7 +16,7 @@ import pytest
 from substrate import api
 from substrate.adapters import DeterministicResponder
 from substrate.topologies.code_review import DEFAULT_ROLES
-from substrate.topologies.workflows import changed_files, fanout_review_topology
+from substrate.topologies.applications import changed_files, fanout_review_topology
 
 
 def _repo_with_change(root: Path) -> Path:
@@ -45,6 +45,20 @@ def test_changed_files_gathers_the_diff_readonly(tmp_path: Path) -> None:
         ["git", "-C", str(repo), "status", "--porcelain"], capture_output=True, text=True
     ).stdout
     assert "calc.py" in status  # gathering did not stage/commit/clean anything
+
+
+def test_changed_files_includes_new_untracked_files(tmp_path: Path) -> None:
+    # F-6: `git diff <ref>` lists tracked changes only, so a NEW file — the most review-worthy change —
+    # was silently dropped from the panel input. A fixture with an untracked file carrying the bug is the
+    # shape sensitive to this failure (Addendum A3); the earlier test's modified-tracked-file could not
+    # show it.
+    repo = _repo_with_change(tmp_path)  # has a modified tracked file
+    (repo / "new_module.py").write_text(
+        "def leak(password):\n    print(password)  # new file bug\n"
+    )
+    diff = changed_files(repo, ref="HEAD")
+    assert "calc.py" in diff and "no zero guard" in diff  # tracked change still gathered
+    assert "new_module.py" in diff and "new file bug" in diff  # AND the new untracked file
 
 
 def test_changed_files_empty_diff_is_a_marker_not_a_crash(tmp_path: Path) -> None:
@@ -84,6 +98,80 @@ def test_fanout_review_reviews_the_diff_and_finalises(tmp_path: Path) -> None:
         k not in {"CritiquePosted", "VerdictRendered"} and not k.startswith("substrate.")
         for k in kinds
     )
+
+
+def test_a_narrow_panel_still_adjudicates(tmp_path: Path) -> None:
+    # F-7: quorum defaults to 3, but `roles` is caller-set. A 2-role panel with the default quorum posts
+    # 2 critiques, never reaches 3, and would finalise with NO VerdictRendered. The topology clamps the
+    # quorum to the panel size so a narrow panel still adjudicates.
+    import asyncio
+
+    repo = _repo_with_change(tmp_path)
+    roles = ("security", "correctness")  # 2 roles, default quorum 3
+    responders = {r: DeterministicResponder(seed=i) for i, r in enumerate(roles)}
+    topo = fanout_review_topology(
+        repo,
+        ref="HEAD",
+        responders=responders,
+        judge=DeterministicResponder(seed=99),
+        roles=roles,  # quorum left at its default of 3, above the 2-role panel size
+    )
+    result = asyncio.run(api.Runtime(tmp_path / "run").run(topo))
+    kinds = [e["kind"] for e in api.read_record(tmp_path / "run")]
+    assert result.status == "finalised"
+    assert kinds.count("CritiquePosted") == 2
+    assert (
+        "VerdictRendered" in kinds
+    )  # the clamped quorum let the judge fire — no silent no-verdict
+
+
+class _SpyResponder:
+    """Records prompts, returns a fixed reply — asserts what the reviewer model actually SAW (F-11)."""
+
+    def __init__(self, reply: str = "looks fine") -> None:
+        self.prompts: list[str] = []
+        self._reply = reply
+
+    def respond(self, prompt: str) -> str:
+        self.prompts.append(prompt)
+        return self._reply
+
+
+def test_the_gathered_diff_reaches_the_reviewers(tmp_path: Path) -> None:
+    # F-11: sprint 137's contract DECLARED "critiques with the gathered diff reflected in the reviewer
+    # input" but no test ran that leg — changed_files was tested in isolation, and throwing the diff away
+    # (fanout_review.py:62, code="") left the suite green. A spy reviewer proves the real diff reaches the
+    # panel: blanking the gathered code now turns this red.
+    import asyncio
+
+    repo = _repo_with_change(tmp_path)
+    roles = ("security", "correctness")
+    responders = {r: _SpyResponder() for r in roles}
+    topo = fanout_review_topology(
+        repo,
+        ref="HEAD",
+        responders=responders,
+        judge=DeterministicResponder(seed=99),
+        roles=roles,
+    )
+    asyncio.run(api.Runtime(tmp_path / "run").run(topo))
+    # every reviewer's prompt carried the actual gathered diff, not an empty blob
+    for role, spy in responders.items():
+        assert spy.prompts, f"{role} reviewer was never called"
+        assert any("no zero guard" in p for p in spy.prompts), f"{role} did not see the diff"
+
+
+def test_changed_files_truncates_a_huge_diff_with_a_marker(tmp_path: Path) -> None:
+    # F-14: the _MAX_DIFF_CHARS truncation path was never exercised. A diff over the cap must be cut with
+    # a visible marker, never a silent drop that hands the panel a partial diff it thinks is whole.
+    repo = _repo_with_change(tmp_path)
+    (repo / "big.py").write_text("# " + "y" * 30_000 + "\n")
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "big"], check=True)
+    (repo / "big.py").write_text("# " + "z" * 30_000 + "\n")  # a large tracked change
+    diff = changed_files(repo, ref="HEAD")
+    assert len(diff) < 30_000  # bounded
+    assert "truncated" in diff  # the cut is announced
 
 
 def test_non_repo_path_raises_not_swallowed(tmp_path: Path) -> None:

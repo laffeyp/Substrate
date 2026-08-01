@@ -41,10 +41,13 @@ async def _run(args: argparse.Namespace) -> int:
     task = args.task.replace("{workdir}", str(workdir))
     # the suite is ROOTED at the workspace: relative paths and bash resolve inside workdir (the way
     # Claude Code operates in a repo), so the task can say "out.txt", not just an absolute path.
-    suite = _read_only_suite(workdir) if args.read_only else full_suite(workdir)
+    child_suite_factory = _read_only_suite if args.read_only else full_suite
+    suite = child_suite_factory(workdir)
     if args.delegate:
-        # a real sub-agent seam: the model can hand a subtask to a child agent (same model, same suite),
-        # which runs to an answer as its own record and folds it back. Depth/fan-out capped.
+        # a real sub-agent seam: the model hands a subtask to a child agent that runs the REAL model on
+        # the REAL task as its own record and folds the answer back. The child inherits THIS run's suite
+        # factory, so --read-only survives into the child (F-5). Depth/fan-out capped; the timeout is a
+        # safety net above the child's own bound (child_max_steps × the model call timeout).
         suite = {
             **suite,
             "delegate": make_delegate(
@@ -52,7 +55,8 @@ async def _run(args: argparse.Namespace) -> int:
                     args.model, max_tokens=args.max_tokens, think=args.think, timeout=args.timeout
                 ),
                 root=workdir,
-                walkthrough=True,
+                child_suite_factory=child_suite_factory,
+                child_max_steps=args.max_steps,
                 timeout_seconds=args.timeout * (args.max_steps + 1),
             ),
         }
@@ -104,7 +108,9 @@ def main() -> int:
         "--workdir", default=None, help="scratch dir the agent may use (default: a temp dir)"
     )
     ap.add_argument("--max-steps", type=int, default=6, help="tool-call budget (default: 6)")
-    ap.add_argument("--max-tokens", type=int, default=0, help="per model call; 0 = no cap (default)")
+    ap.add_argument(
+        "--max-tokens", type=int, default=0, help="per model call; 0 = no cap (default)"
+    )
     ap.add_argument(
         "--read-only", action="store_true", help="inspect-only suite (no edit/write/bash)"
     )

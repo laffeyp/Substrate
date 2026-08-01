@@ -1,6 +1,6 @@
-"""research_sweep — fan out readers over a document set, critique gaps, synthesize (workflow-parity W1.3).
+"""research_sweep — fan out readers over a document set, critique gaps, synthesize (application-parity W1.3).
 
-The map-reduce of the workflow library: where fanout_review and best_of_n_verified fan out over ONE
+The map-reduce of the application library: where fanout_review and best_of_n_verified fan out over ONE
 input and select/judge, research_sweep fans out over DIFFERENT inputs (a document set) and SYNTHESIZES.
 A seeder emits one ReadRequest per document; a reader extracts findings from each for the research
 question; a completeness critic names what is still missing across all findings; a synthesizer writes
@@ -21,7 +21,7 @@ from typing import Any
 from msgspec import Struct
 
 from ... import api
-from ...adapters import Responder, call_responder
+from ...adapters import ModelUsage, Responder, call_responder_metered
 
 _Factory = Callable[[], Any]
 
@@ -79,20 +79,22 @@ def _seeder_factory(documents: list[tuple[str, str]]) -> _Factory:
 
 
 def _reader_factory(question: str, reader: Responder) -> _Factory:
-    async def read(inp: Any) -> AsyncIterator[Finding]:
+    async def read(inp: Any) -> AsyncIterator[Finding | ModelUsage]:
         index = int(inp.get("index", 0)) if hasattr(inp, "get") else 0
         source = str(inp.get("source", "")) if hasattr(inp, "get") else ""
         content = str(inp.get("content", "")) if hasattr(inp, "get") else ""
         # Exactly one Finding per ReadRequest, even on reader failure: the fan-in counts to n, so a
         # single failed/empty read cannot stall the sweep. A dead reader becomes a recorded empty
         # contribution that the completeness critic then names — not a run that finalises with no answer.
+        # Every model call is metered onto the record (F-18) so the sweep is assayable.
         try:
-            note = await call_responder(
+            note, usage = await call_responder_metered(
                 reader,
                 f"Research question: {question}\n\nRead this source and state, in one or two sentences, "
                 f"only what it contributes to the question (or that it contributes nothing).\n\n"
                 f"SOURCE {source}:\n{content}",
             )
+            yield usage
             note = note.strip() or "(no contribution)"
         except Exception as exc:  # a reader failure is a recorded gap, not a hung run
             note = f"(read failed: {type(exc).__name__})"
@@ -102,32 +104,46 @@ def _reader_factory(question: str, reader: Responder) -> _Factory:
 
 
 def _critic_factory(question: str, critic: Responder) -> _Factory:
-    async def criticize(inp: Any) -> AsyncIterator[Gaps]:
+    async def criticize(inp: Any) -> AsyncIterator[Gaps | ModelUsage]:
         findings = list(inp.get("findings", [])) if hasattr(inp, "get") else []
         joined = "\n".join(f"- {f['source']}: {f['note']}" for f in findings)
-        note = await call_responder(
-            critic,
-            f"Research question: {question}\n\nHere are the findings gathered so far:\n{joined}\n\n"
-            f"In one or two sentences, name what is still MISSING to answer the question well — the "
-            f"gaps these findings do not cover.",
-        )
-        yield Gaps(note=note.strip())
+        # death-resilience, as a SET with the reader (F-4 / KIT_DIARY #16): a failed critic call must
+        # still emit Gaps, or the synthesize trigger never fires and the sweep finalises with no answer.
+        try:
+            note, usage = await call_responder_metered(
+                critic,
+                f"Research question: {question}\n\nHere are the findings gathered so far:\n{joined}\n\n"
+                f"In one or two sentences, name what is still MISSING to answer the question well — the "
+                f"gaps these findings do not cover.",
+            )
+            yield usage  # metered onto the record (F-18)
+            note = note.strip() or "(no gaps named)"
+        except Exception as exc:
+            note = f"(critic failed: {type(exc).__name__})"
+        yield Gaps(note=note)
 
     return lambda: criticize
 
 
 def _synthesizer_factory(question: str, synthesizer: Responder) -> _Factory:
-    async def synthesize(inp: Any) -> AsyncIterator[Synthesis]:
+    async def synthesize(inp: Any) -> AsyncIterator[Synthesis | ModelUsage]:
         findings = list(inp.get("findings", [])) if hasattr(inp, "get") else []
         gaps = str(inp.get("gaps", "")) if hasattr(inp, "get") else ""
         joined = "\n".join(f"- {f['source']}: {f['note']}" for f in findings)
-        text = await call_responder(
-            synthesizer,
-            f"Research question: {question}\n\nFindings:\n{joined}\n\nKnown gaps: {gaps}\n\n"
-            f"Write a concise answer to the question grounded in these findings; note where the gaps "
-            f"limit the answer.",
-        )
-        yield Synthesis(text=text.strip())
+        # the reduce seam gets the same guard: a failed synthesizer call still emits Synthesis (a recorded
+        # failure), so the run reaches its terminal with an honest marker rather than silent-no-answer.
+        try:
+            text, usage = await call_responder_metered(
+                synthesizer,
+                f"Research question: {question}\n\nFindings:\n{joined}\n\nKnown gaps: {gaps}\n\n"
+                f"Write a concise answer to the question grounded in these findings; note where the gaps "
+                f"limit the answer.",
+            )
+            yield usage  # metered onto the record (F-18)
+            text = text.strip() or "(empty synthesis)"
+        except Exception as exc:
+            text = f"(synthesis failed: {type(exc).__name__})"
+        yield Synthesis(text=text)
 
     return lambda: synthesize
 
@@ -153,14 +169,34 @@ def research_sweep_topology(
     n = len(documents)
 
     def topo(b: api.TopologyBuilder) -> None:
-        b.producer_kind("seeder", schemas=[ReadRequest], schema_version=1,
-                        factory=_seeder_factory(documents), deterministic=deterministic)
-        b.producer_kind("reader", schemas=[Finding], schema_version=1,
-                        factory=_reader_factory(question, reader), deterministic=deterministic)
-        b.producer_kind("critic", schemas=[Gaps], schema_version=1,
-                        factory=_critic_factory(question, critic), deterministic=deterministic)
-        b.producer_kind("synthesizer", schemas=[Synthesis], schema_version=1,
-                        factory=_synthesizer_factory(question, synthesizer), deterministic=deterministic)
+        b.producer_kind(
+            "seeder",
+            schemas=[ReadRequest],
+            schema_version=1,
+            factory=_seeder_factory(documents),
+            deterministic=deterministic,
+        )
+        b.producer_kind(
+            "reader",
+            schemas=[Finding, ModelUsage],
+            schema_version=1,
+            factory=_reader_factory(question, reader),
+            deterministic=deterministic,
+        )
+        b.producer_kind(
+            "critic",
+            schemas=[Gaps, ModelUsage],
+            schema_version=1,
+            factory=_critic_factory(question, critic),
+            deterministic=deterministic,
+        )
+        b.producer_kind(
+            "synthesizer",
+            schemas=[Synthesis, ModelUsage],
+            schema_version=1,
+            factory=_synthesizer_factory(question, synthesizer),
+            deterministic=deterministic,
+        )
         b.view("findings", api.KindBuffer("Finding"))
         b.initial("seeder", input=None)
         # map: one reader per document.

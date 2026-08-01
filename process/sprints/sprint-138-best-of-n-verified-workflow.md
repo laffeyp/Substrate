@@ -14,9 +14,16 @@ cadence_band: auto-within-phase
 
 ---
 
+> PROCESS NOTE (2026-07-31, review F-25): this card omits an explicit `## signal contract` and
+> `## context_files` (sprint 137 had both). It was an `auto-within-phase` card written at close; the
+> signal contract (reuses best_of_n's Draft/Candidate/Verdict/Solved/Exhausted + ModelUsage — no new
+> vocabulary) and the observation contract lived in the BLACKBOARD Built entry and
+> `tests/test_best_of_n_verified.py`. Recorded here so the gap is acknowledged, not hidden. The record
+> kinds are now locked in `process/signals/applications-vocabulary.md`.
+
 ## why
 
-Workflow-parity W1.2 (`docs/cockpit/WORKFLOW-PARITY-SPRINTS-2026-07-31.md`). The agent-CLI "best of N with verification" pattern is the existing `best_of_n_correction` loop — a seeder fans out N drafts, each is validated, a judge selects the passing one or feeds failures into a correction round. The only missing piece is a general application surface: a drafter that answers a task and a verifier, on real input. Same move as fanout_review (sprint 137): compose an existing topology, add a run script, no engine change, no new vocabulary.
+Application-parity W1.2 (`docs/cockpit/WORKFLOW-PARITY-SPRINTS-2026-07-31.md`). The agent-CLI "best of N with verification" pattern is the existing `best_of_n_correction` loop — a seeder fans out N drafts, each is validated, a judge selects the passing one or feeds failures into a correction round. The only missing piece is a general application surface: a drafter that answers a task and a verifier, on real input. Same move as fanout_review (sprint 137): compose an existing topology, add a run script, no engine change, no new vocabulary.
 
 ## scope
 

@@ -1,6 +1,6 @@
 # Application catalogue (Phase 2, sprint-100)
 
-*The runnable workflow-application library (fanout_review, best_of_n_verified, research_sweep) is documented in [workflows.md](workflows.md) — the launchable patterns; this file is the strategic catalogue behind them.*
+*The runnable application library (fanout_review, best_of_n_verified, research_sweep, delegate) is documented in [applications.md](applications.md) — the launchable patterns; this file is the strategic catalogue behind them.*
 
 What the substrate is for, as a ranked, structured list of applications — the ones built, and
 the candidates worth building next. Grounded in the 8 topologies shipped in `topologies/` and
@@ -43,6 +43,18 @@ asymmetry · round cadence · output type per role.
 | `intel_asymmetry` | information asymmetry (private intel → forced cross-questioning) | conversation substrate |
 | `natural_conversation` (+`_bare`) | the emergence ablation: common-ground + repair + scoring instruments toggled | conversation + 3 instruments (Producer+View+Route), the cheap-talk scoring loop |
 
+## Built (application library) — launched via `scripts/run_*.py`, documented in [applications.md](applications.md)
+
+Distinct from the table above: these are NOT in the `substrate run --topology` registry (`BUNDLED`).
+They compose the primitives on REAL input and launch from a script; each run is a replayable record.
+
+| Application | Structural driver | Composition |
+|---|---|---|
+| `fanout_review` | quorum review panel over a real git diff | composes `code_review` |
+| `best_of_n_verified` | generate N → verify each → select the survivor | composes `best_of_n_correction` |
+| `research_sweep` | map readers over a document set → critique gaps → synthesize | authored from primitives |
+| `delegate` (tool) | an agent hands a subtask to a child agent, folds the answer back | tool_loop tool + child run |
+
 Instruments (composable, reusable across conversation topologies): **scoring** (proper rules —
 Brier/log-loss/spherical — close the cheap-talk loop), **common-ground** (Clark's shared state
 accretes per turn), **repair** (Schegloff's other-initiated repair fires + discriminates),
@@ -53,13 +65,13 @@ accretes per turn), **repair** (Schegloff's other-initiated repair fires + discr
 | Candidate | Driver | New primitive stress | Cost | Note |
 |---|---|---|---|---|
 | `adversarial_pair` | writer vs vulnerability-finder, refinement loop bounded by attempt-count | View-of-buffer + predicate-bounded loop | day | precursor's GAN/red-team shape; strong emergence |
-| `research_workflow` | M retrievers → synthesizer → fact-checker route → citation-extractor; optional pause-await-input | composition of ~all primitives | week | the "compose all this?" demo (plan S-13.3) |
+| `research_workflow` | M retrievers → synthesizer → fact-checker route → citation-extractor; optional pause-await-input | composition of ~all primitives | week | **partly shipped** as `research_sweep` (map→critique→synthesize); the fact-checker route + citation-extractor legs remain |
 | `population_simulation` | N agents + world-state Producer; the bus IS the simulation log | N-way concurrency, batched local model | day | watch VRAM (50× 1B); validate batching before flagship default |
 | `socratic` | questioner with no thesis — only sharper questions | output-type asymmetry (questions, not claims) | afternoon | conversation config + prompt |
 | `adversarial_collaboration` | opposite-prior collaborators jointly author one endorsed doc | convergence-by-mutual-endorsement | day | drop the editor/author split |
-| `murder_board` / `jury` | N differentiated critics / deliberation-then-verdict | role-differentiated fan-in, deliberation phase | day | peer-review / committee shapes |
+| `murder_board` / `jury` | N differentiated critics / deliberation-then-verdict | role-differentiated fan-in, deliberation phase | day | peer-review / committee shapes; the fan-in-then-verdict half now exists in `fanout_review` (differentiated-critic panel + judge) |
 | `red_blue_team` | two internally-cooperative coalitions | coalitional structure | day | scales the ensemble pattern |
-| `self_refine` (N=1 baseline) | one Producer generates + critiques in alternation | measurement floor | afternoon | the control: if a two-Producer pair-loop doesn't beat it, the second isn't earning its cost |
+| `self_refine` (N=1 baseline) | one Producer generates + critiques in alternation | measurement floor | afternoon | the control: if a two-Producer pair-loop doesn't beat it, the second isn't earning its cost; `best_of_n_verified` is the N>1 verified-selection sibling to measure against it |
 
 Source for the candidate map: the precursor's `notes/recursive_questioning.md` (~25 dialogue
 patterns) + `notes/orchestrating_conversation.md` (the gaps each instrument closes) +
