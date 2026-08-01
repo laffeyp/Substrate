@@ -11,6 +11,7 @@ diff and hands it to `code_review_topology` unchanged.
 
 from __future__ import annotations
 
+from .best_of_n_verified import best_of_n_verified_topology
 from .fanout_review import changed_files, fanout_review_topology
 
-__all__ = ["changed_files", "fanout_review_topology"]
+__all__ = ["best_of_n_verified_topology", "changed_files", "fanout_review_topology"]
