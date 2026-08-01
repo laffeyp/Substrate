@@ -67,7 +67,8 @@ def test_fanout_review_reviews_the_diff_and_finalises(tmp_path: Path) -> None:
     )
     import asyncio
 
-    asyncio.run(api.Runtime(tmp_path / "run").run(topo))
+    result = asyncio.run(api.Runtime(tmp_path / "run").run(topo))
+    assert result.status == "finalised"  # the runtime's own verdict, not inferred from the tail
     events = list(api.read_record(tmp_path / "run"))
     kinds = [e["kind"] for e in events]
 
