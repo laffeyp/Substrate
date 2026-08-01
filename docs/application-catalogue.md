@@ -1,5 +1,7 @@
 # Application catalogue (Phase 2, sprint-100)
 
+*The runnable workflow-application library (fanout_review, best_of_n_verified, research_sweep) is documented in [workflows.md](workflows.md) — the launchable patterns; this file is the strategic catalogue behind them.*
+
 What the substrate is for, as a ranked, structured list of applications — the ones built, and
 the candidates worth building next. Grounded in the 8 topologies shipped in `topologies/` and
 the precursor extraction (`docs/precursor-application-ideas.md`).
