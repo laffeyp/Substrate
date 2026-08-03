@@ -55,13 +55,13 @@ Four topology-local frozen Structs (application kinds, like code_review's own), 
 
 ### Files created
 
-- `src/substrate/topologies/workflows/research_sweep.py` — `research_sweep_topology` + `gather` + the four Structs + the seeder/reader/critic/synthesizer factories.
+- `src/substrate/topologies/applications/research_sweep.py` — `research_sweep_topology` + `gather` + the four Structs + the seeder/reader/critic/synthesizer factories.
 - `scripts/run_research_sweep.py` — argparse (`--question`, `--paths`/`--dir`, `--model`); real Ollama reader/critic/synthesizer; runs to a record.
 - `tests/test_research_sweep.py` — the observation contract.
 
 ### Files modified
 
-- `src/substrate/topologies/workflows/__init__.py` — export `research_sweep_topology`.
+- `src/substrate/topologies/applications/__init__.py` — export `research_sweep_topology`.
 - `process/WORKING_AGREEMENT.md` — canonical-home row.
 
 ### Content assertions

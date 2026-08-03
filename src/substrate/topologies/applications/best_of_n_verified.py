@@ -117,7 +117,14 @@ def best_of_n_verified_topology(
     """Best-of-N with verification over `task`. `drafter` generates candidates; `verify` is either a
     deterministic `check(response) -> (passed, reason)` or an independent judge Responder. Composes
     `best_of_n_correction` with the default select-first judge — the loop, correction, and record are
-    best_of_n's; this only supplies the drafter + verifier factories (the work)."""
+    best_of_n's; this only supplies the drafter + verifier factories (the work).
+
+    Raises ValueError on `n < 1`: with no candidates the seeder emits nothing, nothing is drafted or
+    verified, and the run finalises via `all_completed` with NO terminal application event — the same
+    silent-no-answer class as research_sweep's empty-corpus hole (review C-8; the empty-input guard is a
+    CLASS, applied to every application, not just the one the first fix touched — KIT_DIARY #16)."""
+    if n < 1:
+        raise ValueError(f"best_of_n_verified_topology: n must be >= 1, got {n}")
 
     def topo(b: api.TopologyBuilder) -> None:
         best_of_n_correction(

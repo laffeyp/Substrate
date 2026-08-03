@@ -179,8 +179,21 @@ async def _drive_maybe_tailing(coro: Any, record_root: Path, tail_live: bool, ve
 
 
 # ── the command group ──────────────────────────────────────────────────────────
+def _resolve_version() -> str:
+    # resolved locally (not imported from the package top level) to keep the F-API-6 boundary — cli
+    # imports only substrate.api. click's default --version lookup infers the dist from the import name
+    # ("substrate"), but the dist is "substrate-kernel", so the default raised a traceback (review C-4).
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as _dist_version
+
+    try:
+        return _dist_version("substrate-kernel")
+    except PackageNotFoundError:  # pragma: no cover — bare source tree, no installed metadata
+        return "0.0.0"
+
+
 @click.group()
-@click.version_option(message="substrate %(version)s")
+@click.version_option(version=_resolve_version(), message="substrate %(version)s")
 def main() -> None:
     """Substrate — a concurrent streaming dataflow runtime. Read the run record; never the
     runtime's mind. Every command cites sequence numbers."""

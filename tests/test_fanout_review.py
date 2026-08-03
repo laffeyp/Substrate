@@ -2,7 +2,7 @@
 
 CI path: a throwaway git repo gives `changed_files` a real diff; DeterministicResponders drive
 the panel so the record is reproducible with no network. Asserts the diff is gathered read-only,
-the panel reviews it, the quorum fires the judge, and the run finalises — the workflow's own
+the panel reviews it, the quorum fires the judge, and the run finalises — the application's own
 record is the evidence.
 """
 
@@ -91,11 +91,19 @@ def test_fanout_review_reviews_the_diff_and_finalises(tmp_path: Path) -> None:
     assert "VerdictRendered" in kinds
     verdict = next(e for e in events if e["kind"] == "VerdictRendered")
     assert verdict["payload"]["n_critiques"] >= 3  # the quorum was met
-    # the workflow's own record reaches a terminal — it is replayable evidence
+    # the application's own record reaches a terminal — it is replayable evidence
     assert kinds[-1] == "substrate.RunFinalised"
-    # composition, not new vocabulary: no invented kinds beyond code_review's + lifecycle
+    # C-7: every model call is metered — the 5 reviewers each emit ModelUsage, and the judge does when it
+    # fires, so an assay of a fanout_review run sees the model work, not model_calls=0.
+    assert kinds.count("ModelUsage") >= len(DEFAULT_ROLES)
+    # C-2: the reviewed diff is on the record as a ReviewSubject — a replay carries the SUBJECT, not just
+    # the verdict. Before this a fanout_review record held opinions about material that was nowhere on it.
+    subjects = [e for e in events if e["kind"] == "ReviewSubject"]
+    assert len(subjects) == 1 and "no zero guard" in subjects[0]["payload"]["content"]
+    # code_review's kinds + the shared ModelUsage + fanout's own ReviewSubject (locked in the vocab doc)
     assert not any(
-        k not in {"CritiquePosted", "VerdictRendered"} and not k.startswith("substrate.")
+        k not in {"CritiquePosted", "VerdictRendered", "ModelUsage", "ReviewSubject"}
+        and not k.startswith("substrate.")
         for k in kinds
     )
 

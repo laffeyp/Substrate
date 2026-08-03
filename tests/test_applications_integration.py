@@ -1,4 +1,4 @@
-"""W1.INT — the workflow-application library, mounted end-to-end (sprint 140).
+"""W1.INT — the application library, mounted end-to-end (sprint 140).
 
 The wave-boundary proof (technique #16): all three W1 applications build and run to their terminal
 as a SET, on one invocation, deterministically. Each individual app has its own contract test;

@@ -53,13 +53,13 @@ Reuses best_of_n's LOCKED records — no new vocabulary:
 
 ### Files created
 
-- `src/substrate/topologies/workflows/best_of_n_verified.py` — `best_of_n_verified_topology` + the drafter/validator factories.
+- `src/substrate/topologies/applications/best_of_n_verified.py` — `best_of_n_verified_topology` + the drafter/validator factories.
 - `scripts/run_best_of_n_verified.py` — argparse (`--task`, `--model`, `--verifier-model`, `--n`, `--max-rounds`); real Ollama drafter + independent judge; runs to a record.
 - `tests/test_best_of_n_verified.py` — the observation contract.
 
 ### Files modified
 
-- `src/substrate/topologies/workflows/__init__.py` — export `best_of_n_verified_topology`.
+- `src/substrate/topologies/applications/__init__.py` — export `best_of_n_verified_topology`.
 - `process/WORKING_AGREEMENT.md` — canonical-home row.
 
 ### Content assertions

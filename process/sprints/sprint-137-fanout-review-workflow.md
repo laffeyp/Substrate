@@ -55,7 +55,7 @@ Reuses code_review's locked kinds — no new vocabulary:
 
 ### Files created
 
-- `src/substrate/topologies/workflows/__init__.py` + `src/substrate/topologies/workflows/fanout_review.py` — `fanout_review_topology(repo, *, ref="HEAD~1", roles=DEFAULT_ROLES, quorum, responders, judge, deterministic)` and a `changed_files(repo, ref) -> str` gatherer (git diff → a formatted review input). (One concept, ≤2 files.)
+- `src/substrate/topologies/applications/__init__.py` + `src/substrate/topologies/applications/fanout_review.py` — `fanout_review_topology(repo, *, ref="HEAD~1", roles=DEFAULT_ROLES, quorum, responders, judge, deterministic)` and a `changed_files(repo, ref) -> str` gatherer (git diff → a formatted review input). (One concept, ≤2 files.)
 - `scripts/run_fanout_review.py` — argparse (`--repo`, `--ref`, `--n`/roles, `--model`, `--quorum`); wires OllamaResponder per role + judge; runs to a record; prints the verdict + record path (mirrors `run_tool_agent.py`).
 - `tests/test_fanout_review.py` — the observation contract.
 
@@ -72,8 +72,8 @@ Reuses code_review's locked kinds — no new vocabulary:
 ### Command exit codes
 
 - `uv run python -m pytest tests/test_fanout_review.py -q` returns 0
-- `uv run ruff check src/substrate/topologies/workflows/ scripts/run_fanout_review.py` returns 0
-- `uv run mypy src/substrate/topologies/workflows/` returns 0
+- `uv run ruff check src/substrate/topologies/applications/ scripts/run_fanout_review.py` returns 0
+- `uv run mypy src/substrate/topologies/applications/` returns 0
 
 ## observation contract
 

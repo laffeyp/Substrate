@@ -45,8 +45,14 @@ e.g. `substrate tail src/substrate/topologies/code_review/records/ci_mode.record
 | `tool_loop` | the model -> tool -> model agent loop: a ToolCall fires a tool Producer, its ToolResult re-fires the model with the result appended; failed tools surface as typed observations, bounded by a step budget that ends on a FinalAnswer |
 | `game_of_life` | a tick-based simulation: a world Producer fans the shared grid out as one CellTick per cell; a cell Producer per cell applies Conway's Life rule concurrently; a step Trigger assembles the next generation once all cells report, bounded by a generation budget — every grid on the record |
 | `debate` / `prisoners_dilemma` / `intel_asymmetry` | the conversation substrate under positional / payoff / information asymmetry |
-| `natural_conversation` | the emergence ablation — common-ground + repair instruments toggled; the delta is the demo |
+| `natural_conversation` (+ `natural_conversation_bare`) | the emergence ablation — common-ground + repair instruments toggled; the delta is the demo. The `_bare` variant is the WITHOUT arm. |
+| `adversarial_pair` | a writer vs a vulnerability-finder in an attempt-count-bounded refinement loop (GAN / red-team shape) |
+| `game_of_life_glider` | `game_of_life` seeded with an asymmetric moving glider (the fixture that catches a mirror-render bug the symmetric blinker cannot) |
 | `coding_flow` | best-of-N codegen over a model ENSEMBLE → build-validation (a real gate) → correction loop. A run-and-observe app, **not** a committed record — see below. |
+
+All twelve `BUNDLED` topologies (runnable via `substrate run --topology <name>`) are represented above —
+some rows fold in variants (the two `natural_conversation` arms, the two `game_of_life` seeds) or the
+three conversation asymmetries. `coding_flow` is the run-and-observe exception below, not in `BUNDLED`.
 
 ### `coding_flow` — a run-and-observe app, not a committed record
 

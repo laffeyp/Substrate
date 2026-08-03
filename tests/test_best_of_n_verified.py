@@ -3,7 +3,7 @@
 CI: a DeterministicResponder drafter + a deterministic `check` (the substrate-preferred verifier,
 no model in the validator slot) drive the loop reproducibly with no network. Asserts the three
 outcomes the composed best_of_n loop produces — Solved, Exhausted after correction, and the
-independent-judge-model verify branch — on the workflow's own replayable record.
+independent-judge-model verify branch — on the application's own replayable record.
 """
 
 from __future__ import annotations
@@ -57,6 +57,17 @@ def test_the_task_reaches_the_drafter_and_the_candidate_reaches_the_judge(tmp_pa
     assert any("cell biology" in p for p in drafter.prompts)  # the TASK reached the drafter
     # the judge prompt carries BOTH the task and the drafter's candidate answer (what it must verify)
     assert any("cell biology" in p and "powerhouse" in p for p in judge.prompts)
+
+
+def test_n_below_one_raises_not_silent_no_answer() -> None:
+    # C-8: the empty-input guard is a CLASS (KIT_DIARY #16). research_sweep got its empty-corpus guard;
+    # its sibling best_of_n_verified must refuse n<1 too, rather than finalise with nothing drafted.
+    import pytest
+
+    with pytest.raises(ValueError, match="n must be >= 1"):
+        best_of_n_verified_topology(
+            "task", drafter=DeterministicResponder(seed=0), verify=lambda r: (True, "ok"), n=0
+        )
 
 
 def test_verdict_parse_is_robust_to_preamble_and_fails_closed() -> None:

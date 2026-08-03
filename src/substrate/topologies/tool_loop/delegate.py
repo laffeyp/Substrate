@@ -25,8 +25,9 @@ raises or produces no FinalAnswer is a typed `ToolResult(ok=False)`, not a crash
 `timeout_seconds` is ABANDONED, not cancelled: a Python thread cannot be killed, so the worker (a daemon)
 keeps running to its own bounded termination while the parent records `ToolResult(ok=False)` naming the
 child root. Its record finalises later at that root — the two records do not contradict, they are ordered.
-The child writes ONLY under its own root (never the parent record), and inherits the parent's capability
-set via `child_suite_factory` (so `--read-only` survives delegation; review F-5). The real bound on a
+The child's tools write ONLY under its `workspace/` subdir — its record is a SIBLING `record/` subdir, so
+an autonomous child cannot write over the immutable evidence of its own run (C-1) — and it inherits the
+parent's capability set via `child_suite_factory` (so `--read-only` survives delegation; review F-5). The real bound on a
 child is its own `child_max_steps × the model call timeout`; set `timeout_seconds` above that — it is the
 safety net, not the primary bound.
 """
@@ -43,8 +44,9 @@ from ... import api
 from ...adapters import Responder
 from .tools import Tool, full_suite
 
-# What the child IS, given a subtask and its own record root. Caller-supplied so delegate is agnostic to
-# session-vs-named-topology, and CI can inject a deterministic child. Returns a topology builder callable.
+# What the child IS, given a subtask and its WORKSPACE root (where its tools operate — distinct from the
+# record root, review C-1). Caller-supplied so delegate is agnostic to session-vs-named-topology, and CI
+# can inject a deterministic child. Returns a topology builder callable.
 ChildFactory = Callable[[str, Path], Callable[[api.TopologyBuilder], None]]
 # How the child's tool suite is built at its own root — the seam through which the parent's capability set
 # (e.g. read-only) propagates to the child instead of being silently rebuilt as the full suite.
@@ -100,18 +102,20 @@ def _default_child_factory(
     timeout_seconds: float,
 ) -> ChildFactory:
     """The child is a real tool_loop agent (walkthrough mode — it runs `responder` on the delegated task)
-    over `suite_factory(child_root)`, plus a DEEPER delegate (depth+1) when the chain has room — so a
-    delegated agent can itself delegate, bounded by max_depth, inheriting the same suite factory."""
+    over `suite_factory(workspace_root)`, plus a DEEPER delegate (depth+1) when the chain has room — so a
+    delegated agent can itself delegate, bounded by max_depth, inheriting the same suite factory. A nested
+    delegate roots at the DELEGATION dir (`workspace_root.parent`), not the workspace, so a grandchild's
+    record is a sibling of this child's workspace — never underneath it (review C-1)."""
     from . import tool_loop_topology
 
-    def factory(task: str, child_root: Path) -> Callable[[api.TopologyBuilder], None]:
-        suite = suite_factory(child_root)
+    def factory(task: str, workspace_root: Path) -> Callable[[api.TopologyBuilder], None]:
+        suite = suite_factory(workspace_root)
         if depth + 1 < max_depth:
             suite = {
                 **suite,
                 "delegate": make_delegate(
                     responder=responder,
-                    root=child_root,
+                    root=workspace_root.parent,
                     child_suite_factory=suite_factory,
                     depth=depth + 1,
                     max_depth=max_depth,
@@ -133,9 +137,10 @@ def _default_child_factory(
 
 
 def _unique_child_root(base: Path, depth: int, start: int) -> tuple[Path, int]:
-    """A child record root that does not already exist on disk. Probing disk (not just an in-memory
-    counter) is what prevents a FRESH delegate instance in a persistent workspace from reusing `d1-c1`
-    and appending onto a sealed record — the RecordGapError data-loss path (review F-3)."""
+    """A delegation dir (holding the child's `workspace/` + `record/`) that does not already exist on
+    disk. Probing disk (not just an in-memory counter) is what prevents a FRESH delegate instance in a
+    persistent workspace from reusing `d1-c1` and appending onto a sealed record — the RecordGapError
+    data-loss path (review F-3)."""
     n = start
     child_root = base / f"d{depth + 1}-c{n}"
     while child_root.exists():
@@ -162,10 +167,12 @@ def make_delegate(
 
     The child runs the REAL model on the REAL task. Supply either `responder` (the default factory runs a
     tool_loop agent with it) or `child_factory` (what the child is — a session, a named topology, or a
-    deterministic scripted agent for CI); one is required. `child_suite_factory(child_root) -> suite`
+    deterministic scripted agent for CI); one is required. `child_suite_factory(workspace_root) -> suite`
     builds the child's tools (default `full_suite`) — pass the parent's own suite builder so a restricted
-    parent (e.g. read-only) yields a restricted child. Depth and fan-out are capped; at either cap the call
-    raises, which the loop turns into a typed ToolResult(ok=False)."""
+    parent (e.g. read-only) yields a restricted child. The child's tools operate in a `workspace/` subdir
+    of the delegation dir; its record lives in a sibling `record/` subdir, so the child cannot write over
+    its own record (C-1). Depth and fan-out are capped; at either cap the call raises, which the loop
+    turns into a typed ToolResult(ok=False)."""
     r = Path(root)
     if child_factory is None and responder is None:
         raise ValueError("make_delegate requires either a responder or a child_factory")
@@ -196,12 +203,20 @@ def make_delegate(
             raise ValueError(
                 f"delegate: max children ({max_children}) already spawned by this agent"
             )
-        # a root that does not already exist (F-3): reuse would append onto a sealed record and lose data
-        child_root, n = _unique_child_root(r / "delegate-runs", depth, spawned["n"])
+        # a delegation dir that does not already exist (F-3): reuse would append onto a sealed record
+        # and lose data. Inside it, WORKSPACE and RECORD are SEPARATE subdirs (review C-1): the child's
+        # bash/write_file/edit_file are rooted at `workspace/`, the append-only record lives at `record/`,
+        # so an autonomous child cannot write over the immutable evidence of its own run. The two are
+        # opposite kinds of thing; one path can't stand for both.
+        delegation_dir, n = _unique_child_root(r / "delegate-runs", depth, spawned["n"])
         spawned["n"] = n + 1
-        topology = factory(task, child_root)
-        answer, steps = _run_child_to_answer(topology, child_root, timeout_seconds=timeout_seconds)
-        return {"answer": answer, "child_root": str(child_root), "steps": steps}
+        workspace_root = delegation_dir / "workspace"
+        record_root = delegation_dir / "record"
+        topology = factory(
+            task, workspace_root
+        )  # the child's tools operate in workspace, NOT the record
+        answer, steps = _run_child_to_answer(topology, record_root, timeout_seconds=timeout_seconds)
+        return {"answer": answer, "child_root": str(record_root), "steps": steps}
 
     return Tool(
         "delegate",
@@ -209,4 +224,7 @@ def make_delegate(
         "it runs to an answer as its own record and the answer folds back (SIDE EFFECT)",
         False,  # runs a real child agent — not deterministic in the pure sense
         run,
+        # the schema travels WITH the tool (review C-10), not as a row in tools.py's closed literal — so
+        # delegate is visible to native tool-calling without tools.py needing to know delegate exists.
+        {"type": "object", "properties": {"task": {"type": "string"}}, "required": ["task"]},
     )

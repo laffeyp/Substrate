@@ -26,7 +26,7 @@ from typing import Any
 from msgspec import Struct
 
 from ... import api
-from ...adapters import Responder, call_responder
+from ...adapters import ModelUsage, Responder, call_responder_metered
 
 # A Producer factory: a zero-arg callable returning the `start` async-generator. Typed as
 # Callable[[], Any] for the same reason as r1_ensemble — an async-generator function does not
@@ -57,7 +57,7 @@ def _severity_of(text: str) -> int:
 def _reviewer_factory(
     role: str, code: str, responder: Responder, linger_seconds: float = 0.0
 ) -> _Factory:
-    async def reviewer(_input: Any) -> AsyncIterator[CritiquePosted]:
+    async def reviewer(_input: Any) -> AsyncIterator[CritiquePosted | ModelUsage]:
         # A lingering reviewer (linger_seconds > 0) sleeps BEFORE yielding, so it is still
         # running — and has NOT contributed a critique to the quorum — when the fast quorum
         # fires the judge. That makes it a live victim for cancel-all-others on the judge's
@@ -68,18 +68,19 @@ def _reviewer_factory(
         # most glaring bug (SQLi, a div-by-zero) regardless of role — no divergence, the whole point
         # of a multi-role panel lost. Constrain each reviewer to its OWN lens so the panel genuinely
         # diverges (security finds the injection, performance the O(n²), style the naming, ...).
-        text = await call_responder(
+        text, usage = await call_responder_metered(
             responder,
             f"You are the {role.upper()} reviewer. Review this code for {role} problems ONLY and name "
             f"the single most important {role} issue in one sentence; ignore issues outside {role}.\n{code}",
         )
+        yield usage  # every model call metered onto the record (review C-7) so the panel is assayable
         yield CritiquePosted(role=role, severity=_severity_of(text), summary=text[:200])
 
     return lambda: reviewer
 
 
 def _judge_factory(responder: Responder) -> _Factory:
-    async def judge(inp: Any) -> AsyncIterator[VerdictRendered]:
+    async def judge(inp: Any) -> AsyncIterator[VerdictRendered | ModelUsage]:
         # inp carries the accumulated critiques (the input_builder reads the Bus-view buffer).
         crits = inp.get("critiques", []) if hasattr(inp, "get") else []
         roles = tuple(c["role"] for c in crits)
@@ -88,11 +89,12 @@ def _judge_factory(responder: Responder) -> _Factory:
         # severities; in the walkthrough the real model reasons over the critique summaries.
         if responder is not None and roles:
             # the judge must see the critique CONTENT to adjudicate, not just the role names.
-            _ = await call_responder(
+            _, usage = await call_responder_metered(
                 responder,
                 "Adjudicate these code-review critiques; name the most serious and the verdict:\n"
                 + "\n".join(f"- {c['role']}: {c.get('summary', '')}" for c in crits),
             )
+            yield usage  # metered onto the record (C-7)
         decision = "block" if max_sev >= 4 else "request-changes" if max_sev >= 2 else "approve"
         yield VerdictRendered(decision=decision, cited_roles=roles, n_critiques=len(crits))
 
@@ -127,7 +129,7 @@ def code_review_topology(
             linger = linger_seconds if role in slow_roles else 0.0
             b.producer_kind(
                 f"reviewer-{role}",
-                schemas=[CritiquePosted],
+                schemas=[CritiquePosted, ModelUsage],
                 schema_version=1,
                 factory=_reviewer_factory(role, code, responders[role], linger),
                 deterministic=deterministic,
@@ -135,7 +137,7 @@ def code_review_topology(
             b.initial(f"reviewer-{role}", input=None)
         b.producer_kind(
             "judge",
-            schemas=[VerdictRendered],
+            schemas=[VerdictRendered, ModelUsage],
             schema_version=1,
             factory=_judge_factory(judge),
             deterministic=deterministic,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run best_of_n_verified with real local models (walkthrough, workflow-parity W1.2).
+"""Run best_of_n_verified with real local models (walkthrough, application-parity W1.2).
 
 Generate N candidates for a task with one model, verify each with an INDEPENDENT judge model
 (a different family than the drafter, per finding #42), select the survivor. The loop, the

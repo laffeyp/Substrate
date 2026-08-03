@@ -10,10 +10,12 @@ per model call, so a run is inspectable, diffable, and assayable.
 scope including code identifiers — design_spec draft1 / product principle 6. This package was renamed
 from `workflows/` per that rule on 2026-07-31.)
 
-Two of the three COMPOSE an existing topology (the way `fanout_review` is `code_review` fed a real
-diff); the third is AUTHORED from the standard builder primitives because map-reduce has no existing
-whole to compose. None invents kernel machinery or new lifecycle vocabulary. See
-[adding-a-topology.md](adding-a-topology.md) for the authoring pattern they follow.
+The library is three TOPOLOGIES plus one TOOL. Of the topologies, two COMPOSE an existing whole (the
+way `fanout_review` is `code_review` fed a real diff) and one (`research_sweep`) is AUTHORED from the
+standard builder primitives because map-reduce has no existing whole to compose; none invents kernel
+machinery. The fourth, `delegate`, is a tool_loop TOOL, not a topology — it belongs to the library
+because it is the W2.1 deliverable (an agent hands a subtask to a child agent), and it is documented
+below. See [adding-a-topology.md](adding-a-topology.md) for the authoring pattern the topologies follow.
 
 ## fanout_review — a review panel on a real git diff
 
@@ -68,6 +70,25 @@ uv run python scripts/run_research_sweep.py --dir docs --glob '*.md' \
 
 Home: `src/substrate/topologies/applications/research_sweep.py`. Records: `ReadRequest`/`Finding` ×N →
 `Gaps` → `Synthesis`, each model call metered as `ModelUsage`. Contract: `tests/test_research_sweep.py`.
+
+## delegate — an agent hands a subtask to a child agent, folds the answer back (W2.1)
+
+A tool, not a topology: `make_delegate(...)` builds a `delegate` tool a tool_loop agent composes into
+its suite. Calling `delegate(task)` runs a CHILD agent on the subtask to a FinalAnswer at its own record
+root and folds `{answer, child_root, steps}` back as an ordinary `ToolResult`; `child_root` on that
+result is the run-granularity provenance link, so the parent record cites the child. The child runs the
+real model on the real task, in its own `workspace/` subdir with its record in a sibling `record/` subdir
+(so it cannot write over its own record); it inherits the parent's capability set, and depth + fan-out
+are capped with typed failures. The tool seam is synchronous, so the child runs to completion in a worker
+thread (blocking like `bash`); `embedded_substrate` is the concurrent-child shape, a later option.
+
+```
+uv run python scripts/run_tool_agent.py --delegate --model kimi-k2.6:cloud \
+    --task "... a task the agent will split and delegate ..."
+```
+
+Home: `src/substrate/topologies/tool_loop/delegate.py`. Records: the child run's own `tool_loop` record
+(cited from the parent's `ToolResult.output.child_root`). Contract: `tests/test_delegate.py`.
 
 ## Verifying the library
 

@@ -1,10 +1,19 @@
 """best_of_n — the reusable best-of-N + correction loop (Wave-0 shared sub-topology, sprint 136).
 
-Generalizes coding_flow's pattern: a seeder fans out N Drafts; each Candidate is validated
-DETERMINISTICALLY (the validator is code — a gate, the SEARCH/REPLACE applier — NEVER an LLM's opinion
-of its own work); when a round's N verdicts land, a judge selects the passing candidate (-> Solved),
-feeds every failure back into a fresh round (-> N Drafts), or gives up (-> Exhausted). The ONLY model
-work is the drafter.
+Generalizes coding_flow's pattern: a seeder fans out N Drafts; each Candidate is validated by a
+CALLER-SUPPLIED validator; when a round's N verdicts land, a judge selects the passing candidate
+(-> Solved), feeds every failure back into a fresh round (-> N Drafts), or gives up (-> Exhausted).
+The only model work on the DRAFT side is the drafter.
+
+The validator is CODE by default — a gate, the SEARCH/REPLACE applier — never a model grading its OWN
+work (the coding consumers: coding_flow, the swebench Repairer, code_evolution). The one sanctioned
+exception is an INDEPENDENT judge: a model of a DISJOINT family from the drafter, for prose/design where
+no mechanical check exists (finding #42, used by `applications/best_of_n_verified`). "Never a model" is
+about SELF-grading; a disjoint-family judge is not self-grading. When the validator is such a judge, its
+`Verdict.returncode` (0/1) is a pass/fail PROXY, not a real process exit — the `passed` bool and
+`summary` carry the truth (review C-5). NOTE this reconciliation is docstring-only; whether the shared
+`Verdict` contract should gain an explicit verdict-source field (gate-exit vs model-judgment) is an open
+Architect question, surfaced on the BLACKBOARD.
 
 The shared 3-consumer contract (Draft / Candidate / Verdict / Solved / Exhausted, reused from coding_flow
 per WORKING_AGREEMENT) lives in ONE place so the loop's currency / determinism invariants cannot diverge

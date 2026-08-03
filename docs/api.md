@@ -2,8 +2,12 @@
 
 The complete public surface (F-API-1). Everything else is private; the CLI imports only
 this module (F-API-6). **This page is GENERATED from the live `substrate.api.__all__` and
-the symbols' own docstrings** (`scripts/gen_api_docs.py`) so it cannot drift from the
-code. Regenerate (`uv run python scripts/gen_api_docs.py`) after any public-surface change.
+the symbols' own docstrings** (`scripts/gen_api_docs.py`) — so it is faithful WHEN regenerated,
+but nothing gates it: `gen_api_docs` runs in no test or CI step, so a changed public signature
+leaves this page stale until someone reruns it (review C-18). Regenerate
+(`uv run python scripts/gen_api_docs.py`) after any public-surface change. Note the generator is
+interpreter-sensitive on type renderings (e.g. `typing.Any` vs `Any`); regenerate on the same
+Python the committed page targets, or a cross-version diff appears (KIT_DIARY #35).
 
 ## Data types
 

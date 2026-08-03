@@ -10,11 +10,18 @@ colliding. Strict validator-extras (project posture).
 
 Home: `src/substrate/topologies/applications/` (registered in `process/WORKING_AGREEMENT.md`).
 
-## fanout_review — reuses code_review's records (no new vocabulary)
+## fanout_review — reuses code_review's records + one record-completeness kind
 
 `fanout_review` composes `code_review_topology`; it emits `CritiquePosted` and `VerdictRendered` — the
-code_review kinds — plus lifecycle. It authors NO records of its own. (code_review's own kinds remain
-undocumented in a vocabulary file; that is a pre-existing gap, not this wave's.)
+code_review kinds — plus lifecycle, plus `ModelUsage` per reviewer/judge call (metered on the code_review
+side, review C-7). It authors ONE record of its own:
+
+| Record | Locked fields | Meaning |
+|---|---|---|
+| `ReviewSubject` | `ref:str, chars:int, content:str` | the material the panel reviewed (the gathered diff), emitted ONCE before the critiques so a replay carries the SUBJECT of the verdict, not just the verdict (review C-2). |
+
+(code_review's own kinds remain undocumented in a vocabulary file; that is a pre-existing gap, not this
+wave's.)
 
 ## best_of_n_verified — reuses best_of_n's records (no new vocabulary)
 

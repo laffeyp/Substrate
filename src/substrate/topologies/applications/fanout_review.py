@@ -3,14 +3,19 @@
 The agent-CLI "fan out a review over the changed files" pattern is `code_review_topology`
 already: N role reviewers in parallel, a quorum-gated judge, cancel-all-others. The only
 missing piece was real input. `changed_files` gathers a repo's diff (read-only git); the
-topology hands it to the existing panel untouched. No engine change, no new vocabulary.
+topology hands it to the existing panel AND emits it as a `ReviewSubject` event so the record
+carries WHAT WAS REVIEWED, not just the verdict (review C-2). One record-completeness kind,
+locked in `process/signals/applications-vocabulary.md`; otherwise it reuses code_review's kinds.
 """
 
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from pathlib import Path
+from typing import Any
+
+from msgspec import Struct
 
 from ... import api
 from ...adapters import Responder
@@ -19,6 +24,22 @@ from ..code_review import DEFAULT_ROLES, code_review_topology
 # Bound the gathered diff so a large changeset cannot blow the reviewer prompt (the tool-result
 # byte-cap lesson: an oversized payload is truncated with a visible marker, never sent whole).
 _MAX_DIFF_CHARS = 24_000
+
+
+class ReviewSubject(Struct, frozen=True):
+    """The material the panel reviewed — the gathered diff — recorded so a replay reconstructs the
+    review's SUBJECT, not just its opinions (review C-2). Emitted once, before the critiques."""
+
+    ref: str
+    chars: int
+    content: str
+
+
+def _subject_factory(ref: str, code: str) -> Callable[[], Any]:
+    async def emit(_inp: Any) -> AsyncIterator[ReviewSubject]:
+        yield ReviewSubject(ref=ref, chars=len(code), content=code)
+
+    return lambda: emit
 
 
 def changed_files(repo: str | Path, ref: str = "HEAD~1") -> str:
@@ -79,10 +100,11 @@ def fanout_review_topology(
     slow_roles: frozenset[str] = frozenset(),
     linger_seconds: float = 0.0,
 ) -> Callable[[api.TopologyBuilder], None]:
-    """A review panel over the changed files of `repo` at `ref`. Gathers the diff, then returns
-    the existing `code_review_topology` fed that diff — composition, not reimplementation. The
-    signature mirrors `code_review_topology` (`responders` role->Responder, `judge`, `quorum`,
-    `deterministic`); `repo`/`ref` are the only additions. Raises if `repo` is not a git repo.
+    """A review panel over the changed files of `repo` at `ref`. Gathers the diff, emits it as a
+    `ReviewSubject` event (so the record carries what was reviewed — C-2), then applies the existing
+    `code_review_topology` fed that diff — composition, not reimplementation. The signature mirrors
+    `code_review_topology` (`responders` role->Responder, `judge`, `quorum`, `deterministic`);
+    `repo`/`ref` are the only additions. Raises if `repo` is not a git repo.
     """
     code = changed_files(repo, ref)
     # F-7: clamp the quorum to the panel size. `quorum` defaults to 3, but `roles` is caller-set; a
@@ -90,7 +112,7 @@ def fanout_review_topology(
     # VerdictRendered — the same silent-no-answer class. A quorum can never exceed the number of reviewers
     # that will ever post, so clamp it here rather than leaving the guard to the caller.
     effective_quorum = min(quorum, len(roles)) if roles else quorum
-    return code_review_topology(
+    inner = code_review_topology(
         code,
         responders=responders,
         judge=judge,
@@ -100,3 +122,19 @@ def fanout_review_topology(
         slow_roles=slow_roles,
         linger_seconds=linger_seconds,
     )
+
+    def topo(b: api.TopologyBuilder) -> None:
+        # emit the reviewed diff onto the record FIRST, then wire the panel — a replay now has the
+        # subject the verdict is about, not just the verdict (C-2). The subject producer completes at
+        # once and does not gate the panel's termination.
+        b.producer_kind(
+            "subject",
+            schemas=[ReviewSubject],
+            schema_version=1,
+            factory=_subject_factory(ref, code),
+            deterministic=deterministic,
+        )
+        b.initial("subject", input=None)
+        inner(b)
+
+    return topo

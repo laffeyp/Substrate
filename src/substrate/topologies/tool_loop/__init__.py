@@ -269,7 +269,7 @@ def _tool_factory(tools: dict[str, Tool]) -> _Factory:
                 error=f"unknown tool '{tool}'",
             )
             return
-        missing = required_params(tool)[len(args) :]
+        missing = required_params(tool, tools)[len(args) :]
         if missing:
             # under-specified call (model supplied too few args) -> a CLEAR typed error it can act on,
             # not the raw IndexError the tool body would throw (surfaced by a live llama3.2:1b run).

@@ -2,7 +2,7 @@
 
 CI: DeterministicResponders drive the map-reduce reproducibly, no network. Asserts the fan-out
 (one reader per document), the fan-in (critic once all findings land), the reduce (synthesizer
-once), read-only gather, and no lifecycle-kind collisions — on the workflow's own record.
+once), read-only gather, and no lifecycle-kind collisions — on the application's own record.
 """
 
 from __future__ import annotations

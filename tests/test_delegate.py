@@ -98,6 +98,30 @@ def test_delegate_is_visible_and_callable_via_native_tool_calling(tmp_path: Path
     )  # its task arg is mapped, not dropped
 
 
+def test_child_writes_to_workspace_not_its_own_record(tmp_path: Path) -> None:
+    # C-1: an autonomous child must not hold write access to the immutable record of its own run. The
+    # delegation dir splits into workspace/ (where bash/write_file operate) and record/ (the append-only
+    # record). A child that writes a file must land it in workspace/, never beside the record segments.
+    from substrate.topologies.tool_loop.tools import full_suite
+
+    def _writing_child(task: str, workspace_root: Path) -> object:
+        return tool_loop_topology(
+            script=[("write_file", ["notes.txt", "child work product"])],
+            tools=full_suite(workspace_root),  # rooted at the workspace, not the record
+            max_steps=2,
+        )
+
+    out = make_delegate(child_factory=_writing_child, root=tmp_path).run(["write a note"])
+    record_dir = Path(out["child_root"])
+    assert record_dir.name == "record"  # child_root is the RECORD, not the workspace
+    assert (record_dir / "manifest.json").exists()  # a real record lives there
+    assert not (record_dir / "notes.txt").exists()  # the child's file did NOT land in the record
+    workspace_dir = record_dir.parent / "workspace"
+    assert (
+        workspace_dir / "notes.txt"
+    ).read_text() == "child work product"  # it landed in workspace
+
+
 def test_default_child_runs_the_real_model_on_the_task(tmp_path: Path) -> None:
     # F-2/F-12: the DEFAULT factory (responder, no child_factory) must run the real model AND carry the
     # task to it. The pre-fix default made the child deterministic, discarding both — every delegation

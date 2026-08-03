@@ -56,6 +56,12 @@ class Tool(NamedTuple):
     describe: str  # one line for the model's prompt — its available tool surface
     deterministic: bool
     run: Callable[[list[Any]], Any]  # run(args) -> a structured result; raise on failure
+    # Optional JSON-schema for the tool's parameters. A tool authored OUTSIDE tools.py (the documented
+    # extension seam — a caller-composed suite) carries its schema HERE, and the schema helpers below
+    # fall back to it when the name is absent from the closed `_TOOL_SCHEMAS` literal. Without this a
+    # third tool is invisible to native tool-calling (dropped by ollama_tools, args unmappable) with no
+    # error — the sprint-141 delegate bug, fixed at the CLASS level this time (review C-10, Addendum D4).
+    schema: dict[str, Any] | None = None
 
 
 # ── PURE (deterministic — the CI demo) ────────────────────────────────────────
@@ -332,32 +338,38 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "required": ["path", "text"],
     },
     "bash": {"type": "object", "properties": {"cmd": {"type": "string"}}, "required": ["cmd"]},
-    # delegate's impl lives in delegate.py (make_delegate), but its schema must register HERE: a tool
-    # absent from _TOOL_SCHEMAS is invisible to native tool-calling — ollama_tools drops it and
-    # _named_to_positional can't map its args. A real-model walkthrough caught exactly this (the model
-    # reported "I don't see a delegate tool"). One arg: the subtask string.
-    "delegate": {
-        "type": "object",
-        "properties": {"task": {"type": "string"}},
-        "required": ["task"],
-    },
+    # tools authored OUTSIDE this module (e.g. delegate — make_delegate) do NOT register here; they carry
+    # their schema on the Tool itself and the helpers above fall back to it (review C-10). This literal is
+    # only the built-in suite; it deliberately does not know about caller-composed tools.
 }
 
 
+def _schema_for(name: str, suite: dict[str, Tool] | None = None) -> dict[str, Any] | None:
+    """The parameter schema for a tool: the closed `_TOOL_SCHEMAS` literal first, else the tool's own
+    `schema` field (a tool authored outside tools.py — review C-10). None if neither has one."""
+    if name in _TOOL_SCHEMAS:
+        return _TOOL_SCHEMAS[name]
+    if suite is not None and name in suite:
+        return suite[name].schema
+    return None
+
+
 def ollama_tools(suite: dict[str, Tool]) -> list[dict[str, Any]]:
-    """The suite as Ollama `/api/chat` function tools — name + one-line description + JSON schema."""
-    return [
-        {
-            "type": "function",
-            "function": {
-                "name": t.name,
-                "description": t.describe,
-                "parameters": _TOOL_SCHEMAS[t.name],
-            },
-        }
-        for t in suite.values()
-        if t.name in _TOOL_SCHEMAS
-    ]
+    """The suite as Ollama `/api/chat` function tools — name + one-line description + JSON schema. A tool
+    with no schema (neither in `_TOOL_SCHEMAS` nor on the Tool) is skipped — it cannot be presented for
+    native tool-calling — rather than silently dropped with no trace."""
+    out: list[dict[str, Any]] = []
+    for t in suite.values():
+        params = _schema_for(t.name, suite)
+        if params is None:
+            continue
+        out.append(
+            {
+                "type": "function",
+                "function": {"name": t.name, "description": t.describe, "parameters": params},
+            }
+        )
+    return out
 
 
 def _loads_obj(s: Any) -> Any:
@@ -399,19 +411,23 @@ def _loads_obj(s: Any) -> Any:
     return None
 
 
-def required_params(name: str) -> list[str]:
+def required_params(name: str, suite: dict[str, Tool] | None = None) -> list[str]:
     """The tool's required parameter names (schema order) — used to turn a model's under-specified
     call (too few args) into a CLEAR typed error the model can act on, instead of a raw IndexError
-    from the tool body. Surfaced by a live llama3.2:1b run that re-called write_file with no args."""
-    return list(_TOOL_SCHEMAS.get(name, {}).get("required", []))
+    from the tool body. Surfaced by a live llama3.2:1b run that re-called write_file with no args.
+    Falls back to a caller-composed tool's own schema (review C-10)."""
+    return list((_schema_for(name, suite) or {}).get("required", []))
 
 
-def _named_to_positional(name: str, args: dict[str, Any]) -> list[Any]:
+def _named_to_positional(
+    name: str, args: dict[str, Any], suite: dict[str, Tool] | None = None
+) -> list[Any]:
     """Map a model's NAMED tool args back to the positional list `Tool.run` expects, in schema order.
     Stops at the first missing param so a later arg can never mis-align onto an earlier slot (required
-    params are contiguous leading ones, so a trailing optional the model omitted just isn't passed)."""
+    params are contiguous leading ones, so a trailing optional the model omitted just isn't passed).
+    Falls back to a caller-composed tool's own schema (review C-10)."""
     out: list[Any] = []
-    for p in _TOOL_SCHEMAS.get(name, {}).get("properties", {}):
+    for p in (_schema_for(name, suite) or {}).get("properties", {}):
         if p not in args:
             break
         out.append(args[p])
@@ -429,7 +445,7 @@ def parse_tool_call(message: dict[str, Any], suite: dict[str, Tool]) -> tuple[st
         raw = fn.get("arguments", {})
         args = raw if isinstance(raw, dict) else _loads_obj(raw)
         if name in suite and isinstance(args, dict):
-            return "tool", (name, _named_to_positional(name, args))
+            return "tool", (name, _named_to_positional(name, args, suite))
     content = str(message.get("content", "")).strip()
     obj = _loads_obj(content)
     if (
@@ -437,5 +453,8 @@ def parse_tool_call(message: dict[str, Any], suite: dict[str, Tool]) -> tuple[st
         and str(obj.get("name", "")) in suite
         and isinstance(obj.get("arguments"), dict)
     ):
-        return "tool", (str(obj["name"]), _named_to_positional(str(obj["name"]), obj["arguments"]))
+        return "tool", (
+            str(obj["name"]),
+            _named_to_positional(str(obj["name"]), obj["arguments"], suite),
+        )
     return "answer", content

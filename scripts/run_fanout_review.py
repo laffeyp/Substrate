@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run fanout_review against a real repo with real local models (walkthrough, workflow-parity W1.1).
+"""Run fanout_review against a real repo with real local models (walkthrough, application-parity W1.1).
 
 The review panel over the changed files of a git diff: N role reviewers critique in parallel, a
 quorum fires a judge, cancel-all-others stops the lingerers. The record is replayable.

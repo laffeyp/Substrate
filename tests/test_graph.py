@@ -31,8 +31,10 @@ def test_topology_graph_nodes_and_roots() -> None:
     # the five reviewers are the entry points (initial); the judge is spawned by adjudicate.
     assert by_kind["reviewer-security"].is_initial is True
     assert by_kind["judge"].is_initial is False
-    assert by_kind["reviewer-security"].emits == ("CritiquePosted",)
-    assert by_kind["judge"].emits == ("VerdictRendered",)
+    # C-7: reviewers + judge now also meter their model call, so ModelUsage is a declared emit (emits is
+    # the declared schema set, sorted).
+    assert by_kind["reviewer-security"].emits == ("CritiquePosted", "ModelUsage")
+    assert by_kind["judge"].emits == ("ModelUsage", "VerdictRendered")
 
 
 def test_topology_graph_is_initial_is_correct_for_a_cyclic_topology() -> None:
@@ -89,11 +91,12 @@ def test_run_graph_spawn_forest() -> None:
     # initials: trigger __initial__, no parent.
     sec = by_kind["reviewer-security"]
     assert sec.trigger_id == "__initial__" and sec.parent is None and sec.status == "completed"
-    assert sec.emitted == ("CritiquePosted",)
+    # C-7: the metered model call is emitted first (ModelUsage), then the critique.
+    assert sec.emitted == ("ModelUsage", "CritiquePosted")
     # the judge: spawned by adjudicate, parented to the reviewer instance whose critique fired it.
     judge = by_kind["judge"]
     assert judge.trigger_id == "adjudicate" and judge.parent is not None
-    assert judge.emitted == ("VerdictRendered",)
+    assert judge.emitted == ("ModelUsage", "VerdictRendered")
     # the two slow reviewers were cancelled (started, never completed, emitted nothing).
     assert by_kind["reviewer-correctness"].status == "cancelled"
     assert by_kind["reviewer-clarity"].emitted == ()
