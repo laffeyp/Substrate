@@ -31,12 +31,32 @@ is wrapped, an exception becomes a recorded `(read failed: <Type>)` note, an emp
 completeness critic then names — not a run that finalises with no answer. This is the substrate-correct
 shape: every ReadRequest deterministically produces exactly one Finding.
 
+## context_files
+
+- `src/substrate/topologies/applications/research_sweep.py` (the topology being hardened — the three
+  model-call producers reader/critic/synthesizer + the fan-in trigger `len(findings) >= n`)
+- `tests/test_research_sweep.py` (the observation contract this extends)
+- `process/KIT_DIARY.md` finding 16 (death-resilience is a CLASS — audit model-call producers as a SET)
+
+## signal contract
+
+No new event kind. The existing `Finding` is now emitted EXACTLY ONCE per `ReadRequest` — its
+`note` carries `(read failed: <Type>)` on a raising reader or `(no contribution)` on an empty reply,
+so the fan-in count reaches `n` unconditionally. Invariant: the sweep always reaches `Synthesis`
+(never the `all_completed` silent-no-answer terminal), for any reader behaviour.
+
+## observation contract
+
+`pass_kind: functional`. Behavior: a reader that fails on every document still drives the sweep to a
+synthesis. `tests/test_research_sweep.py::test_a_failed_reader_still_synthesizes_not_a_silent_no_answer`
+— a `_FailingReader` (raises on every call) over 3 documents ⇒ 3 `Finding` (each `note` contains
+"read failed") ⇒ 1 `Gaps` ⇒ 1 `Synthesis` ⇒ `status="finalised"`. Proven RED without the fix
+(reverting `research_sweep.py:_reader_factory` turns it red at the assertion), GREEN with it.
+
 ## artifact contract
 
-- `src/substrate/topologies/workflows/research_sweep.py` — `_reader_factory` wrapped; one Finding per request.
-- `tests/test_research_sweep.py` — `test_a_failed_reader_still_synthesizes_not_a_silent_no_answer`: a
-  reader that raises on every document still yields 3 Findings (failures recorded on the note) and a
-  Synthesis. Proven red without the fix, green with it.
+- `src/substrate/topologies/applications/research_sweep.py` — `_reader_factory` wrapped; one Finding per request.
+- `tests/test_research_sweep.py` — `test_a_failed_reader_still_synthesizes_not_a_silent_no_answer` (above).
 
 ## done criteria
 

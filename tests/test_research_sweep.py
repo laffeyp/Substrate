@@ -150,6 +150,22 @@ def test_gather_missing_path_raises_not_swallowed(tmp_path: Path) -> None:
         gather([tmp_path / "does-not-exist.md"])
 
 
+def test_empty_document_set_raises_not_silent_no_answer() -> None:
+    # 2026-08-02 review (F-4 class): an empty corpus produced status=finalised with no Synthesis — the
+    # fan-in never fires because no Finding is ever emitted. The library now refuses it at build time,
+    # matching the CLI guard, rather than finalising with no answer.
+    import pytest
+
+    with pytest.raises(ValueError, match="empty"):
+        research_sweep_topology(
+            "q",
+            [],
+            reader=DeterministicResponder(seed=0),
+            critic=DeterministicResponder(seed=1),
+            synthesizer=DeterministicResponder(seed=2),
+        )
+
+
 def test_a_failed_reader_still_synthesizes_not_a_silent_no_answer(tmp_path: Path) -> None:
     # Regression (sprint 140.1): a reader yielding nothing must not stall the fan-in. Before the fix,
     # one dead reader left findings < n forever — no critic, no synthesis — yet the run finalised, so a

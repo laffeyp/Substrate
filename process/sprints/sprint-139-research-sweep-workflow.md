@@ -14,12 +14,11 @@ cadence_band: auto-within-phase
 
 ---
 
-> PROCESS NOTE (2026-07-31, review F-25): this card omits an explicit `## signal contract` and
-> `## context_files` (sprint 137 had both). It was an `auto-within-phase` card written at close; the
-> signal contract (the four topology-local Structs) and observation contract lived in the BLACKBOARD
-> Built entry and `tests/test_research_sweep.py`. The four record kinds are now locked in
-> `process/signals/applications-vocabulary.md` (review F-17) — the before-code lock the card should have
-> carried. Acknowledged, not hidden.
+> PROCESS NOTE (2026-08-02, review F-25): this card originally omitted `## signal contract` and
+> `## context_files` (sprint 137 had both) — an `auto-within-phase` card written at close. Both sections
+> are now RESTORED below (the 2026-08-02 verification pass required the real sections, not a pointer).
+> The four record kinds are locked in `process/signals/applications-vocabulary.md` (review F-17) — the
+> before-code lock the card should have carried.
 
 ## why
 
@@ -28,6 +27,29 @@ Application-parity W1.3 (`docs/cockpit/WORKFLOW-PARITY-SPRINTS-2026-07-31.md`), 
 ## scope
 
 `research_sweep_topology(question, documents, *, reader, critic, synthesizer, deterministic)` and a `gather(paths) -> list[(source, content)]` file reader (read-only, bounded, like fanout_review's `changed_files`). The topology: a seeder emits one ReadRequest per document; a `read` trigger fires a `reader` per request (a model extracts findings for the question from that document → Finding); when all N findings are in, a `critic` names what is still missing across them (→ Gaps); the `synthesizer` then writes the answer grounded in findings + gaps (→ Synthesis). Termination on the Synthesis. `scripts/run_research_sweep.py` is the real-model launch. Four topology-local Structs (ReadRequest, Finding, Gaps, Synthesis) declared here — application event kinds, per-topology, exactly as code_review declares CritiquePosted/VerdictRendered (NOT the locked lifecycle vocabulary).
+
+## context_files
+
+- `sdd-kit-2/AGENTS.md` (the methodology)
+- `src/substrate/topologies/code_review/__init__.py` (the fan-in-quorum trigger shape + the topology-local-Struct precedent)
+- `src/substrate/topologies/best_of_n/__init__.py` (the seeder-fan-out shape)
+- `src/substrate/adapters/models.py` (`Responder`, `call_responder_metered`, `ModelUsage`)
+- `src/substrate/api.py` (`TopologyBuilder`: producer_kind / trigger / view / termination)
+
+## signal contract
+
+### Emits
+
+Four topology-local frozen Structs (application kinds, like code_review's own), locked in
+`process/signals/applications-vocabulary.md` (F-17):
+- `ReadRequest` (seeder, one per document) → `Finding` (reader, exactly one per request) + `ModelUsage` per reader call
+- `Gaps` (critic, once all N findings land) + `ModelUsage`
+- `Synthesis` (synthesizer, the reduce) + `ModelUsage` — plus the lifecycle kinds
+
+### Invariants
+
+- The four Structs do NOT collide with the locked lifecycle vocabulary (`substrate.*`); `ModelUsage` is reused from the adapters seam, not re-declared.
+- Authored from primitives (no whole topology composes map-reduce); halt with `vocabulary_change_required` if a lifecycle-kind change seems needed — it should not.
 
 ## artifact contract
 

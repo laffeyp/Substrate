@@ -165,7 +165,14 @@ def research_sweep_topology(
     """Fan a reader over each of `documents` for `question`, run a completeness critic over all the
     findings, then synthesize the answer. `reader`/`critic`/`synthesizer` are Responders (may be the
     same model or different). Authored from primitives — seeder-fan-out (best_of_n shape) + fan-in
-    quorum trigger (code_review shape) — with the four topology-local Structs above."""
+    quorum trigger (code_review shape) — with the four topology-local Structs above.
+
+    Raises ValueError on an empty document set: with no documents no Finding is ever emitted, the
+    critique fan-in never fires, and the run would finalise via `all_completed` with NO Synthesis — the
+    same silent-no-answer class as the reader-failure hole (F-4). The library refuses it at build time,
+    matching the guard `scripts/run_research_sweep.py` already applies at the CLI (2026-08-02 review)."""
+    if not documents:
+        raise ValueError("research_sweep_topology: `documents` is empty — nothing to sweep")
     n = len(documents)
 
     def topo(b: api.TopologyBuilder) -> None:

@@ -3,8 +3,11 @@
 *The runnable application library (fanout_review, best_of_n_verified, research_sweep, delegate) is documented in [applications.md](applications.md) — the launchable patterns; this file is the strategic catalogue behind them.*
 
 What the substrate is for, as a ranked, structured list of applications — the ones built, and
-the candidates worth building next. Grounded in the 8 topologies shipped in `topologies/` and
-the precursor extraction (`docs/precursor-application-ideas.md`).
+the candidates worth building next. Grounded in the 12 topologies in the `BUNDLED` registry
+(`substrate run --topology`: code_review, pair_coding, recursive_decomposition, debate,
+prisoners_dilemma, intel_asymmetry, natural_conversation, natural_conversation_bare,
+adversarial_pair, game_of_life, game_of_life_glider, tool_loop) and the precursor extraction
+(`docs/precursor-application-ideas.md`).
 
 ## The organizing axis: instrument emergence, don't fake it
 
@@ -42,6 +45,7 @@ asymmetry · round cadence · output type per role.
 | `prisoners_dilemma` | payoff asymmetry, sequential reveal | conversation substrate, 1 round |
 | `intel_asymmetry` | information asymmetry (private intel → forced cross-questioning) | conversation substrate |
 | `natural_conversation` (+`_bare`) | the emergence ablation: common-ground + repair + scoring instruments toggled | conversation + 3 instruments (Producer+View+Route), the cheap-talk scoring loop |
+| `adversarial_pair` | writer vs vulnerability-finder, attempt-count-bounded refinement loop (GAN/red-team) | View-of-buffer + predicate-bounded loop |
 
 ## Built (application library) — launched via `scripts/run_*.py`, documented in [applications.md](applications.md)
 
@@ -64,7 +68,6 @@ accretes per turn), **repair** (Schegloff's other-initiated repair fires + discr
 
 | Candidate | Driver | New primitive stress | Cost | Note |
 |---|---|---|---|---|
-| `adversarial_pair` | writer vs vulnerability-finder, refinement loop bounded by attempt-count | View-of-buffer + predicate-bounded loop | day | precursor's GAN/red-team shape; strong emergence |
 | `research_workflow` | M retrievers → synthesizer → fact-checker route → citation-extractor; optional pause-await-input | composition of ~all primitives | week | **partly shipped** as `research_sweep` (map→critique→synthesize); the fact-checker route + citation-extractor legs remain |
 | `population_simulation` | N agents + world-state Producer; the bus IS the simulation log | N-way concurrency, batched local model | day | watch VRAM (50× 1B); validate batching before flagship default |
 | `socratic` | questioner with no thesis — only sharper questions | output-type asymmetry (questions, not claims) | afternoon | conversation config + prompt |

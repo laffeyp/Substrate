@@ -14,12 +14,10 @@ cadence_band: auto-within-phase
 
 ---
 
-> PROCESS NOTE (2026-07-31, review F-25): this card omits an explicit `## signal contract` and
-> `## context_files` (sprint 137 had both). It was an `auto-within-phase` card written at close; the
-> signal contract (reuses best_of_n's Draft/Candidate/Verdict/Solved/Exhausted + ModelUsage — no new
-> vocabulary) and the observation contract lived in the BLACKBOARD Built entry and
-> `tests/test_best_of_n_verified.py`. Recorded here so the gap is acknowledged, not hidden. The record
-> kinds are now locked in `process/signals/applications-vocabulary.md`.
+> PROCESS NOTE (2026-08-02, review F-25): this card originally omitted `## signal contract` and
+> `## context_files` (sprint 137 had both) — an `auto-within-phase` card written at close. Both sections
+> are now RESTORED below (the 2026-08-02 verification pass required the real sections, not a pointer).
+> The record kinds are locked in `process/signals/applications-vocabulary.md`.
 
 ## why
 
@@ -28,6 +26,28 @@ Application-parity W1.2 (`docs/cockpit/WORKFLOW-PARITY-SPRINTS-2026-07-31.md`). 
 ## scope
 
 `best_of_n_verified_topology(task, *, drafter, verify, n, max_rounds, ...)` composes `best_of_n_correction`: a `_drafter_factory` (call the drafter Responder, emit ModelUsage + Candidate) and a `_validator_factory` (verify each candidate → Verdict). `verify` is caller-supplied — a deterministic `check(response) -> (passed, reason)` (substrate's preferred; no model in the validator slot) OR an independent judge Responder (judge-family disjoint from the drafter, finding #42). Plus `scripts/run_best_of_n_verified.py`, the real-model launch. `best_of_n/` is untouched; the loop, correction, and records are its own.
+
+## context_files
+
+- `sdd-kit-2/AGENTS.md` (the methodology)
+- `src/substrate/topologies/best_of_n/__init__.py` + `best_of_n/contracts.py` (the loop this composes + the shared record contract it reuses)
+- `src/substrate/adapters/models.py` (`Responder`, `call_responder_metered`, `ModelUsage`)
+- `src/substrate/topologies/applications/fanout_review.py` (sprint 137, the sibling compose-an-existing-topology pattern)
+- `scripts/run_tool_agent.py` (the run-script shape to mirror)
+
+## signal contract
+
+### Emits
+
+Reuses best_of_n's LOCKED records — no new vocabulary:
+- `Draft` / `Candidate` (drafter) + `ModelUsage` per drafter call
+- `Verdict` (validator) + `ModelUsage` per judge call when `verify` is a Responder (F-18, added in the 2026-07-31 remediation)
+- `Solved` | `Exhausted` (the judge's terminal) + the lifecycle kinds
+
+### Invariants
+
+- No new event kind (`best_of_n_correction` owns the loop + records); halt with `vocabulary_change_required` if one seems needed — it should not.
+- `best_of_n/` is not modified. Records locked in `process/signals/swebench-solver-vocabulary.md` §A (the shared 3-consumer contract).
 
 ## artifact contract
 
