@@ -22,9 +22,10 @@ contract test.) Inject a `child_factory` for a deterministic child in CI.
 CAPS + FAILURE. Depth (`max_depth`) bounds the delegation CHAIN; fan-out (`max_children`) bounds how many
 children one delegate spawns. At either cap the tool returns a typed failure the model reads. A child that
 raises or produces no FinalAnswer is a typed `ToolResult(ok=False)`, not a crash. A child that runs past
-`timeout_seconds` is ABANDONED, not cancelled: a Python thread cannot be killed, so the worker (a daemon)
-keeps running to its own bounded termination while the parent records `ToolResult(ok=False)` naming the
-child root. Its record finalises later at that root — the two records do not contradict, they are ordered.
+`timeout_seconds` is CANCELLED cooperatively (review F-8): the worker holds the child on a loop the caller
+can reach, so on timeout the child's run task is cancelled across the thread boundary, `Runtime.run`'s
+finally cancels the child's producers and SEALS its record, and the parent records `ToolResult(ok=False)`.
+The child stops writing; its sealed record (no FinalAnswer) and the parent's timeout AGREE.
 The child's tools write ONLY under its `workspace/` subdir — its record is a SIBLING `record/` subdir, so
 an autonomous child cannot write over the immutable evidence of its own run (C-1) — and it inherits the
 parent's capability set via `child_suite_factory` (so `--read-only` survives delegation; review F-5). The real bound on a
@@ -53,6 +54,12 @@ ChildFactory = Callable[[str, Path], Callable[[api.TopologyBuilder], None]]
 SuiteFactory = Callable[[Path], dict[str, Tool]]
 
 
+# Grace period, after we ask the child's run task to cancel, for `Runtime.run`'s finally to unwind its
+# producers and SEAL the record before we give up on the worker thread. Cancellation is cooperative
+# (`await` points); this bounds how long we wait for the child to notice.
+_CANCEL_GRACE_SECONDS = 10.0
+
+
 def _run_child_to_answer(
     topology: Callable[[api.TopologyBuilder], None],
     root: Path,
@@ -61,27 +68,55 @@ def _run_child_to_answer(
 ) -> tuple[str, int]:
     """Run `topology` to completion at `root` in a worker thread (its own event loop, isolated from the
     outer runtime's), then read the child's FinalAnswer off its record. Blocks the caller like `bash`.
-    Raises TimeoutError (child abandoned, still running at `root`) / the child's exception / ValueError
-    (no FinalAnswer) — the tool body turns any of these into a typed ToolResult the parent reads."""
+
+    On timeout the child is CANCELLED, not abandoned (review F-8, the accepted risk now closed): the
+    worker runs the child on a loop this function holds a handle to, so on timeout we
+    `call_soon_threadsafe(task.cancel)` across the thread boundary. `Runtime.run`'s finally then cancels
+    the child's producers and seals the record (runtime.py) — so the orphan actually stops writing and its
+    record is sealed, rather than running on and contradicting the parent's ToolResult. Raises TimeoutError
+    (child cancelled) / the child's exception / ValueError (no FinalAnswer) — the tool body turns any of
+    these into a typed ToolResult the parent reads."""
     box: dict[str, Any] = {}
+    ready = (
+        threading.Event()
+    )  # set once the loop + run task exist (so cancel has something to target)
+    done = (
+        threading.Event()
+    )  # set when the worker's run_until_complete returns (normally OR cancelled)
+    handle: dict[str, Any] = {}  # {"loop", "task"} — the cross-thread cancellation handle
 
     def worker() -> None:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
-            box["result"] = asyncio.run(api.Runtime(root).run(topology))
+            task = loop.create_task(api.Runtime(root).run(topology))
+            handle["loop"], handle["task"] = loop, task
+            ready.set()
+            box["result"] = loop.run_until_complete(task)
+        except asyncio.CancelledError:
+            box["cancelled"] = True  # we asked for this on timeout
         except BaseException as exc:  # carried back to the caller thread, not swallowed
             box["error"] = exc
+        finally:
+            loop.close()
+            done.set()
 
-    # daemon: a hung child never blocks process exit. It cannot be killed, so on timeout it is abandoned
-    # to its own bounded termination — the error below names the root so the later-finalising child record
-    # is legible, not a silent contradiction.
-    t = threading.Thread(target=worker, daemon=True)
-    t.start()
-    t.join(timeout=timeout_seconds)
-    if t.is_alive():
+    threading.Thread(target=worker, daemon=True).start()
+    if not done.wait(timeout_seconds):
+        # timeout — cancel the child cooperatively and wait for its record to seal.
+        ready.wait(1.0)  # the loop+task should exist by now; tiny wait covers the startup race
+        loop, task = handle.get("loop"), handle.get("task")
+        if loop is not None and task is not None:
+            loop.call_soon_threadsafe(task.cancel)
+            done.wait(_CANCEL_GRACE_SECONDS)  # let Runtime.run's finally seal the record
         raise TimeoutError(
-            f"delegate child at {root} exceeded {timeout_seconds}s and was abandoned; it may still be "
-            "running and finalise its own record later"
+            f"delegate child at {root} exceeded {timeout_seconds}s and was cancelled; its record is "
+            "sealed at that root (no FinalAnswer)"
         )
+    if box.get(
+        "cancelled"
+    ):  # only reachable if cancelled without a timeout (not on the normal path)
+        raise TimeoutError(f"delegate child at {root} was cancelled")
     if "error" in box:
         raise box["error"]
     events = list(api.read_record(root))

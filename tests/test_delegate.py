@@ -7,8 +7,9 @@ the answer folds back into the parent's ToolResult, the parent's result cites th
 
 The review (2026-07-31) caught that the deterministic child hides the one thing delegate exists to do —
 carry the task to a real model. `test_default_child_runs_the_real_model_on_the_task` (F-2/F-12) closes
-that with a spy Responder; `test_read_only_suite_propagates` (F-5) and `test_timed_out_child_names_its_root`
-(F-8) close the other two delegate defects.
+that with a spy Responder; `test_read_only_suite_propagates` (F-5) and
+`test_timed_out_child_is_cancelled_and_its_record_sealed` (F-8, the timed-out child is now cancelled +
+sealed, not abandoned) close the other two delegate defects.
 """
 
 from __future__ import annotations
@@ -161,18 +162,37 @@ def test_read_only_suite_propagates_to_the_child(tmp_path: Path) -> None:
     assert "bash" not in built["tools"] and "write_file" not in built["tools"]  # no capability leak
 
 
-def test_timed_out_child_names_its_root(tmp_path: Path) -> None:
-    # F-8: a child that outruns timeout_seconds is abandoned (a thread can't be killed); the failure must
-    # NAME the child root so the later-finalising child record is legible, not a silent contradiction.
-    slow = _SpyResponder(reply="eventually", delay=0.5)
+def test_timed_out_child_is_cancelled_and_its_record_sealed(tmp_path: Path) -> None:
+    # F-8 (fixed): a child that outruns timeout_seconds is CANCELLED cooperatively, not abandoned. The
+    # failure names the root, and the child's record is SEALED at that root (Runtime.run's finally runs on
+    # cancellation) — so the orphan stops writing and its record agrees with the parent's timeout.
+    slow = _SpyResponder(reply="eventually", delay=1.0)
     delegate = make_delegate(
-        responder=slow, root=tmp_path, max_depth=1, child_max_steps=1, timeout_seconds=0.05
+        responder=slow, root=tmp_path, max_depth=1, child_max_steps=1, timeout_seconds=0.1
     )
     try:
         delegate.run(["a slow task"])
         assert False, "expected a timeout"
     except TimeoutError as exc:
-        assert "delegate-runs" in str(exc) and "abandoned" in str(exc)
+        assert "delegate-runs" in str(exc) and "cancelled" in str(exc)
+
+    # the child record exists, is READABLE (sealed, not a half-written open segment), and has no
+    # FinalAnswer — the run was cancelled, so its record and the parent's timeout tell the same story.
+    (delegation_dir,) = list((tmp_path / "delegate-runs").iterdir())
+    record_root = delegation_dir / "record"
+    kinds = [e["kind"] for e in api.read_record(record_root)]
+    assert "substrate.RunStarted" in kinds  # the child did start
+    assert "FinalAnswer" not in kinds  # but never finished — cancelled, no answer
+
+    # and it STAYS stopped: no new events land after cancellation (the orphan is not still writing)
+    import time
+
+    before = len(kinds)
+    time.sleep(
+        1.3
+    )  # past the child's own 1.0s model-call sleep — an un-cancelled orphan would emit here
+    after = len(list(api.read_record(record_root)))
+    assert after == before  # the record did not grow — the child was really stopped
 
 
 def test_depth_cap_refuses_instead_of_recursing(tmp_path: Path) -> None:
