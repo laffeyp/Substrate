@@ -123,6 +123,36 @@ def test_child_writes_to_workspace_not_its_own_record(tmp_path: Path) -> None:
     ).read_text() == "child work product"  # it landed in workspace
 
 
+def test_child_record_root_redirects_the_record_but_not_the_workspace(tmp_path: Path) -> None:
+    # W2.2 follow-on: the cockpit places delegate child RECORDS as flat served records (so the UI can
+    # navigate to them) while the WORKSPACE stays under the delegation dir. child_record_root(n) redirects
+    # the record; child_root on the result points at the redirected path.
+    records = tmp_path / "served"
+    records.mkdir()
+
+    def _writing_child(task: str, workspace_root: Path) -> object:
+        return tool_loop_topology(
+            script=[("write_file", ["scratch.txt", "child scratch"])],
+            tools=full_suite(workspace_root),
+            max_steps=2,
+        )
+
+    out = make_delegate(
+        child_factory=_writing_child,
+        root=tmp_path,
+        child_record_root=lambda n: records / f"child_{n}.record",
+    ).run(["do a thing"])
+    record_root = Path(out["child_root"])
+    assert (
+        record_root.parent == records and record_root.name == "child_0.record"
+    )  # record redirected
+    assert (record_root / "manifest.json").exists()  # a real record landed at the redirected path
+    # the child's tool scratch stayed under the delegation dir's workspace, NOT beside the redirected record
+    assert not (record_root / "scratch.txt").exists()
+    (delegation_dir,) = list((tmp_path / "delegate-runs").iterdir())
+    assert (delegation_dir / "workspace" / "scratch.txt").read_text() == "child scratch"
+
+
 def test_default_child_runs_the_real_model_on_the_task(tmp_path: Path) -> None:
     # F-2/F-12: the DEFAULT factory (responder, no child_factory) must run the real model AND carry the
     # task to it. The pre-fix default made the child deterministic, discarding both — every delegation

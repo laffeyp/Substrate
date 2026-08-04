@@ -190,6 +190,7 @@ def make_delegate(
     responder: Responder | None = None,
     root: Path | str = ".",
     child_suite_factory: SuiteFactory | None = None,
+    child_record_root: Callable[[int], Path] | None = None,
     depth: int = 0,
     max_depth: int = 2,
     max_children: int = 4,
@@ -208,8 +209,10 @@ def make_delegate(
     full-autonomy posture and is the INTENDED default (Architect-ruled 2026-08-03, review C-9): a child is
     as capable as the suite it is given, restricted by passing a narrower `child_suite_factory`. The child's tools operate in a `workspace/` subdir
     of the delegation dir; its record lives in a sibling `record/` subdir, so the child cannot write over
-    its own record (C-1). Depth and fan-out are capped; at either cap the call raises, which the loop
-    turns into a typed ToolResult(ok=False)."""
+    its own record (C-1). `child_record_root(n) -> Path` optionally REDIRECTS the child's record root (n is
+    the fan-out index) — the cockpit uses it to place child records as flat served records so the UI can
+    navigate to them (W2.2 follow-on); the workspace stays under the delegation dir either way. Depth and
+    fan-out are capped; at either cap the call raises, which the loop turns into a typed ToolResult(ok=False)."""
     r = Path(root)
     if child_factory is None and responder is None:
         raise ValueError("make_delegate requires either a responder or a child_factory")
@@ -248,7 +251,12 @@ def make_delegate(
         delegation_dir, n = _unique_child_root(r / "delegate-runs", depth, spawned["n"])
         spawned["n"] = n + 1
         workspace_root = delegation_dir / "workspace"
-        record_root = delegation_dir / "record"
+        # the child's RECORD root: the caller may redirect it (e.g. the cockpit places child records as
+        # flat served `runs/<name>.record` so the UI can navigate to them — W2.2 follow-on) while the
+        # WORKSPACE stays under this delegation dir. Default: a sibling `record/` subdir of the workspace.
+        record_root = (
+            child_record_root(n) if child_record_root is not None else delegation_dir / "record"
+        )
         topology = factory(
             task, workspace_root
         )  # the child's tools operate in workspace, NOT the record
