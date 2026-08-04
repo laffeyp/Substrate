@@ -127,11 +127,13 @@ both this document and the product spec require:
   (`substrate.*` reserved) distinguishes runtime from application
   events; the act of being on the log after validation is what
   "post-validation" means.
-- **`RunStarted` is the twelfth lifecycle kind.** Frame 0 carries the
+- **`RunStarted` is the frame-0 lifecycle kind.** Frame 0 carries the
   topology manifest.
-- **`InputBuildFailed` is the thirteenth lifecycle kind.** A
-  Trigger whose `input_builder` raises produces a typed event; no
-  Producer starts; the failure is on the log.
+- **`InputBuildFailed` is the twelfth and newest lifecycle kind** (v15
+  added it). A Trigger whose `input_builder` raises produces a typed event;
+  no Producer starts; the failure is on the log. (Count corrected 13→12,
+  2026-08-03, review C-15: the enumeration and `constants.LIFECYCLE_KINDS`
+  both hold twelve; "twelfth/thirteenth" double-counted.)
 
 ### 1.5 What this document deliberately does not contain
 
@@ -279,7 +281,7 @@ is JCS order, shown here in logical order:
 | Field | Type | Semantics |
 |---|---|---|
 | `seq` | int | Bus sequence number; assigned by the writer at append; the event's identity and the record's total order. Dense (no gaps in a healthy record). |
-| `kind` | str | Event kind. Kinds beginning `substrate.` are reserved for the kernel (the thirteen lifecycle kinds: `RunStarted`, `TriggerFired`, `InputBuildFailed`, `ProducerStarted`, `ProducerEmittedInvalidEvent`, `ProducerCompleted`, `ProducerFailed`, `ProducerCancelled`, `InjectionApplied`, `PredicateQuarantined`, `TerminationMatched`, `RunFinalised`). Producer-declared kinds MUST NOT use the prefix; registration rejects collisions. |
+| `kind` | str | Event kind. Kinds beginning `substrate.` are reserved for the kernel (the twelve lifecycle kinds: `RunStarted`, `TriggerFired`, `InputBuildFailed`, `ProducerStarted`, `ProducerEmittedInvalidEvent`, `ProducerCompleted`, `ProducerFailed`, `ProducerCancelled`, `InjectionApplied`, `PredicateQuarantined`, `TerminationMatched`, `RunFinalised`). Producer-declared kinds MUST NOT use the prefix; registration rejects collisions. |
 | `schema` | str | `"<kind>@<version>"`, resolving against the schema descriptors in `RunStarted` (§7). Self-description: replay decodes with the schemas the run was written with. |
 | `producer` | object \| null | `{kind, instance, parent}` — the emitting Producer's typed identity; `parent` is the spawning Producer's instance or `null` for topology-declared initial Producers; the whole field is `null` for runtime-emitted events. |
 | `t` | float | Wall-clock seconds (Unix). **Supplementary**: excluded from equivalence (D-8), never used for ordering. |

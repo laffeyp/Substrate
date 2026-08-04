@@ -3,7 +3,7 @@
 The [tutorial](tutorial.md) builds a two-Producer run from scratch and stops there. This guide is the
 next step: how a real topology is *packaged* — as a reusable factory, run from the CLI, made dual-mode
 (deterministic in CI, real models in a walkthrough), and added to the bundled catalogue so anyone can
-run it by name. It walks the exact path the shipped topologies take, so `src/substrate/topologies/code_review.py`
+run it by name. It walks the exact path the shipped topologies take, so `src/substrate/topologies/code_review/__init__.py`
 is a working template you can read alongside this.
 
 You need nothing beyond the tutorial's mental model: Producers emit typed Events; a Trigger fires a new
@@ -105,8 +105,10 @@ seq=14  substrate.RunFinalised
 ```
 
 `stub[0]:...` is the DeterministicResponder — the wiring runs, reproducibly, with no model. Ask the
-record why the summarizer started: `substrate inspect ./run --producer summarizer --why` points at the
-firing at seq 8 and the exact notes it resolved.
+record why the summarizer started — `--producer` takes the full INSTANCE id (`summarizer[01J...]`,
+copied from `tail`/`narrate`), not the bare kind name:
+`substrate inspect ./run --producer "summarizer[01J...]" --why` points at the firing at seq 8 and the
+exact notes it resolved.
 
 ## Make it dual-mode (real models)
 
@@ -154,7 +156,7 @@ Then three mechanical steps, mirroring every shipped topology:
 
 ## Where to look
 
-- `src/substrate/topologies/code_review.py` — the canonical template (roles, adjudication, cancellation).
+- `src/substrate/topologies/code_review/__init__.py` — the canonical template (roles, adjudication, cancellation).
 - `src/substrate/topologies/bundled.py` — how topologies are registered.
 - `docs/api.md` — the full public surface (`Subscription`, the firing policies, the standard Views and
   policies, the record/inspection functions).

@@ -410,7 +410,7 @@ technical spec and the conformance suite. MUST/SHOULD per RFC 2119.
   `substrate.TerminationMatched` with a typed `resume_condition`; a
   Trigger on the resume event continues the run. Paused
   persistent-bus runs MUST be resumable across process restarts.
-- **F-LIFE-1** All thirteen v15 lifecycle kinds MUST be emitted as
+- **F-LIFE-1** All twelve v15 lifecycle kinds MUST be emitted as
   specified, sequenced and matchable: `RunStarted`, `TriggerFired`,
   `InputBuildFailed`, `ProducerStarted`,
   `ProducerEmittedInvalidEvent`, `ProducerCompleted`,

@@ -9,9 +9,10 @@ See `docs/applications.md`.
 Two COMPOSE an existing topology and one is authored from primitives; none reimplements the
 kernel. `fanout_review` gathers a diff and hands it to `code_review_topology` unchanged.
 
-("application", not "workflow": the lexicon bans "workflow"/"step"/"task" as marketing reframes,
-scope including code identifiers — design_spec draft1 / product principle 6. This package was
-renamed from `workflows/` per that rule; see the 2026-07-31 review remediation.)
+("application", not "workflow": the lexicon (design_spec draft1 / product principle 6) bans reframing
+SUBSTRATE'S OWN concepts in marketing terms — a topology as a "workflow", a firing as a "step", a run
+as a "task". This package was renamed from `workflows/` per that rule. The word "task" for the PROBLEM
+an agent solves is the input domain, not a reframe, and stays — Architect-ruled 2026-08-03, review C-6.)
 """
 
 from __future__ import annotations

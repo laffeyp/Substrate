@@ -239,6 +239,30 @@ def test_run_topology_module_import_failure_is_clean_config_error(tmp_path):
     assert "Traceback" not in res.stderr  # the raw traceback did not escape
 
 
+def test_run_topology_module_with_future_annotations_and_dataclass(tmp_path):
+    # C-16: a user module combining `from __future__ import annotations` with a @dataclass used to die
+    # on import — dataclass reads the module's globals via sys.modules[cls.__module__], which was None
+    # because the file-loaded module was never registered. The loader now registers it before exec.
+    mod = tmp_path / "user_topo.py"
+    mod.write_text(
+        "from __future__ import annotations\n"
+        "from dataclasses import dataclass\n"
+        "from msgspec import Struct\n"
+        "from substrate.api import TopologyBuilder, threshold_count\n"
+        "class Ping(Struct, frozen=True):\n    n: int\n"
+        "@dataclass\nclass Config:\n    reps: int = 3\n"
+        "async def pinger(_i):\n    yield Ping(n=1)\n"
+        "def topo(b: TopologyBuilder) -> None:\n"
+        "    b.producer_kind('pinger', schemas=[Ping], schema_version=1, factory=lambda: pinger)\n"
+        "    b.initial('pinger', input=None)\n"
+        "    b.termination(threshold_count('substrate.ProducerCompleted', 1))\n"
+    )
+    root = tmp_path / "out"
+    res = CliRunner().invoke(main, ["run", "--topology-module", f"{mod}:topo", "--root", str(root)])
+    assert res.exit_code == EXIT_OK, res.stderr
+    assert root.exists()
+
+
 def test_run_tail_streams_events(tmp_path):
     register_topology("cli_count_tail", _topo)
     runner = CliRunner()

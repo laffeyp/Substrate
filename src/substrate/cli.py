@@ -71,12 +71,19 @@ def _load_attr(spec: str) -> Callable[..., Any]:
     if mod_spec is None or mod_spec.loader is None:
         raise click.ClickException(f"cannot load module: {path}")
     module = importlib.util.module_from_spec(mod_spec)
+    # Register in sys.modules BEFORE exec (the standard importlib pattern). Without this, a user module
+    # combining `from __future__ import annotations` with a `@dataclass` dies at import: dataclass reads
+    # the module's globals via `sys.modules[cls.__module__].__dict__`, which is None when the module was
+    # loaded from a file spec and never registered (review C-16). Cleaned up on failure so a bad module
+    # doesn't leak a half-initialised entry.
+    sys.modules[mod_spec.name] = module
     try:
         mod_spec.loader.exec_module(module)
     except Exception as exc:
         # Importing/executing the user module failed (ImportError, SyntaxError, a raise at module
         # scope, ...). Surface it as a clean config error (-> EXIT_CONFIG) naming the cause, not a
         # raw traceback escaping the CLI.
+        sys.modules.pop(mod_spec.name, None)  # don't leak a half-initialised module
         raise click.ClickException(f"failed to import {path}: {type(exc).__name__}: {exc}") from exc
     if not hasattr(module, attr_name):
         raise click.ClickException(f"module {path} has no attribute {attr_name!r}")

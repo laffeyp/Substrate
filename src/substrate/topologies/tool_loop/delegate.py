@@ -169,7 +169,9 @@ def make_delegate(
     tool_loop agent with it) or `child_factory` (what the child is — a session, a named topology, or a
     deterministic scripted agent for CI); one is required. `child_suite_factory(workspace_root) -> suite`
     builds the child's tools (default `full_suite`) — pass the parent's own suite builder so a restricted
-    parent (e.g. read-only) yields a restricted child. The child's tools operate in a `workspace/` subdir
+    parent (e.g. read-only) yields a restricted child. The `full_suite` default matches `tools.py`'s
+    full-autonomy posture and is the INTENDED default (Architect-ruled 2026-08-03, review C-9): a child is
+    as capable as the suite it is given, restricted by passing a narrower `child_suite_factory`. The child's tools operate in a `workspace/` subdir
     of the delegation dir; its record lives in a sibling `record/` subdir, so the child cannot write over
     its own record (C-1). Depth and fan-out are capped; at either cap the call raises, which the loop
     turns into a typed ToolResult(ok=False)."""

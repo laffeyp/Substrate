@@ -19,7 +19,7 @@ consumers cannot diverge (#22).
 |---|---|---|
 | `Draft` | `round:int, slot:int, context:str` | request to draft candidate `slot` in `round`; `context`="" (seed) or the prior round's deterministic failures (correction). |
 | `Candidate` | `round:int, slot:int, response:str` | the model's raw output. coding_flow: `# path:`-headed files. swebench: SEARCH/REPLACE blocks. |
-| `Verdict` | `round:int, slot:int, passed:bool, returncode:int, summary:str` | the DETERMINISTIC validation of one candidate. coding_flow: the gate. swebench: the APPLIER result (`passed`=applied cleanly + git-diffs non-empty; `summary`=the structured reject reason fed to the next round). |
+| `Verdict` | `round:int, slot:int, passed:bool, returncode:int, summary:str, source:str="gate"` | the validation of one candidate. coding_flow: the gate. swebench: the APPLIER result (`passed`=applied cleanly + git-diffs non-empty; `summary`=the structured reject reason fed to the next round). `source` (ADDED 2026-08-03, review C-5, additive with a `"gate"` default so the three consumers are unchanged) names WHAT judged: `"gate"` (real process exit in `returncode`) / `"check"` (deterministic predicate) / `"model"` (independent judge — `returncode` is a 0/1 proxy). |
 | `Solved` | `round:int, slot:int` | the loop's success terminal (≥1 candidate passed the loop's validation). |
 | `Exhausted` | `rounds:int` | every round failed the loop's validation and the budget is spent. |
 | `ModelUsage` | (from `reference._models`) | per drafter call, metered onto the record (#3 metering). |

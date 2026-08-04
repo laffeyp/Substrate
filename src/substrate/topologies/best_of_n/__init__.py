@@ -9,11 +9,9 @@ The validator is CODE by default — a gate, the SEARCH/REPLACE applier — neve
 work (the coding consumers: coding_flow, the swebench Repairer, code_evolution). The one sanctioned
 exception is an INDEPENDENT judge: a model of a DISJOINT family from the drafter, for prose/design where
 no mechanical check exists (finding #42, used by `applications/best_of_n_verified`). "Never a model" is
-about SELF-grading; a disjoint-family judge is not self-grading. When the validator is such a judge, its
-`Verdict.returncode` (0/1) is a pass/fail PROXY, not a real process exit — the `passed` bool and
-`summary` carry the truth (review C-5). NOTE this reconciliation is docstring-only; whether the shared
-`Verdict` contract should gain an explicit verdict-source field (gate-exit vs model-judgment) is an open
-Architect question, surfaced on the BLACKBOARD.
+about SELF-grading; a disjoint-family judge is not self-grading. `Verdict.source` names which it was —
+`"gate"` / `"check"` / `"model"` — so a reader can tell a real process exit from a model's 0/1 proxy
+(review C-5, field added).
 
 The shared 3-consumer contract (Draft / Candidate / Verdict / Solved / Exhausted, reused from coding_flow
 per WORKING_AGREEMENT) lives in ONE place so the loop's currency / determinism invariants cannot diverge

@@ -83,6 +83,7 @@ def _validator_factory(task: str, verify: Check | Responder) -> Callable[[], Any
         response = str(inp.get("response", "")) if hasattr(inp, "get") else ""
         # the verify seam gets the SET guard too: a raising check or a failed judge call still emits a
         # Verdict (a failed one), so the judge always sees n verdicts and the round never stalls.
+        source = "check"
         try:
             if callable(verify) and not isinstance(verify, Responder):
                 passed, reason = verify(response)  # deterministic check — no model, no usage
@@ -90,6 +91,9 @@ def _validator_factory(task: str, verify: Check | Responder) -> Callable[[], Any
                 # an INDEPENDENT judge model (finding #42: judge-family disjoint from the drafter). Metered
                 # onto the record (F-18) so BOTH the draft and the verify model calls are assayable — the
                 # "verified with an independent judge" claim is then checkable from the record itself.
+                source = (
+                    "model"  # C-5: mark the verdict source so returncode reads as a proxy, not exit
+                )
                 verdict_text, usage = await call_responder_metered(
                     verify, _verify_prompt(task, response)
                 )
@@ -98,7 +102,12 @@ def _validator_factory(task: str, verify: Check | Responder) -> Callable[[], Any
         except Exception as exc:
             passed, reason = False, f"(verify failed: {type(exc).__name__})"
         yield Verdict(
-            round=rnd, slot=slot, passed=passed, returncode=0 if passed else 1, summary=reason
+            round=rnd,
+            slot=slot,
+            passed=passed,
+            returncode=0 if passed else 1,
+            summary=reason,
+            source=source,
         )
 
     return lambda: validate

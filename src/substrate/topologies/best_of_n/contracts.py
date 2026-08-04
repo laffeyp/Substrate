@@ -32,14 +32,20 @@ class Candidate(Struct, frozen=True):
 
 
 class Verdict(Struct, frozen=True):
-    """The validator's DETERMINISTIC verdict on one candidate. `passed` is the truth (gate exit code /
-    applied-cleanly); `summary` the normalized log / structured reject reason fed back on correction."""
+    """The validator's verdict on one candidate. `passed` is the truth; `summary` the normalized log /
+    structured reject reason fed back on correction. `source` names WHAT judged it (review C-5): `"gate"`
+    for a real process gate (the coding consumers — then `returncode` is a real exit code), `"check"` for
+    a deterministic in-process predicate, `"model"` for an independent judge model (then `returncode` is a
+    0/1 pass/fail proxy, not a process exit — read `passed`/`summary`, not `returncode`). Additive field
+    with a `"gate"` default so the three existing consumers (coding_flow, swebench Repairer, code_evolution)
+    are unchanged; they ARE gates."""
 
     round: int
     slot: int
     passed: bool
     returncode: int
     summary: str
+    source: str = "gate"
 
 
 class Solved(Struct, frozen=True):

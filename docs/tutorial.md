@@ -199,9 +199,9 @@ $ uv run substrate narrate ./runs/first
 seq     0  Run started (run_id=01J...).
 seq     1  Initial trigger starts counter.
 seq     3  counter -> CountReached (n=1)
-seq    12  Trigger double-each fired -> starts doubler.
+seq     4  Trigger double-each fired -> starts doubler.
 seq    14  doubler -> Doubled (original=2, doubled=4)
-seq     N  Run finalised.
+seq    20  Run finalised.
 ```
 
 It renders the substrate causal beats in prose and the application events as the work,
@@ -210,7 +210,7 @@ answers *did it work?* at a glance:
 
 ```
 $ uv run substrate narrate ./runs/first --summary
-Run finalised: 14 events.
+Run finalised: 21 events.
   producers: 4 started, 4 completed, 0 cancelled, 0 failed
   work: CountReached=3, Doubled=3
 ```
@@ -245,7 +245,7 @@ count_at = view_at("./runs/first", 5, KindCount("CountReached"))  # a View's sta
 ```
 $ uv run substrate replay ./runs/first --level 2
 [OK] Level 2 replay successful.
-Frames replayed: 9
+Frames replayed: 21
 Decisions verified: 4 (all inputs verified by hash)
 ```
 
