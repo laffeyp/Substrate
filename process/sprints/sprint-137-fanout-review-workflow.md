@@ -47,7 +47,7 @@ Reuses code_review's locked kinds — no new vocabulary:
 
 ### Invariants
 
-- No new event kind is invented (halt with `vocabulary_change_required` if one seems needed — it should not).
+- No new event kind is invented (halt with `vocabulary_change_required` if one seems needed — it should not). **AMENDED (2026-08-07, review S-1): this invariant was later FALSIFIED — commit `56a0d79` (review C-2) added `ReviewSubject` to `fanout_review` so the reviewed diff lands on the record, and this open card's invariant went unamended. `ReviewSubject` is a real emitted kind here, locked in `process/signals/applications-vocabulary.md`. The set-difference a Rubber Duck Pass runs against this card must include it.**
 - `code_review/__init__.py` is not modified.
 - The diff-gathering shells to git read-only (`git diff`), never mutates the repo.
 
