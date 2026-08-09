@@ -93,6 +93,7 @@ def _build_solver_arm_from_payload(
     n: int,
     max_rounds: int,
     max_tokens: int,
+    repro_k: int = 1,
 ) -> Callable[[api.TopologyBuilder], None]:
     """Common body for every sprint-159 matrix arm. F1 fix (review 2026-08-08): reads the
     `PreparedPayload` off `case.payload` and builds the FULL `swebench_solver_topology` via
@@ -124,19 +125,22 @@ def _build_solver_arm_from_payload(
     responders: list[Responder] = [
         OllamaResponder(models[i % len(models)], max_tokens=max_tokens) for i in range(n)
     ]
-    return solver_topology_from_payload(payload, responders, n=n, max_rounds=max_rounds)
+    return solver_topology_from_payload(
+        payload, responders, n=n, max_rounds=max_rounds, repro_k=repro_k
+    )
 
 
 def single_draft_baseline_arm(
-    name: str, role: str = "baseline", *, model: str, max_tokens: int = 2048
+    name: str, role: str = "baseline", *, model: str, max_tokens: int = 2048, repro_k: int = 1
 ) -> Arm:
     """Arm #1 of the sprint 159 five-arm matrix — one model, N=1, no correction (max_rounds=1).
     The floor: what a single draft from a single model produces without any of the substrate's
-    machinery. Every gain over this is a substrate contribution."""
+    machinery. Every gain over this is a substrate contribution. `repro_k` (F4 fix, review
+    2026-08-08): parallel reproduction samples run in ONE Docker per candidate."""
 
     def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
         return _build_solver_arm_from_payload(
-            case, [model], n=1, max_rounds=1, max_tokens=max_tokens
+            case, [model], n=1, max_rounds=1, max_tokens=max_tokens, repro_k=repro_k
         )
 
     return Arm(name=name, role=role, build=build)
@@ -149,6 +153,7 @@ def n_drafts_no_correction_arm(
     model: str,
     n: int = 3,
     max_tokens: int = 2048,
+    repro_k: int = 1,
 ) -> Arm:
     """Arm #2 — one model, N drafts, NO correction round. Isolates the value of drawing multiple
     candidates from a single model (temperature diversity) from the value of the correction
@@ -157,7 +162,7 @@ def n_drafts_no_correction_arm(
 
     def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
         return _build_solver_arm_from_payload(
-            case, [model], n=n, max_rounds=1, max_tokens=max_tokens
+            case, [model], n=n, max_rounds=1, max_tokens=max_tokens, repro_k=repro_k
         )
 
     return Arm(name=name, role=role, build=build)
@@ -170,6 +175,7 @@ def n_drafts_repair_ensemble_arm(
     models: Sequence[str],
     max_rounds: int = 2,
     max_tokens: int = 2048,
+    repro_k: int = 1,
 ) -> Arm:
     """Arm #4 — N drafts (N = len(models)) from a HETEROGENEOUS ensemble, correction on. The
     hypothesis: distinct models make distinct mistakes, so an ensemble's best-of-N samples a
@@ -179,7 +185,12 @@ def n_drafts_repair_ensemble_arm(
 
     def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
         return _build_solver_arm_from_payload(
-            case, list(models), n=len(models), max_rounds=max_rounds, max_tokens=max_tokens
+            case,
+            list(models),
+            n=len(models),
+            max_rounds=max_rounds,
+            max_tokens=max_tokens,
+            repro_k=repro_k,
         )
 
     return Arm(name=name, role=role, build=build)
@@ -192,6 +203,7 @@ def baseline_matched_compute_arm(
     model: str,
     k_calls: int,
     max_tokens: int = 2048,
+    repro_k: int = 1,
 ) -> Arm:
     """Arm #5 — the compute-matched baseline (per Kapoor & Narayanan 2024 "AI Agents That
     Matter"). Runs a SINGLE STRONG MODEL at K attempts where K is chosen so total model_calls
@@ -210,14 +222,21 @@ def baseline_matched_compute_arm(
 
     def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
         return _build_solver_arm_from_payload(
-            case, [model], n=k_calls, max_rounds=1, max_tokens=max_tokens
+            case, [model], n=k_calls, max_rounds=1, max_tokens=max_tokens, repro_k=repro_k
         )
 
     return Arm(name=name, role=role, build=build)
 
 
 def repair_arm(
-    name: str, role: str, *, model: str, n: int = 3, max_rounds: int = 2, max_tokens: int = 2048
+    name: str,
+    role: str,
+    *,
+    model: str,
+    n: int = 3,
+    max_rounds: int = 2,
+    max_tokens: int = 2048,
+    repro_k: int = 1,
 ) -> Arm:
     """A substrate coding topology as an Arm — one model, N slots, correction on. F1 fix (review
     2026-08-08): now routes through `_build_solver_arm_from_payload`, so the arm runs the FULL
@@ -230,7 +249,7 @@ def repair_arm(
 
     def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
         return _build_solver_arm_from_payload(
-            case, [model], n=n, max_rounds=max_rounds, max_tokens=max_tokens
+            case, [model], n=n, max_rounds=max_rounds, max_tokens=max_tokens, repro_k=repro_k
         )
 
     return Arm(name=name, role=role, build=build)

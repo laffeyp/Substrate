@@ -199,3 +199,102 @@ def test_firewall_check_both_test_id_formats() -> None:
         "FAIL_TO_PASS": ["test_x (model_fields.tests.SomeTest)"],
     }
     assert firewall_check(django_leak)[0] is False
+
+
+# F2 fix (review 2026-08-08): recall@k banking per instance at grade time.
+def test_suspect_files_from_record_reads_last_suspects():
+    from substrate.assay.swebench import suspect_files_from_record
+
+    rec = _record(
+        ("SuspectFiles", {"files": ["a.py", "b.py"]}),
+        # A second SuspectFiles later in the record (a re-localize) — LAST wins.
+        ("SuspectFiles", {"files": ["c.py", "d.py"]}),
+    )
+    assert suspect_files_from_record(rec) == ("c.py", "d.py")
+    # Empty tuple when the record carries none — a coding record, a topology without localize.
+    assert suspect_files_from_record(_record()) == ()
+
+
+def test_recall_metrics_computed():
+    from substrate.assay.swebench import _recall_metrics
+
+    gold_patch = "+++ b/src/a.py\n+++ b/src/b.py\n+++ b/src/c.py\n"
+    # 2 of 3 gold files hit -> fractional 0.667, full recall False.
+    r, full = _recall_metrics(["src/a.py", "src/b.py", "src/other.py"], gold_patch)
+    assert r == pytest.approx(2 / 3)
+    assert full is False
+    # All 3 hit -> 1.0, full True.
+    r, full = _recall_metrics(["src/a.py", "src/b.py", "src/c.py", "extra.py"], gold_patch)
+    assert r == pytest.approx(1.0)
+    assert full is True
+    # None hit -> 0.0, full False.
+    r, full = _recall_metrics(["nothing.py"], gold_patch)
+    assert r == pytest.approx(0.0)
+    assert full is False
+    # No gold patch on the instance -> (None, None) so a coding-style oracle doesn't fabricate.
+    r, full = _recall_metrics(["a.py"], "")
+    assert r is None and full is None
+
+
+def test_swebench_record_oracle_stamps_recall_on_result():
+    # The oracle constructs Result directly (F2 fix) with recall_at_k + full_recall_at_k
+    # populated from the record's SuspectFiles + the instance's gold patch. Verifies the
+    # end-to-end path: record -> suspects, ground_truth -> gold, Result -> both fields.
+    oracle = swebench_record_oracle(
+        report_root="/tmp/dummy",
+        dataset_name="dummy",
+        grade=lambda _iid, _patch: True,  # stub the harness
+    )
+    rec = _record(
+        ("SuspectFiles", {"files": ["src/a.py", "src/b.py"]}),
+        ("SelectedPatch", {"slot": 0, "model_patch": "diff --git a/src/a.py b/src/a.py\n+x\n"}),
+    )
+    ground_truth = {
+        "instance_id": "test__x-1",
+        "patch": "+++ b/src/a.py\n+++ b/src/b.py\n",  # 2 gold files, both in suspects
+        "test_patch": "",
+    }
+    result = oracle.grade(rec, ground_truth)
+    assert result.passed is True
+    assert result.recall_at_k == pytest.approx(1.0)
+    assert result.full_recall_at_k is True
+    assert result.oracle_class == EXTERNAL_GRADER
+    # grader_error_band rides on the Result (SWE-bench Lite default 0.078).
+    assert result.grader_error_band == pytest.approx(0.078)
+
+
+def test_swebench_record_oracle_stamps_recall_even_when_patch_empty():
+    # A run that emitted no SelectedPatch still gets recall banked — localization can be right
+    # while repair fails, and the writeup needs to see that separately.
+    oracle = swebench_record_oracle(
+        report_root="/tmp/dummy", dataset_name="dummy", grade=lambda _i, _p: False
+    )
+    rec = _record(
+        ("SuspectFiles", {"files": ["src/a.py"]}),  # localizer found the file
+        # NO SelectedPatch — repair failed.
+    )
+    ground_truth = {
+        "instance_id": "x",
+        "patch": "+++ b/src/a.py\n+++ b/src/b.py\n",  # 2 gold, 1 in suspects
+        "test_patch": "",
+    }
+    result = oracle.grade(rec, ground_truth)
+    assert result.passed is False
+    assert result.recall_at_k == pytest.approx(0.5)  # 1 of 2 gold files hit
+    assert result.full_recall_at_k is False
+
+
+def test_swebench_record_oracle_recall_none_on_missing_gold_or_suspects():
+    # No gold in ground_truth -> None (can't compute).
+    oracle = swebench_record_oracle(
+        report_root="/tmp/dummy", dataset_name="dummy", grade=lambda _i, _p: True
+    )
+    result = oracle.grade(
+        _record(
+            ("SuspectFiles", {"files": ["a.py"]}),
+            ("SelectedPatch", {"slot": 0, "model_patch": "x"}),
+        ),
+        {"instance_id": "x", "patch": "", "test_patch": ""},
+    )
+    assert result.recall_at_k is None
+    assert result.full_recall_at_k is None

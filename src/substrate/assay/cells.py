@@ -42,6 +42,13 @@ def caseresult_from_row(r: dict[str, Any]) -> CaseResult:
     (sprint 158) reads the optional column added by the confirmatory runner — empty for coding
     rows and for SWE-bench rows that emitted no SelectedPatch / TestResults."""
     p = bool(r["passed"])
+    # F2 fix (review 2026-08-08): read recall fields off the row when present so a report rebuilt
+    # from cells.jsonl carries the localization diagnostics. `None` when the column is missing
+    # (pre-F2 cells) or explicitly null (a coding row or a SWE-bench row without SuspectFiles).
+    recall = r.get("recall_at_k")
+    recall = float(recall) if recall is not None else None
+    full_recall = r.get("full_recall_at_k")
+    full_recall = bool(full_recall) if full_recall is not None else None
     return CaseResult(
         arm=str(r["arm"]),
         role=str(r["role"]),
@@ -54,6 +61,8 @@ def caseresult_from_row(r: dict[str, Any]) -> CaseResult:
             oracle_class=EXTERNAL_GRADER,
             replayable=False,
             detail=str(r.get("source", "")),
+            recall_at_k=recall,
+            full_recall_at_k=full_recall,
         ),
         usage=UsageTotals(
             prompt_tokens=int(r.get("prompt_tokens") or 0),

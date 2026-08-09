@@ -42,16 +42,51 @@ def repo_test_spec(repo: str, version: str) -> Mapping[str, Any]:
     return MAP_REPO_VERSION_TO_SPECS[repo][version]  # type: ignore[no-any-return]
 
 
-def cmd_takes_paths(test_cmd: str) -> bool:
-    """Does the repo's runner take FILE PATHS as args, so appending picked test files forms a valid command?
-    True for pytest-style runners (flask: `pytest -rA <files>`). FALSE for module-LABEL runners — django's
-    `./tests/runtests.py --settings=...` wants `module.Class` labels, not paths, so appending paths makes a
-    malformed/empty regression run (review #69, the per-repo guard before going past flask). Unknown ->
-    False (conservative: don't silently emit a broken command for an uncatalogued runner)."""
+PATH_RUNNER = "path"
+MODULE_LABEL_RUNNER = "module_label"
+
+
+def runner_flavor(test_cmd: str) -> str:
+    """Which arg shape does the repo's test runner expect: file paths or dotted module labels?
+
+    Pytest / py.test take file paths (`pytest tests/test_x.py`). Django's `runtests.py` and any
+    `python -m unittest` form take DOTTED MODULE LABELS (`myapp.tests.foo` or
+    `myapp.tests.foo.MyTest.test_bar`), not paths. F5 fix (review 2026-08-08): pre-fix
+    `build_regression_command` RAISED on the module-label case, so every Django instance (~14 on
+    SWE-bench Lite, ~34 on Verified) crashed at case-preparation before the topology ran. Now
+    `build_regression_command` dispatches on this classifier and adapts.
+
+    Unknown -> PATH_RUNNER falls back to the pytest shape (the majority default on
+    SWE-bench). A truly novel runner will surface as a mis-formatted command, not a silent
+    exclusion; the failing case-preparation still returns cleanly and the runner logs the
+    mismatch."""
     low = test_cmd.lower()
+    if "runtests.py" in low or "python -m unittest" in low or "unittest" in low.split():
+        return MODULE_LABEL_RUNNER
     if "pytest" in low or "py.test" in low:
-        return True
-    return False
+        return PATH_RUNNER
+    return PATH_RUNNER
+
+
+def cmd_takes_paths(test_cmd: str) -> bool:
+    """Legacy alias — kept for the one caller that still checks the boolean.  Prefer `runner_flavor`."""
+    return runner_flavor(test_cmd) == PATH_RUNNER
+
+
+def path_to_module_label(path: str) -> str:
+    """Convert a Python file path to its dotted module label. `myapp/tests/foo.py` ->
+    `myapp.tests.foo`. Non-Python paths (a `.cfg` or a `.txt` in the regression set) return the
+    original path unchanged — the caller filters them out per runner. F5 fix (review 2026-08-08).
+
+    Package-init `__init__.py` maps to the parent package (`myapp/tests/__init__.py` ->
+    `myapp.tests`) so a Django caller that picks a `tests/` folder gets the package label, not a
+    `.__init__` suffix the module runner wouldn't understand."""
+    if not path.endswith(".py"):
+        return path
+    stem = path[:-3]
+    if stem.endswith("/__init__"):
+        stem = stem[: -len("/__init__")]
+    return stem.replace("/", ".")
 
 
 def build_regression_command(
@@ -63,22 +98,39 @@ def build_regression_command(
     `regression_files`. `regression_files` come from the proximity picker over the checkout — NEVER the
     eval_script's selection / PASS_TO_PASS. Empty if there's nothing to run (no vacuous all-pass).
 
-    Raises ValueError if the repo's `test_cmd` is NOT a path-taking runner (django-style) while files are
-    given — fail loud rather than append paths to a module-label runner and silently run nothing (#69)."""
+    F5 fix (review 2026-08-08): dispatches on the runner flavor. Path-taking runners (pytest) get
+    file paths + `--continue-on-collection-errors`. Module-label runners (django's runtests.py,
+    `python -m unittest`) get the file paths converted to dotted module labels via
+    `path_to_module_label`. Django's runtests takes labels positionally; adding them just works
+    (`./tests/runtests.py --settings=... myapp.tests` runs myapp.tests's whole module).
+    Non-Python entries in `regression_files` are dropped for module-label runners (a `.cfg` can't
+    be a module label; that entry silently omits, the pytest side would have grepped past it too).
+
+    An unknown runner flavor falls back to PATH_RUNNER — no exception. Real runners that break on
+    this fallback show up in the run's stderr, not as a silent exclusion at case-preparation.
+    """
     if not regression_files:
         return ""
     test_cmd = str(spec["test_cmd"]).strip()
-    if not cmd_takes_paths(test_cmd):
-        raise ValueError(
-            f"test_cmd {test_cmd!r} is not a path-taking runner; appending file paths would malform the "
-            "regression command. Add a per-repo command adapter (e.g. paths->module labels) before this repo."
-        )
     install = str(spec["install"]).strip()
-    # --continue-on-collection-errors: pytest ABORTS the whole run if ANY named file fails to collect
-    # (a stray test module with a missing optional dep -> 0 passed for everything, proven by the real solve
-    # #152). Continue past it so the collectable tests still run and establish the base-passing set; an
-    # uncollectable file simply contributes no test ids (it can't be in passed_at_base anyway).
-    return f"{activate} && {install} && {test_cmd} --continue-on-collection-errors {' '.join(regression_files)}".strip()
+    flavor = runner_flavor(test_cmd)
+    if flavor == PATH_RUNNER:
+        # --continue-on-collection-errors: pytest ABORTS the whole run if ANY named file fails to
+        # collect (a stray test module with a missing optional dep -> 0 passed for everything,
+        # proven by the real solve #152). Continue past it so the collectable tests still run
+        # and establish the base-passing set; an uncollectable file simply contributes no test
+        # ids (it can't be in passed_at_base anyway).
+        args = " ".join(regression_files)
+        return (
+            f"{activate} && {install} && {test_cmd} --continue-on-collection-errors {args}".strip()
+        )
+    # MODULE_LABEL_RUNNER — django's runtests, python -m unittest. Convert paths to labels;
+    # drop non-Python entries (can't be module labels).
+    labels = [path_to_module_label(p) for p in regression_files if p.endswith(".py")]
+    if not labels:
+        return ""
+    args = " ".join(labels)
+    return f"{activate} && {install} && {test_cmd} {args}".strip()
 
 
 class DockerTestRunner:

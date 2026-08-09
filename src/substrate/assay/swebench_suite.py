@@ -127,11 +127,19 @@ def prepare_swebench_case(
 
 
 def solver_topology_from_payload(
-    payload: PreparedPayload, responders: list[Any], *, n: int, max_rounds: int
+    payload: PreparedPayload,
+    responders: list[Any],
+    *,
+    n: int,
+    max_rounds: int,
+    repro_k: int = 1,
 ) -> Topology:
     """Reconstruct the swebench_solver topology for a prepared Case payload — the runner + the
     per-candidate firewall-clean regression planner + passed-at-base, with the given responders. Pure
-    (no I/O): the runner runs only when the topology runs. This is the Arm's `build` body."""
+    (no I/O): the runner runs only when the topology runs. This is the Arm's `build` body.
+    `repro_k` (F4 fix, review 2026-08-08) samples K reproduction scripts in parallel and combines
+    them into ONE runner per Docker invocation — K > 1 is a mechanism upgrade, K = 1 is
+    identical to the pre-F4 wire."""
     runner = DockerTestRunner(str(payload["image"]))
     planner = make_regression_planner(
         payload["spec"], list(payload["regression_files"]), exclude=set(payload["exclude"])
@@ -147,6 +155,7 @@ def solver_topology_from_payload(
         passed_at_base=frozenset(payload["passed_at_base"]),
         n=n,
         max_rounds=max_rounds,
+        repro_k=repro_k,
         watchdog_seconds=2400.0,
     )
 

@@ -101,13 +101,27 @@ def regression_held(
 
 
 def reproduction_status(output: str) -> Reproduction:
-    """Parse the reproduction test's self-reported marker (the generated test prints exactly one of
-    'Issue resolved' / 'Issue reproduced'); absence -> OTHER (no clean evidence either way)."""
-    if "Issue resolved" in output:
+    """Parse the reproduction test's self-reported marker with MAJORITY VOTE over marker
+    occurrences (F4 fix, review 2026-08-08). The pre-fix parser tested `"Issue resolved" in
+    output` first and returned RESOLVED on any occurrence — one Bernoulli draw per candidate
+    with a hard bias toward RESOLVED when both markers appeared. With K > 1 sampling now
+    running K variants in one Docker invocation (see `combine_repro_scripts` in
+    `reproduction.py`), the output can contain multiple markers; the majority reading is the
+    honest signal.
+
+    Ties break in favour of REPRODUCED — the null hypothesis on any patched candidate is that
+    the bug is still present; only a clear majority of RESOLVED verdicts overturns it. This is
+    the direction that respects the KIT_DIARY 21 failure mode (a repro that says RESOLVED for
+    the wrong reason should not win against equal REPRODUCED signal).
+
+    Zero occurrences of both markers -> OTHER (no clean evidence either way)."""
+    n_resolved = output.count("Issue resolved")
+    n_reproduced = output.count("Issue reproduced")
+    if n_resolved == 0 and n_reproduced == 0:
+        return Reproduction.OTHER
+    if n_resolved > n_reproduced:
         return Reproduction.RESOLVED
-    if "Issue reproduced" in output:
-        return Reproduction.REPRODUCED
-    return Reproduction.OTHER
+    return Reproduction.REPRODUCED  # ties favour REPRODUCED per the tiebreak rule
 
 
 async def run_one(

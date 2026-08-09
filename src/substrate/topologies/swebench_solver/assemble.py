@@ -408,6 +408,11 @@ def swebench_solver_topology(
     n: int = 3,
     max_rounds: int = 2,
     top_k: int = 5,
+    # F4 fix (review 2026-08-08): K reproduction samples generated in parallel and combined into
+    # one runner script (see combine_repro_scripts in reproduction.py). K=1 identical to
+    # pre-fix behaviour. K > 1 pays K model calls at generation + K× script execution inside
+    # the ONE Docker invocation select_exec already runs per candidate — no extra container starts.
+    repro_k: int = 1,
     # F6 fix (review 2026-08-08): defaults were swapped — repair-only (less work) had 600s and the
     # full solver (repair + Docker test execution per candidate) had 60s. A test or script that
     # instantiated the solver topology at defaults got guillotined before select_exec finished
@@ -456,7 +461,7 @@ def swebench_solver_topology(
             "repro_gen",
             schemas=[ReproductionTest, ModelUsage],
             schema_version=1,
-            factory=repro_generator_factory(responders[0], issue),
+            factory=repro_generator_factory(responders[0], issue, k=repro_k),
             deterministic=False,
         )
         b.initial("repro_gen", input=None)

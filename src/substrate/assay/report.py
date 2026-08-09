@@ -113,6 +113,13 @@ class ArmReport:
     # metered calls this run — a salvage/fail cell would set this state per bench_coding
     # semantics); otherwise `passes / model_calls`, the honest denominator.
     resolve_per_call: float | None = None
+    # F2 fix (review 2026-08-08): localization diagnostics banked per arm — mean fractional
+    # recall over the arm's graded cells + the boolean "full-recall" rate (fraction of cells
+    # where the suspect set contained EVERY gold file). Sprint 160-pass2's writeup needs these
+    # to attribute a low resolve rate to localization vs repair. `None` on arms whose Results
+    # never carried the fields (a coding assay, an arm with no SuspectFiles emit).
+    mean_recall_at_k: float | None = None
+    full_recall_at_k_rate: float | None = None
 
 
 @dataclass(frozen=True)
@@ -161,6 +168,8 @@ class _Mid:
     repro_2x2: dict[str, int] | None
     repro_kappa: float | None
     repro_agreement_rate: float | None
+    mean_recall_at_k: float | None
+    full_recall_at_k_rate: float | None
 
 
 _REPRODUCED = "reproduced"
@@ -325,6 +334,17 @@ def build_report(
         # returns (None, None, None) when the arm has no repro-signalling cells (coding assays,
         # pre-158 rows, all-`other` verdicts) — the ArmReport fields stay None accordingly.
         twox2, kappa, agree = _repro_aggregate(arm_results)
+        # F2 fix (review 2026-08-08): mean recall + full-recall rate across the arm's graded
+        # cells. Cells whose Result carries no recall (coding assays, an arm with no
+        # SuspectFiles emit) are excluded from the mean; if NO cell carries recall, both stay None.
+        recall_vals = [
+            r.result.recall_at_k for r in arm_results if r.result.recall_at_k is not None
+        ]
+        full_vals = [
+            r.result.full_recall_at_k for r in arm_results if r.result.full_recall_at_k is not None
+        ]
+        mean_recall = sum(recall_vals) / len(recall_vals) if recall_vals else None
+        full_recall_rate = sum(1 for x in full_vals if x) / len(full_vals) if full_vals else None
 
         mids.append(
             _Mid(
@@ -350,6 +370,8 @@ def build_report(
                 repro_2x2=twox2,
                 repro_kappa=kappa,
                 repro_agreement_rate=agree,
+                mean_recall_at_k=mean_recall,
+                full_recall_at_k_rate=full_recall_rate,
             )
         )
 
@@ -392,6 +414,8 @@ def build_report(
             # then simply omits the point rather than treating "no compute" as "infinite
             # efficiency".
             resolve_per_call=(m.passes / m.calls) if m.calls > 0 else None,
+            mean_recall_at_k=m.mean_recall_at_k,
+            full_recall_at_k_rate=m.full_recall_at_k_rate,
         )
         for i, m in enumerate(mids)
     )

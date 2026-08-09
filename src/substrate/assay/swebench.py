@@ -34,6 +34,11 @@ from typing import Any
 
 from .oracle import EXTERNAL_GRADER, ExternalGraderOracle, Result
 
+# Default grader_error_band for SWE-bench Lite (Xia & Chen 2025, arxiv 2503.15223). Rides on every
+# SWE-bench Result so headline numbers can honestly report `resolved ± band × resolved`. Verified
+# splits are ~0.02; SWE-bench-Live has no published residual.
+_LITE_GRADER_ERROR_BAND = 0.078
+
 # The prediction field names — the bridge mapping's KEY_* constants (swebench/harness/constants).
 # Bound as literals so forming a prediction needs no swebench import; `verify_constants()` checks them
 # against the installed package so a version bump that renamed a key fails loudly, not silently.
@@ -322,46 +327,99 @@ def grade_patch(
     return read_resolved(rdir, run_id, model_name, instance_id)
 
 
-def swebench_record_oracle(
-    *,
-    report_root: Path | str,
-    dataset_name: str,
-    model_name: str = DEFAULT_MODEL_NAME,
-    grade: Callable[[str, str], bool] | None = None,
-) -> ExternalGraderOracle:
-    """The SWE-bench external-grader Oracle for the assay control plane: grade an ARM'S RECORD against a
-    SWE-bench instance. It extracts the model_patch the Arm emitted (`SelectedPatch`) and grades it with
-    the official Docker harness, reporting `resolved`. `ground_truth` is the instance (a mapping carrying
-    `instance_id`, or the id itself). Run-and-observe (replayable=False). `grade(instance_id, patch)->bool`
-    overrides the Docker call for tests; the default grades for real via `grade_patch`. A run that emitted
-    no patch grades not-resolved with a note, never a crash."""
+def suspect_files_from_record(record: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:
+    """The LAST SuspectFiles event's file list on the record — the suspect set the localizer
+    landed on for this instance. Empty tuple if no SuspectFiles event fired (a coding record,
+    a topology that skipped localization, or a run whose localizer died before emitting)."""
+    suspects = [e["payload"] for e in record if e.get("kind") == "SuspectFiles"]
+    if not suspects:
+        return ()
+    return tuple(suspects[-1].get("files", ()))
 
-    def _default_grade(instance_id: str, model_patch: str) -> bool:
+
+def _recall_metrics(
+    suspect_files: Sequence[str], gold_patch: str
+) -> tuple[float | None, bool | None]:
+    """Compute (recall_at_k, full_recall_at_k) from the suspect set + the gold patch's touched
+    files. F2 fix (review 2026-08-08). Returns (None, None) when there's no gold patch on the
+    instance (a synthetic case with no ground-truth fix) so a coding assay's oracle doesn't
+    fabricate a localization signal from nothing."""
+    gold = {
+        ln[6:] for ln in gold_patch.splitlines() if ln.startswith("+++ b/") and ln[6:] != "dev/null"
+    }
+    if not gold:
+        return (None, None)
+    suspect_set = set(suspect_files)
+    hits = len(gold & suspect_set)
+    return (hits / len(gold), gold.issubset(suspect_set))
+
+
+class SwebenchRecordOracle:
+    """The SWE-bench Oracle — constructs Result directly (F2 fix, review 2026-08-08) rather than
+    routing through `ExternalGraderOracle`'s lambda wrapper, so the extra typed fields
+    (`grader_error_band`, `recall_at_k`, `full_recall_at_k`) ride on every graded Result. Reads
+    `SelectedPatch.model_patch` and `SuspectFiles.files` off the record, and `ground_truth`
+    (the instance dict) for the gold patch. Grades via the official Docker harness. `run-and-
+    observe` (replayable=False) — the verdict is captured once per run.
+
+    Satisfies the Oracle protocol; `run_arm_on_case` (assay/run.py:77) calls `.grade(record,
+    ground_truth) -> Result`."""
+
+    def __init__(
+        self,
+        *,
+        report_root: Path | str,
+        dataset_name: str,
+        model_name: str = DEFAULT_MODEL_NAME,
+        grade: Callable[[str, str], bool] | None = None,
+        grader_error_band: float | None = _LITE_GRADER_ERROR_BAND,
+    ) -> None:
+        self._report_root = report_root
+        self._dataset_name = dataset_name
+        self._model_name = model_name
+        self._grade_override = grade
+        self._grader_error_band = grader_error_band
+
+    def _default_grade(self, instance_id: str, model_patch: str) -> bool:
         return grade_patch(
             instance_id,
             model_patch,
-            report_root=report_root,
-            dataset_name=dataset_name,
-            model_name=model_name,
+            report_root=self._report_root,
+            dataset_name=self._dataset_name,
+            model_name=self._model_name,
         )
 
-    do_grade = grade or _default_grade
-
-    def grader(record: list[Mapping[str, Any]], ground_truth: Any) -> tuple[bool, str]:
+    def grade(self, record: Any, ground_truth: Any) -> Result:
+        events = list(record) if not isinstance(record, list) else record
         instance_id = (
             str(ground_truth["instance_id"])
             if isinstance(ground_truth, Mapping)
             else str(ground_truth)
         )
-        patch = model_patch_from_record(record)
+        # F2 fix: compute recall metrics unconditionally — a graded Result carries them even when
+        # the model_patch is empty (localization can be right while repair fails), so the writeup
+        # can attribute the ceiling correctly.
+        suspects = suspect_files_from_record(events)
+        gold_patch = str(ground_truth.get("patch", "")) if isinstance(ground_truth, Mapping) else ""
+        recall, full_recall = _recall_metrics(suspects, gold_patch)
+
+        patch = model_patch_from_record(events)
         if not patch.strip():
-            return (
-                False,
-                f"no model_patch on the record for {instance_id} (the Arm produced none)",
+            return Result(
+                passed=False,
+                score=0.0,
+                metric="resolved",
+                oracle_class=EXTERNAL_GRADER,
+                replayable=False,
+                detail=f"no model_patch on the record for {instance_id} (the Arm produced none)",
+                grader_error_band=self._grader_error_band,
+                recall_at_k=recall,
+                full_recall_at_k=full_recall,
             )
-        # drop edits to the GRADE's test files at the grade boundary (#72 NET 1): the inflation guard, applied
-        # HERE so a topology that emits a raw diff (no internal drop, e.g. the repair topology) can't weaken a
-        # graded test or collide with the held-out test_patch. Harness-side — the topology never sees test_patch.
+        # drop edits to the GRADE's test files at the grade boundary (#72 NET 1): the inflation
+        # guard, applied HERE so a topology that emits a raw diff (no internal drop, e.g. the
+        # repair topology) can't weaken a graded test or collide with the held-out test_patch.
+        # Harness-side — the topology never sees test_patch.
         if isinstance(ground_truth, Mapping) and ground_truth.get("test_patch"):
             from .swebench_workspace import filter_diff, graded_test_files
 
@@ -369,11 +427,51 @@ def swebench_record_oracle(
                 patch, drop_files=frozenset(graded_test_files(str(ground_truth["test_patch"])))
             )
             if not patch.strip():
-                return (False, f"patch empty after dropping graded-test edits for {instance_id}")
+                return Result(
+                    passed=False,
+                    score=0.0,
+                    metric="resolved",
+                    oracle_class=EXTERNAL_GRADER,
+                    replayable=False,
+                    detail=f"patch empty after dropping graded-test edits for {instance_id}",
+                    grader_error_band=self._grader_error_band,
+                    recall_at_k=recall,
+                    full_recall_at_k=full_recall,
+                )
+        do_grade = self._grade_override or self._default_grade
         resolved = do_grade(instance_id, patch)
-        return (resolved, f"swebench resolved={resolved} for {instance_id} ({len(patch)}b patch)")
+        return Result(
+            passed=resolved,
+            score=1.0 if resolved else 0.0,
+            metric="resolved",
+            oracle_class=EXTERNAL_GRADER,
+            replayable=False,
+            detail=f"swebench resolved={resolved} for {instance_id} ({len(patch)}b patch)",
+            grader_error_band=self._grader_error_band,
+            recall_at_k=recall,
+            full_recall_at_k=full_recall,
+        )
 
-    return ExternalGraderOracle(grader=grader, metric="resolved")
+
+def swebench_record_oracle(
+    *,
+    report_root: Path | str,
+    dataset_name: str,
+    model_name: str = DEFAULT_MODEL_NAME,
+    grade: Callable[[str, str], bool] | None = None,
+    grader_error_band: float | None = _LITE_GRADER_ERROR_BAND,
+) -> SwebenchRecordOracle:
+    """Legacy factory kept for backward compat. Returns a `SwebenchRecordOracle` (F2 fix, review
+    2026-08-08) — the pre-fix return was `ExternalGraderOracle` wrapping a lambda that could not
+    thread `recall_at_k`, `full_recall_at_k`, or `grader_error_band` through the fixed-shape
+    grader signature. Same call sites, same grade behaviour, richer Result."""
+    return SwebenchRecordOracle(
+        report_root=report_root,
+        dataset_name=dataset_name,
+        model_name=model_name,
+        grade=grade,
+        grader_error_band=grader_error_band,
+    )
 
 
 __all__ = [
@@ -382,6 +480,7 @@ __all__ = [
     "KEY_PREDICTION",
     "DEFAULT_MODEL_NAME",
     "FirewallViolation",
+    "SwebenchRecordOracle",
     "firewall_check",
     "make_prediction",
     "write_predictions",
@@ -391,6 +490,7 @@ __all__ = [
     "run_swebench",
     "swebench_oracle",
     "model_patch_from_record",
+    "suspect_files_from_record",
     "grade_patch",
     "swebench_record_oracle",
 ]

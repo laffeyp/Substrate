@@ -25,11 +25,11 @@
   },
 
   "arms": [
-    {"name": "single_draft_baseline", "role": "baseline", "models": ["<STRONG_MODEL>"], "n": 1, "max_rounds": 1},
-    {"name": "n_drafts_no_correction", "role": "ablation", "models": ["<STRONG_MODEL>"], "n": 3, "max_rounds": 1},
-    {"name": "n_drafts_repair", "role": "full", "models": ["<STRONG_MODEL>"], "n": 3, "max_rounds": 2},
-    {"name": "n_drafts_repair_ensemble", "role": "full", "models": ["<ENSEMBLE_MODEL_A>", "<ENSEMBLE_MODEL_B>", "<ENSEMBLE_MODEL_C>"], "n": 3, "max_rounds": 2},
-    {"name": "baseline_matched_compute", "role": "baseline", "models": ["<STRONG_MODEL>"], "n": "<K_FROM_PASS1>", "max_rounds": 1}
+    {"name": "single_draft_baseline", "role": "baseline", "models": ["deepseek-v4-pro:cloud"], "n": 1, "max_rounds": 1},
+    {"name": "n_drafts_no_correction", "role": "ablation", "models": ["deepseek-v4-pro:cloud"], "n": 3, "max_rounds": 1},
+    {"name": "n_drafts_repair", "role": "full", "models": ["deepseek-v4-pro:cloud"], "n": 3, "max_rounds": 2},
+    {"name": "n_drafts_repair_ensemble", "role": "full", "models": ["glm-5.2:cloud", "kimi-k2.7-code:cloud", "nemotron-3-super:cloud"], "n": 3, "max_rounds": 2},
+    {"name": "baseline_matched_compute", "role": "baseline", "models": ["deepseek-v4-pro:cloud"], "n": "<K_FROM_PASS1>", "max_rounds": 1}
   ],
   "control_arm": "single_draft_baseline",
   "arms_hash": "<12-char sha256, computed via substrate.assay.preregistration.arms_fingerprint(arms, params_by_arm=…) once the models + K are filled>",
@@ -85,10 +85,10 @@
 
   "contamination_filter": {
     "per_model_cutoff_dates": {
-      "<STRONG_MODEL>": "<YYYY-MM>",
-      "<ENSEMBLE_MODEL_A>": "<YYYY-MM>",
-      "<ENSEMBLE_MODEL_B>": "<YYYY-MM>",
-      "<ENSEMBLE_MODEL_C>": "<YYYY-MM>"
+      "deepseek-v4-pro:cloud": "<YYYY-MM>",
+      "glm-5.2:cloud": "<YYYY-MM — verify with the model card at run time>",
+      "kimi-k2.7-code:cloud": "<YYYY-MM — verify with the model card at run time>",
+      "nemotron-3-super:cloud": "<YYYY-MM — verify with the model card at run time>"
     },
     "instances_filtered_to_after_each_model_cutoff": false,
     "_note": "SWE-bench Lite is a public/dated split; contamination is a known limit. Report the resolve rate WITH the contamination note per KIT_DIARY 21. A contamination-clean number needs SWE-bench-Live (out of Sprint 160's scope)."
@@ -106,8 +106,29 @@
     "model": "gpt-4o-2024-08-06",
     "resolve_rate": 0.278
   },
+  "sota_anchor_agentic": {
+    "_note": "F12 fix (review 2026-08-08): the comparator above is a two-year-old non-agentic baseline. This anchor names the current top-of-leaderboard agentic entry so a reader sees the ceiling agentic solvers reach on Lite. Verified live 2026-08-09 against https://github.com/SWE-bench/experiments/tree/main/evaluation/lite.",
+    "source": "ExpeRepair-v1 + Claude 4 Sonnet (submission 20250625, GLEAM-Lab)",
+    "split": "SWE-bench Lite",
+    "resolve_rate": 0.6033,
+    "genre": "agentic"
+  },
+  "sota_anchor_non_agentic": {
+    "_note": "The FAIR anchor for this topology's genre — a non-agentic solver of similar shape. Same source as the agentic anchor.",
+    "source": "Agentless + GPT-4o (Xia et al. 2024) — identical to the `comparator` block; kept as a separate field so the writeup names 'agentic ceiling' and 'non-agentic peer' distinctly rather than treating either as authoritative.",
+    "split": "SWE-bench Lite",
+    "resolve_rate": 0.278,
+    "genre": "non-agentic"
+  },
+  "substrate_reference_exploratory": {
+    "_note": "Substrate's own KIT_DIARY 26 exploratory result (qwen3-coder:480b non-agentic, June 2026) — the number this confirmatory is designed to replace with a defensible measurement.",
+    "resolve_rate": 0.36,
+    "n_resolved": 108,
+    "n_gradeable": 291,
+    "model": "qwen3-coder:480b-cloud (now retired 2026-07-15)"
+  },
 
-  "model_ensemble_id": "<STRONG_MODEL>:solo | <ENSEMBLE_MODEL_A>+<B>+<C>:trio",
+  "model_ensemble_id": "deepseek-v4-pro:cloud:solo | glm-5.2:cloud+kimi-k2.7-code:cloud+nemotron-3-super:cloud:trio",
   "split_id": "SWE-bench_Lite:test:2024-frozen",
 
   "grader_error_band": 0.078,

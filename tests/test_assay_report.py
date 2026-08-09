@@ -436,3 +436,77 @@ def test_exact_mcnemar_is_still_here():
     # sanity: sprint 158 must not have accidentally displaced the McNemar helper the earlier
     # report tests rely on.
     assert exact_mcnemar_p(0, 0) == 1.0
+
+
+# F2 fix (review 2026-08-08): per-arm recall aggregation on ArmReport.
+def test_arm_report_mean_recall_and_full_recall_rate_aggregation():
+    from substrate.assay.oracle import Result as _R
+
+    arm = Arm(name="solver", role=FULL, build=lambda _c: None)  # type: ignore[arg-type,return-value]
+    suite = Suite(
+        name="s",
+        version="0.1",
+        cases=(
+            Case(case_id="c0", payload={}, ground_truth=None),
+            Case(case_id="c1", payload={}, ground_truth=None),
+            Case(case_id="c2", payload={}, ground_truth=None),
+        ),
+        arms=(arm,),
+        oracle=type("O", (), {"grade": lambda self, _r, _g: None})(),
+        control_arm="solver",
+        primary_metric="resolved",
+        null_rule="",
+    )
+
+    # Three cells: recall 1.0/full=True, 0.5/full=False, None/None (no-signal cell).
+    # Mean recall = (1.0 + 0.5) / 2 = 0.75 (None excluded from the mean).
+    # Full recall rate = 1 of 2 = 0.5 (None excluded).
+    def _cr_r(cid: str, recall: float | None, full: bool | None):
+        return CaseResult(
+            arm="solver",
+            role=FULL,
+            case_id=cid,
+            trial=0,
+            result=_R(
+                passed=True,
+                score=1.0,
+                metric="r",
+                oracle_class=EXTERNAL_GRADER,
+                replayable=False,
+                recall_at_k=recall,
+                full_recall_at_k=full,
+            ),
+            usage=UsageTotals(0, 0, 0, 0, False),
+            elapsed_ms=0,
+            root="",
+        )
+
+    results = [
+        _cr_r("c0", 1.0, True),
+        _cr_r("c1", 0.5, False),
+        _cr_r("c2", None, None),
+    ]
+    report = build_report(suite, results)
+    (line,) = report.arms
+    assert line.mean_recall_at_k == pytest.approx(0.75)
+    assert line.full_recall_at_k_rate == pytest.approx(0.5)
+
+
+def test_arm_report_recall_fields_none_when_no_cells_carry_recall():
+    # A coding arm — no cell carries recall — leaves both fields None so a reader distinguishes
+    # "no signal" from "signal was zero".
+    arm = Arm(name="solver", role=FULL, build=lambda _c: None)  # type: ignore[arg-type,return-value]
+    suite = Suite(
+        name="s",
+        version="0.1",
+        cases=(Case(case_id="c0", payload={}, ground_truth=None),),
+        arms=(arm,),
+        oracle=type("O", (), {"grade": lambda self, _r, _g: None})(),
+        control_arm="solver",
+        primary_metric="resolved",
+        null_rule="",
+    )
+    report = build_report(suite, [_cr(True, "")])  # coding-style: no recall on the Result
+    (line,) = report.arms
+    assert line.mean_recall_at_k is None
+    assert line.full_recall_at_k_rate is None

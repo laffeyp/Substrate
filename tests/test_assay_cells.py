@@ -342,3 +342,49 @@ def test_cells_module_exposes_kind_constants():
     # exporting the constants keeps the vocab-as-contract discipline at the module boundary.
     assert CODING_ASSAY_KIND == "coding"
     assert SWEBENCH_ASSAY_KIND == "swebench"
+
+
+# F2 fix (review 2026-08-08): recall columns persist through the JSONL round-trip.
+def test_caseresult_from_row_reads_recall_columns_when_present():
+    from substrate.assay.cells import caseresult_from_row
+
+    row = {
+        "arm": "solver",
+        "role": "full",
+        "case_id": "c0",
+        "trial": 0,
+        "passed": True,
+        "recall_at_k": 0.5,
+        "full_recall_at_k": False,
+    }
+    cr = caseresult_from_row(row)
+    assert cr.result.recall_at_k == 0.5
+    assert cr.result.full_recall_at_k is False
+
+
+def test_caseresult_from_row_recall_none_on_pre_F2_row():
+    # A row from a pre-F2 cells file has no recall columns — must not crash.
+    from substrate.assay.cells import caseresult_from_row
+
+    row = {"arm": "solver", "role": "full", "case_id": "c0", "trial": 0, "passed": True}
+    cr = caseresult_from_row(row)
+    assert cr.result.recall_at_k is None
+    assert cr.result.full_recall_at_k is None
+
+
+def test_caseresult_from_row_recall_explicit_null():
+    # An explicit `null` in JSONL (a salvage/coding row) also gives None.
+    from substrate.assay.cells import caseresult_from_row
+
+    row = {
+        "arm": "solver",
+        "role": "full",
+        "case_id": "c0",
+        "trial": 0,
+        "passed": True,
+        "recall_at_k": None,
+        "full_recall_at_k": None,
+    }
+    cr = caseresult_from_row(row)
+    assert cr.result.recall_at_k is None
+    assert cr.result.full_recall_at_k is None

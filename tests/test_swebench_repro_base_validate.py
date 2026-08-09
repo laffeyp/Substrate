@@ -147,15 +147,24 @@ async def test_runner_exception_passes_original_through(tmp_path) -> None:  # ty
     assert codes == ["assert original()", "assert original()"]
 
 
-async def test_adversarial_output_with_both_markers_reads_as_resolved_and_demotes(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    # Review nit B3: `reproduction_status` (select_exec.py:103-110) tests "Issue resolved"
-    # FIRST, so a repro whose output contains BOTH markers is classified RESOLVED and demoted.
-    # Deterministic tiebreak. Pinning it here so a caller who reorders `reproduction_status`
-    # sees this test go red and knows the demote semantics changed.
+async def test_adversarial_output_with_tied_markers_reads_as_reproduced_and_keeps(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    # F4 fix (review 2026-08-08): `reproduction_status` now majority-votes over marker counts,
+    # and ties go to REPRODUCED (the safe direction — a repro must not win on equal signal).
+    # One "Issue reproduced" + one "Issue resolved" is a tie -> REPRODUCED -> validator KEEPS
+    # the original. Pre-F4 the first-match rule read this as RESOLVED and demoted; the new
+    # tiebreak is the honest one for the KIT_DIARY 21 failure mode.
     runner = _StubRunner(rc=0, output="Issue reproduced\nActually wait — Issue resolved\n")
     events = await _run(tmp_path, runner, "assert ambiguous()")
     codes = _emitted_codes(events)
-    assert codes == ["assert ambiguous()", ""]  # RESOLVED wins the tiebreak -> overwrite
+    assert codes == ["assert ambiguous()", "assert ambiguous()"]  # tie -> REPRODUCED -> keep
+
+
+async def test_output_with_majority_resolved_demotes(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    # Clear RESOLVED majority (2 vs 1) on the base run -> demote per the F4 majority-vote rule.
+    runner = _StubRunner(rc=0, output="Issue resolved\nIssue reproduced\nIssue resolved\n")
+    events = await _run(tmp_path, runner, "assert ambiguous()")
+    codes = _emitted_codes(events)
+    assert codes == ["assert ambiguous()", ""]  # majority RESOLVED -> overwrite
 
 
 async def test_predicate_fires_only_on_original_not_on_overwrite(tmp_path) -> None:  # type: ignore[no-untyped-def]

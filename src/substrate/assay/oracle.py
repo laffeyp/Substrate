@@ -59,6 +59,18 @@ class Result(Struct, frozen=True):
     replayable: bool
     detail: str = ""
     grader_error_band: float | None = None
+    # F2 fix (review 2026-08-08, sprint 160): per-instance localization recall for SWE-bench arms.
+    # `recall_at_k` = |gold_files ∩ suspect_files| / |gold_files| ∈ [0, 1] — the fractional consensus
+    # IR/localization metric. `full_recall_at_k` = gold_files ⊆ suspect_files — the boolean
+    # "did the suspect set contain EVERY gold file" that names the localization ceiling on the
+    # whole pipeline (you cannot repair a file you never localized, design §5). Computed at
+    # grade time by the SWE-bench oracle from the SuspectFiles event on the record + the gold
+    # patch's touched files in the harness metadata (neither entered the solver's context).
+    # `None` for oracles that don't emit a localization signal (coding assay, log-projection).
+    # Design docstring commits this pair — without it, sprint 160-pass2 cannot attribute a low
+    # resolve rate to localization vs repair.
+    recall_at_k: float | None = None
+    full_recall_at_k: bool | None = None
 
 
 @runtime_checkable

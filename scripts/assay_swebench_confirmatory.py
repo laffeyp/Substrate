@@ -122,6 +122,10 @@ PREG = os.environ.get("SWEBENCH_PREG", "")  # sprint 151: pre-registration gate 
 ARMS_MODE = os.environ.get("SWEBENCH_ARMS", "solver")  # sprint 160-plan: solver | pass1 | matrix
 ENSEMBLE = [m.strip() for m in os.environ.get("SWEBENCH_ENSEMBLE", "").split(",") if m.strip()]
 K_CALLS = int(os.environ.get("SWEBENCH_K", "0"))  # 0 = read from .preg.json when in matrix mode
+# F4 fix (review 2026-08-08): K parallel reproduction samples per instance. 1 = pre-F4 behaviour
+# (one repro per candidate); >1 = combine K runner scripts into one Docker invocation, majority-
+# vote at the marker level. Sprint 160-pass2 should set this to 3.
+REPRO_K = int(os.environ.get("SWEBENCH_REPRO_K", "1"))
 
 _ZERO = UsageTotals(0, 0, 0, 0, False)
 _RUN_ID = ""  # set in main(); stamped on every cell for provenance
@@ -174,6 +178,8 @@ def _row(
     root: str,
     detail: str = "",
     reproduction: str = "",
+    recall_at_k: float | None = None,
+    full_recall_at_k: bool | None = None,
 ) -> dict[str, object]:
     # measured=source=="run" gates null vs measured fields (bench_coding.py:101-131 shape):
     # a salvage/fail cell made NO calls this run, so its compute fields are null (not measured 0).
@@ -201,6 +207,12 @@ def _row(
         # aggregation to read the per-cell repro state from cells.jsonl without re-parsing the
         # record. Empty for salvage/fail cells (no CaseResult was produced this run).
         "reproduction": reproduction,
+        # F2 fix (review 2026-08-08): localization recall from the oracle. Persists to cells.jsonl
+        # so `report_from_cells` reconstructs the ArmReport's mean_recall_at_k / full_recall_at_k_rate
+        # without re-reading the record. Null when the oracle didn't emit them (coding assays,
+        # SWE-bench runs without SuspectFiles).
+        "recall_at_k": recall_at_k,
+        "full_recall_at_k": full_recall_at_k,
     }
 
 
@@ -297,11 +309,19 @@ def _build_arms_for_mode() -> tuple[list[Arm], dict[str, dict[str, object]], str
                 "pre-reg carrying k_calls in its arm params; the runner reads K from env first)."
             )
         arms = [
-            single_draft_baseline_arm("single_draft_baseline", model=strong),
-            n_drafts_no_correction_arm("n_drafts_no_correction", model=strong, n=N),
-            repair_arm("n_drafts_repair", role="full", model=strong, n=N, max_rounds=2),
-            n_drafts_repair_ensemble_arm("n_drafts_repair_ensemble", models=ENSEMBLE),
-            baseline_matched_compute_arm("baseline_matched_compute", model=strong, k_calls=K_CALLS),
+            single_draft_baseline_arm("single_draft_baseline", model=strong, repro_k=REPRO_K),
+            n_drafts_no_correction_arm(
+                "n_drafts_no_correction", model=strong, n=N, repro_k=REPRO_K
+            ),
+            repair_arm(
+                "n_drafts_repair", role="full", model=strong, n=N, max_rounds=2, repro_k=REPRO_K
+            ),
+            n_drafts_repair_ensemble_arm(
+                "n_drafts_repair_ensemble", models=ENSEMBLE, repro_k=REPRO_K
+            ),
+            baseline_matched_compute_arm(
+                "baseline_matched_compute", model=strong, k_calls=K_CALLS, repro_k=REPRO_K
+            ),
         ]
         params: dict[str, dict[str, object]] = {
             "single_draft_baseline": {"models": [strong], "n": 1, "max_rounds": 1},
@@ -460,6 +480,10 @@ async def _run() -> int:
                         str(salv),
                         grade.detail,
                         project_reproduction_for_selected(events),
+                        # F2 fix: salvage grade also stamps recall (the SwebenchRecordOracle
+                        # computes it from the record's SuspectFiles + ground_truth's gold patch).
+                        grade.recall_at_k,
+                        grade.full_recall_at_k,
                     )
                 except Exception as exc:  # noqa: BLE001 — a salvage failure is logged, not fatal
                     row = _row(
@@ -496,6 +520,11 @@ async def _run() -> int:
                         # this — salvage/fail cells leave it empty (the default), which the
                         # report aggregator reads as "no signal for this cell".
                         cr.reproduction,
+                        # F2 fix (review 2026-08-08): the oracle stamped recall on the Result;
+                        # persist it so `report_from_cells` reconstructs the localization
+                        # diagnostics without re-reading the record.
+                        cr.result.recall_at_k,
+                        cr.result.full_recall_at_k,
                     )
                 except asyncio.TimeoutError:
                     row = _row(
