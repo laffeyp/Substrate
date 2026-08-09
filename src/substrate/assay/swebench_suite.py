@@ -22,7 +22,7 @@ import subprocess
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, TypedDict, cast
+from typing import Any, NotRequired, TypedDict, cast
 
 from ..adapters import OllamaResponder
 from ..topologies.swebench_solver.assemble import swebench_solver_topology
@@ -60,6 +60,17 @@ class PreparedPayload(TypedDict):
     passed_at_base: list[str]
     image: str
     issue: str
+    # 2026-08-09: when True, the solver SELECT falls back to the whole-run
+    # `regression_passed` bool instead of the scoped `regression_held` filter.
+    # `prepare_swebench_case(skip_base_pytest=True)` sets this and leaves
+    # `passed_at_base` as `[]`. Verified is human-curated to eliminate the
+    # flask-class "warnings-as-errors → 133 pre-existing base failures" case
+    # (select_exec.py:66-69) — the base-pytest exists as a defense against a
+    # class of noise that Verified was built to preclude, so skipping it cuts
+    # ~day of prep wall on Verified without changing the honest verdict. On
+    # Lite the default stays False; the caller opts in with the confirmatory
+    # runner's `SWEBENCH_SKIP_BASE_PYTEST=1`.
+    skip_base_pytest: NotRequired[bool]
 
 
 def safe_case_id(instance_id: str) -> str:
@@ -83,18 +94,31 @@ def _clone_at(repo: str, base_commit: str) -> str:
 
 
 def prepare_swebench_case(
-    instance: dict[str, Any], *, namespace: str = "swebench", timeout: int = 1800
+    instance: dict[str, Any],
+    *,
+    namespace: str = "swebench",
+    timeout: int = 1800,
+    skip_base_pytest: bool = False,
 ) -> Case:
     """ENV-GATED (git + Docker). The Adapter's per-case setup: clone at base_commit, discover
-    canonical test modules, build the regression command, and run it once at base for the
-    passed-at-base set. Returns a `Case` whose `payload` holds PRIMITIVES every Arm reconstructs
-    from; `ground_truth` is the instance (the Oracle reads its instance_id).
+    canonical test modules, build the regression command, and optionally run it once at base for
+    the passed-at-base set. Returns a `Case` whose `payload` holds PRIMITIVES every Arm
+    reconstructs from; `ground_truth` is the instance (the Oracle reads its instance_id).
 
     2026-08-09 halt-on-error rewrite: no firewall pre-filter. SWE-bench Verified is human-audited
     clean, so a firewall violation on Verified is a data bug in the benchmark and deserves to
     halt the sweep, not silently exclude. Callers using Lite (which does carry leaky instances)
     can call `firewall_check` themselves and skip the leaky ones upstream — that's a benchmark
     choice, not a substrate design.
+
+    2026-08-09 wall-clock reshape: `skip_base_pytest=True` skips the base-repo pytest run — the
+    dominant prep bottleneck (astropy/django/sympy: 15-40 min each; 500 instances × 30 min /
+    CONCURRENCY=4 ≈ 60h prep). SELECT then falls back to whole-run `regression_passed` at
+    select_exec.py:61-76 instead of the scoped `regression_held`. The `passed_at_base` filter
+    exists to guard the flask-class "warnings-as-errors → 133 pre-existing base failures" case
+    documented at select_exec.py:66-69, which Princeton/OpenAI/Anthropic curated OUT of SWE-bench
+    Verified. The choice is stamped in the payload (`skip_base_pytest: True`) and hashed into
+    the confirmatory runner's config fingerprint, so the record self-describes the trade.
     """
     base = _clone_at(instance["repo"], instance["base_commit"])
     repo_files = subprocess.run(
@@ -107,10 +131,13 @@ def prepare_swebench_case(
     spec = dict(repo_test_spec(instance["repo"], instance["version"]))
 
     image = instance_image(instance["instance_id"], namespace=namespace)
-    runner = DockerTestRunner(image, timeout=timeout)
-    full_reg = build_regression_command(spec, [t for t in repo_tests if t not in exclude])
-    _, base_out = runner.run("", full_reg)  # empty patch -> run on base_commit
-    passed_at_base = sorted(passed_tests(base_out))
+    if skip_base_pytest:
+        passed_at_base: list[str] = []
+    else:
+        runner = DockerTestRunner(image, timeout=timeout)
+        full_reg = build_regression_command(spec, [t for t in repo_tests if t not in exclude])
+        _, base_out = runner.run("", full_reg)  # empty patch -> run on base_commit
+        passed_at_base = sorted(passed_tests(base_out))
 
     payload: PreparedPayload = {
         "base_checkout": base,
@@ -122,6 +149,7 @@ def prepare_swebench_case(
         "passed_at_base": passed_at_base,
         "image": image,
         "issue": instance["problem_statement"],
+        "skip_base_pytest": skip_base_pytest,
     }
     return Case(
         case_id=safe_case_id(instance["instance_id"]), payload=dict(payload), ground_truth=instance
@@ -146,6 +174,17 @@ def solver_topology_from_payload(
     planner = make_regression_planner(
         payload["spec"], list(payload["regression_files"]), exclude=set(payload["exclude"])
     )
+    # 2026-08-09 wall-clock reshape: when the case was prepared with
+    # `skip_base_pytest=True`, `passed_at_base` is `[]` and we pass `None` so SELECT
+    # routes through `regression_passed` (the whole-run bool) rather than
+    # `regression_held({}, ...)`, which would treat an empty base-passing set as
+    # "no base evidence" and refuse every regression signal. See PreparedPayload
+    # docstring for the Verified-vs-Lite rationale.
+    passed_at_base: frozenset[str] | None
+    if payload.get("skip_base_pytest", False):
+        passed_at_base = None
+    else:
+        passed_at_base = frozenset(payload["passed_at_base"])
     return swebench_solver_topology(
         responders=responders,
         base_checkout=str(payload["base_checkout"]),
@@ -154,7 +193,7 @@ def solver_topology_from_payload(
         known_files=set(payload["known_files"]),
         runner=runner,
         regression_command=planner,
-        passed_at_base=frozenset(payload["passed_at_base"]),
+        passed_at_base=passed_at_base,
         n=n,
         max_rounds=max_rounds,
         repro_k=repro_k,

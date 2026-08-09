@@ -38,7 +38,9 @@ Env (all optional; defaults are a smoke slice — the real confirmatory run sets
     SWEBENCH_N            best-of-N drafters per case (default: 3)
     SWEBENCH_LIMIT        cap instance count (default: 3 — smoke slice; use 0 for the full split)
     SWEBENCH_TRIALS       trials per (arm, case) (default: 1 — real trials land in Sprint 159)
-    SWEBENCH_CONCURRENCY  concurrent cells (default: 4; SWE-bench cells are Docker-heavy)
+    SWEBENCH_CONCURRENCY  concurrent cells (default: 8 after the 2026-08-09 reshape; ~half of
+                          per-cell wall is Ollama Cloud network I/O, so on a 10-core M-series
+                          with 32GB+ the ceiling is closer to 12; 8 is the safe midpoint)
     SWEBENCH_ROLE         arm role: baseline | ablation | full (default: "full")
     SWEBENCH_ARM_NAME     arm name written to cells (default: "swebench_solver")
     SWEBENCH_CELLS        cells JSONL path (default: "process/assay_smoke/swebench_cells.jsonl")
@@ -57,6 +59,17 @@ Env (all optional; defaults are a smoke slice — the real confirmatory run sets
                           use SWEBENCH_MODELS[0] as the single strong model)
     SWEBENCH_K            K value for baseline_matched_compute (default: read from .preg.json
                           under the matrix mode; required for "matrix" without a pre-reg)
+    SWEBENCH_SKIP_BASE_PYTEST  skip the base-repo pytest step in prepare_swebench_case
+                          (default: on for any dataset containing "Verified" in its name — the
+                          human-curated split doesn't carry the flask-class pre-existing-base-
+                          failures that `passed_at_base` guards against). Cuts prep from ~day
+                          to ~15 min at Verified scale; SELECT falls back to the whole-run
+                          regression_passed bool. The choice is stamped in the config
+                          fingerprint so the meta rejects cross-config splices.
+    SWEBENCH_PREPULL_IMAGES  pre-pull every unique instance image before the prep sweep so
+                          docker daemon pulls land once per image on registry bandwidth, not
+                          per-cell inside DockerTestRunner. Default: 1. Set to 0 when images
+                          are already local (a re-run of the same DATASET).
 
 Usage:
 
@@ -72,6 +85,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -89,6 +103,7 @@ from substrate.assay.preregistration import (
 )
 from substrate.assay.run import UsageTotals, project_reproduction_for_selected
 from substrate.assay.suite import Arm, Case
+from substrate.assay.swebench import FirewallViolation
 from substrate.assay.swebench_matrix import (
     baseline_matched_compute_arm,
     n_drafts_no_correction_arm,
@@ -102,11 +117,67 @@ from substrate.assay.swebench_suite import (
     swebench_suite,
 )
 
+
+# 2026-08-09 wall-clock reshape: typed per-cell error taxonomy.
+#
+# The pre-2026-08-09 posture was halt-on-any-raise inside `cell()`, so `asyncio.gather` cancelled
+# every sibling on one exception. Correct signal on a real bug; a fragility ratchet at 4,500-cell
+# scale — a Docker daemon hiccup at hour 90 threw away 90 hours. The review at
+# `docs/review/REVIEW-2026-08-09-swebench-runner-shape-and-walltime.md` item 6 named the middle
+# ground: classify per-cell failures into a small typed vocabulary, halt only on the CRITICAL
+# class (a benchmark data bug the record must not silently paper over), continue past FLAKY (a
+# Docker/network/timeout hiccup that a re-run would clear, written as `source="error"` with a
+# typed detail so the report layer can distinguish it from a real fail).
+#
+# The taxonomy is deliberately small — the four buckets a runner can classify from an exception
+# alone. A cell that raises an UNKNOWN exception halts by default (the conservative posture the
+# review names: don't classify what you don't understand).
+_ERROR_CELL_TIMEOUT = "cell_timeout"  # asyncio.TimeoutError from wait_for(RUN_TIMEOUT)
+_ERROR_DOCKER = "docker_error"  # docker CLI failure / daemon hiccup / OOM
+_ERROR_GIT = "git_error"  # git clone / apply / checkout failure
+_ERROR_UNCLASSIFIED = "unclassified_error"  # anything else — halts by default
+
+
+def _classify_cell_error(exc: BaseException) -> tuple[str, bool]:
+    """Classify one cell's exception into (typed_reason, halt_bool). Halt=True re-raises out of
+    cell() and gathers's return_exceptions=False propagation halts the sweep with the traceback;
+    Halt=False writes a `source="error"` row and continues so a flake cannot throw away hours of
+    completed cells. See the module-level comment for the taxonomy.
+
+    - `FirewallViolation` from a Verified instance is a benchmark data bug (Verified was human-
+      curated to be firewall-clean); halt. Lite callers filter upstream — a violation reaching
+      this classifier is unexpected on any dataset.
+    - `TimeoutError` / `asyncio.TimeoutError` from `asyncio.wait_for` on `RUN_TIMEOUT`: cell
+      exhausted its budget. Flake — the next cell may finish. `source="error"` row records the
+      time-out cell so the report layer counts it as failed-with-detail, not silently missing.
+    - Docker CLI errors — `docker` in the exception message: daemon hiccup / OOM / pull failure /
+      container-start error. Flake; a re-run would likely clear it.
+    - `subprocess.CalledProcessError` from git operations: `git clone` bandwidth failure, `git
+      apply` conflict, `git checkout` on a missing base_commit. Flake for the network cases,
+      real bugs for the base_commit ones — treat as flake here (conservative on rigor, the
+      typed row lets a reader inspect).
+    - Anything else — halt. The conservative posture per review item 6."""
+    if isinstance(exc, FirewallViolation):
+        return (f"firewall_violation:{exc.reason}", True)
+    if isinstance(exc, TimeoutError | asyncio.TimeoutError):
+        return (_ERROR_CELL_TIMEOUT, False)
+    msg = repr(exc).lower()
+    if "docker" in msg or "container" in msg:
+        return (_ERROR_DOCKER, False)
+    if "git" in msg or isinstance(exc, subprocess.CalledProcessError):
+        return (_ERROR_GIT, False)
+    return (_ERROR_UNCLASSIFIED, True)
+
+
 MODELS = os.environ.get("SWEBENCH_MODELS", "llama3.2:1b").split(",")
 N = int(os.environ.get("SWEBENCH_N", "3"))
 LIMIT = int(os.environ.get("SWEBENCH_LIMIT", "3"))
 TRIALS = int(os.environ.get("SWEBENCH_TRIALS", "1"))
-CONCURRENCY = int(os.environ.get("SWEBENCH_CONCURRENCY", "4"))
+# 2026-08-09 wall-clock reshape: default was 4 (Docker as the shared bottleneck). Prep + solve are
+# both I/O bound on the Ollama Cloud network + Docker daemon; on a 10-core M-series with 32GB+ the
+# ceiling is closer to 12. 8 is the safe midpoint that halves throughput on a full-500 Verified
+# run without pushing the Docker daemon into eviction under image-pull contention.
+CONCURRENCY = int(os.environ.get("SWEBENCH_CONCURRENCY", "8"))
 ROLE = os.environ.get("SWEBENCH_ROLE", "full")
 ARM_NAME = os.environ.get("SWEBENCH_ARM_NAME", "swebench_solver")
 CELLS = Path(os.environ.get("SWEBENCH_CELLS", "process/assay_smoke/swebench_cells.jsonl"))
@@ -125,6 +196,20 @@ K_CALLS = int(os.environ.get("SWEBENCH_K", "0"))  # 0 = read from .preg.json whe
 # (one repro per candidate); >1 = combine K runner scripts into one Docker invocation, majority-
 # vote at the marker level. Sprint 160-pass2 should set this to 3.
 REPRO_K = int(os.environ.get("SWEBENCH_REPRO_K", "1"))
+# 2026-08-09 wall-clock reshape: skip the base-repo pytest step in prep — the dominant prep
+# bottleneck (astropy/django/sympy: 15-40 min each in Docker; 500 instances at CONCURRENCY=8 is
+# still ~30h of prep before the first solve fires). The `passed_at_base` filter it computes
+# exists to guard flask-class pre-existing base failures (select_exec.py:66-69) — a class
+# Princeton/OpenAI/Anthropic curated OUT of SWE-bench_Verified. SELECT then falls back to the
+# whole-run `regression_passed` bool. Default: ON for any Verified dataset name, OFF otherwise.
+# The choice is hashed into `_CONFIG_FP` so the record self-describes the trade.
+SKIP_BASE_PYTEST = (
+    os.environ.get("SWEBENCH_SKIP_BASE_PYTEST", "1" if "Verified" in DATASET else "0") == "1"
+)
+# 2026-08-09 wall-clock reshape: pre-pull every unique instance image before the prep sweep so
+# `docker pull` cost lands once per image on the registry rather than serialised inside per-cell
+# `docker run` invocations. Default ON; set to 0 to skip if images are already local.
+PREPULL_IMAGES = os.environ.get("SWEBENCH_PREPULL_IMAGES", "1") == "1"
 
 _ZERO = UsageTotals(0, 0, 0, 0, False)
 _RUN_ID = ""  # set in main(); stamped on every cell for provenance
@@ -146,6 +231,11 @@ def _config() -> dict[str, object]:
         "margin": MARGIN,
         "control_arm": CONTROL,
         "run_timeout": RUN_TIMEOUT,
+        # 2026-08-09 wall-clock reshape: bake into the config fingerprint so the meta rejects
+        # cross-config splices when the base-pytest choice differs — a Verified run with the
+        # skip on cannot silently mix cells with a Verified run that computed passed_at_base
+        # the long way. Both are honest; they are DIFFERENT filters at SELECT.
+        "skip_base_pytest": SKIP_BASE_PYTEST,
         "assay_kind": "swebench",  # Sprint 152 dispatch
     }
 
@@ -416,14 +506,50 @@ async def _run() -> int:
     # instance_id in the traceback. Verified is human-audited clean, so the firewall check is
     # not the pre-filter it was on Lite — a real firewall violation on Verified is a data bug
     # in the benchmark and deserves to halt.
-    print(f"preparing {len(ds)} cases at CONCURRENCY={CONCURRENCY}...", flush=True)
+    # 2026-08-09 wall-clock reshape: pre-pull every unique instance image before the prep sweep.
+    # `docker run` inside `DockerTestRunner.run` (select_docker.py:153-192) pulls on first use per
+    # cell — serialised inside the runner. Pulling up front pins the network cost to registry
+    # bandwidth and lets prep + solve start warm. Verified has ~500 instances across ~12 repos so
+    # the pull count is dominated by repo variety, not instance count. Skip with
+    # SWEBENCH_PREPULL_IMAGES=0 when images are already local.
+    if PREPULL_IMAGES:
+        from substrate.topologies.swebench_solver.select_docker import instance_image
+
+        unique_images = sorted({instance_image(inst["instance_id"]) for inst in ds})
+        print(f"pre-pulling {len(unique_images)} unique instance images...", flush=True)
+        pull_sem = asyncio.Semaphore(min(CONCURRENCY, 4))  # docker daemon caps concurrent pulls
+
+        async def _pull(image: str) -> str:
+            import subprocess as _sp
+
+            async with pull_sem:
+                p = await asyncio.to_thread(
+                    _sp.run,
+                    ["docker", "pull", "--platform", "linux/amd64", image],
+                    capture_output=True,
+                    text=True,
+                    timeout=1800,
+                )
+            return f"  {image}: rc={p.returncode}"
+
+        pulls = await asyncio.gather(*(_pull(img) for img in unique_images), return_exceptions=True)
+        for r in pulls:
+            print(r if not isinstance(r, BaseException) else f"  pull error: {r!r}", flush=True)
+
+    print(
+        f"preparing {len(ds)} cases at CONCURRENCY={CONCURRENCY} "
+        f"(skip_base_pytest={SKIP_BASE_PYTEST})...",
+        flush=True,
+    )
     prep_sem = asyncio.Semaphore(CONCURRENCY)
     prep_progress = {"done": 0}
     prep_lock = asyncio.Lock()
 
     async def _prep_one(inst: dict[str, Any]) -> tuple[Case, dict[str, object]]:
         async with prep_sem:
-            case = await asyncio.to_thread(prepare_swebench_case, inst)
+            case = await asyncio.to_thread(
+                prepare_swebench_case, inst, skip_base_pytest=SKIP_BASE_PYTEST
+            )
             async with prep_lock:
                 prep_progress["done"] += 1
                 if prep_progress["done"] % 20 == 0 or prep_progress["done"] == len(ds):
@@ -473,16 +599,15 @@ async def _run() -> int:
 
     async def cell(arm: Arm, case: Case, trial: int) -> None:
         async with sem:
-            # Gap 3: salvage — regrade an existing record without new model calls. The record
-            # already carries every SelectedPatch/RepairSummary the oracle needs; we just re-run
-            # the grade side.
             salv: Path | None = (
                 Path(SALVAGE) / f"{arm.name}__{case.case_id}__t{trial}" if SALVAGE else None
             )
+            row: dict[str, object]
             if salv is not None and salv.exists():
-                # 2026-08-09 halt-on-error rewrite: salvage failure propagates. A record that
-                # can't be re-read + re-graded is a real bug in the record layer or the oracle,
-                # not something to silently row-as-fail.
+                # Salvage — regrade an existing record without new model calls. A salvage
+                # failure is a real bug in the record layer or the oracle (the record already
+                # exists and either reads or does not); halt propagates through the classifier's
+                # `_ERROR_UNCLASSIFIED` bucket rather than silently row-as-fail.
                 events: list[Any] = list(api.read_record(salv))
                 grade = suite.oracle.grade(events, case.ground_truth)
                 row = _row(
@@ -501,29 +626,49 @@ async def _run() -> int:
                 )
             else:
                 root = SCRATCH / f"{arm.name}__{case.case_id}__t{trial}"
-                # 2026-08-09 halt-on-error rewrite: no cell-level exception swallow. A run
-                # exception (model failure, Docker failure, timeout) propagates through
-                # asyncio.gather, cancels the other in-flight cells, and halts the sweep with
-                # the traceback. That is the honest signal — better than a "fail" cell that
-                # aggregates into a bogus resolve rate. Timeout also propagates as TimeoutError.
-                cr = await asyncio.wait_for(
-                    run_arm_on_case(arm, case, suite.oracle, root, trial=trial),
-                    timeout=RUN_TIMEOUT,
-                )
-                row = _row(
-                    arm,
-                    case,
-                    trial,
-                    cr.result.passed,
-                    "run",
-                    cr.usage,
-                    cr.elapsed_ms,
-                    cr.root,
-                    cr.result.detail,
-                    cr.reproduction,
-                    cr.result.recall_at_k,
-                    cr.result.full_recall_at_k,
-                )
+                # 2026-08-09 wall-clock reshape: typed per-cell error taxonomy. A cell that
+                # raises is classified into `_classify_cell_error` — halt-critical (a data-bug
+                # class like a Verified firewall violation or an unclassified exception) re-
+                # raises so `asyncio.gather` propagates and the sweep halts with the traceback;
+                # flaky (Docker/git/timeout) writes a `source="error"` row with typed detail so
+                # the cell counts as a graded failure (not silently absent) and the sweep
+                # continues. See the module-level classifier docstring for the taxonomy.
+                try:
+                    cr = await asyncio.wait_for(
+                        run_arm_on_case(arm, case, suite.oracle, root, trial=trial),
+                        timeout=RUN_TIMEOUT,
+                    )
+                except BaseException as exc:
+                    reason, should_halt = _classify_cell_error(exc)
+                    if should_halt:
+                        raise
+                    row = _row(
+                        arm,
+                        case,
+                        trial,
+                        False,
+                        "error",
+                        _ZERO,
+                        0,
+                        str(root),
+                        detail=f"{reason}: {type(exc).__name__}: {str(exc)[:280]}",
+                        reproduction="",
+                    )
+                else:
+                    row = _row(
+                        arm,
+                        case,
+                        trial,
+                        cr.result.passed,
+                        "run",
+                        cr.usage,
+                        cr.elapsed_ms,
+                        cr.root,
+                        cr.result.detail,
+                        cr.reproduction,
+                        cr.result.recall_at_k,
+                        cr.result.full_recall_at_k,
+                    )
             async with lock:
                 with CELLS.open("a") as fh:
                     fh.write(json.dumps(row) + "\n")
