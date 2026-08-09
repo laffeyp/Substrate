@@ -107,6 +107,24 @@ def element_localizer_factory(
     than wedging the whole instance."""
     checkout = Path(base_checkout)
 
+    # 2026-08-09 blob-offload guard: cap the number of elements emitted per file. Pass 1 on
+    # SWE-bench Verified hit `KeyError('targets')` on every big-repo case (astropy WCS-class
+    # modules have 200+ methods; 5 suspect files × 200 elements × ~80 chars = ~80 KB, crossing
+    # the runtime's BLOB_THRESHOLD_BYTES=16 KiB). The kernel then rewrote the EditLocations
+    # payload from the inline struct to `{"$blob": "sha256:...", "bytes": N}`, and the
+    # topology's drafter trigger input_builder at assemble.py:557-573 reads
+    # `ctx.views[_VIEW_EDIT_LOCATIONS].value()[-1]["targets"]` — a KeyError on the two-key blob
+    # ref. Every drafter died as InputBuildFailed before any model call; the topology quiesced
+    # with no SelectedPatch; every ensemble arm cell on a big repo graded not-resolved.
+    #
+    # Cap = 20 elements per file × top_k=5 files × ~80 char target = ~8 KB payload, safely
+    # under threshold with margin for JSON overhead. The elements are ordered by file position
+    # (extract_elements walks the AST in order) so a 20-element cap keeps the file's TOP
+    # elements — the ones a fix is most likely to touch. SuspectElements per file still emits
+    # the FULL element list (that record is per-file and small enough on its own to stay
+    # inline).
+    _ELEMENTS_PER_FILE_CAP = 20
+
     async def localize(_inp: Any) -> AsyncIterator[Any]:
         # 2026-08-09 halt-on-error rewrite: no exception swallow. See localize.py:localizer_factory.
         response, usage = await call_responder_metered(
@@ -122,7 +140,10 @@ def element_localizer_factory(
             elements = _extract_from_file(checkout, file_path)
             if elements:
                 yield SuspectElements(file=file_path, elements=elements)
-                targets.extend(f"{file_path}::{e}" for e in elements)
+                # Cap elements per file to keep EditLocations under BLOB_THRESHOLD_BYTES.
+                # See the blob-offload guard comment above the factory for the pass-1 failure
+                # this defends against.
+                targets.extend(f"{file_path}::{e}" for e in elements[:_ELEMENTS_PER_FILE_CAP])
             else:
                 # Non-Python file, unreadable, or syntax-error: the file stays as a whole-file
                 # target so the Repairer can still route to it. NOT a silent drop.
