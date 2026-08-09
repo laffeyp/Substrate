@@ -37,9 +37,10 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-NO_PATCH_HALT_THRESHOLD = 0.5
-MIN_CELLS_FOR_HALT = 20
-STALL_SECONDS = 900
+NO_PATCH_HALT_THRESHOLD = 0.85
+MIN_CELLS_FOR_HALT = 40
+MIN_REPOS_FOR_HALT = 3  # a single-repo run can legitimately show high no_patch (astropy is hard)
+STALL_SECONDS = 1800
 
 
 def _cells(path: Path) -> list[dict[str, Any]]:
@@ -100,8 +101,16 @@ def _emit(path: Path, r: dict[str, Any], prefix: str = "") -> None:
 def _halt_reason(r: dict[str, Any]) -> str | None:
     if not r.get("runner_alive", True):
         return "runner_dead"
-    if r.get("n", 0) >= MIN_CELLS_FOR_HALT and r.get("no_patch_rate", 0) > NO_PATCH_HALT_THRESHOLD:
-        return f"no_patch_rate={r['no_patch_rate']:.0%}>threshold"
+    # No-patch halt requires n >= MIN_CELLS AND coverage across MIN_REPOS. A single-repo
+    # accumulation can legitimately show high no_patch (astropy is the hardest in Verified;
+    # any single repo can look bad in isolation). Only halt when the failure is
+    # *across-the-board*.
+    if (
+        r.get("n", 0) >= MIN_CELLS_FOR_HALT
+        and r.get("no_patch_rate", 0) > NO_PATCH_HALT_THRESHOLD
+        and len(r.get("repos", {})) >= MIN_REPOS_FOR_HALT
+    ):
+        return f"no_patch_rate={r['no_patch_rate']:.0%}>threshold across {len(r['repos'])} repos"
     if r.get("last_write_age_s", 0) > STALL_SECONDS:
         return f"stalled_{r['last_write_age_s']}s"
     return None

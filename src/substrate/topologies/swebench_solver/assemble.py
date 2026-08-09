@@ -59,17 +59,57 @@ _VIEW_VERDICTS = "verdicts"
 
 def _build_edit_context(base_checkout: str, targets: tuple[str, ...]) -> str:
     """Inline the localized files' current content so the drafter edits against real bytes (the
-    read_declared_files_for_diff idea). v1: targets are file paths (`file` or `file::elem` / `file:line`)."""
+    read_declared_files_for_diff idea). v1: targets are file paths (`file` or `file::elem` / `file:line`).
+
+    2026-08-09 context-window guard. Pre-fix, `_build_edit_context` inlined every localized file's
+    FULL source and returned. On astropy where suspect files can be ~150 KB each (io/fits/header,
+    coordinates/sky_coordinate) the prompt hit 1.4 MB (~350k tokens) and every drafter call to
+    the cloud tags 400'd with `{"error":"The prompt is too long: 1446140, model maximum context
+    length: 262144"}` — even kimi's 262k context can't hold it. Elements ordered by AST position
+    (extract_elements walks the AST top-to-bottom) plus deduplication of the target file set
+    keeps the payload bounded.
+    _PER_FILE_CAP + _TOTAL_CAP together bound edit_context. A file whose source exceeds
+    _PER_FILE_CAP truncates at the cap boundary with a `# ... [truncated at N of M bytes]`
+    marker so the drafter can see it was cut. If the running total would exceed _TOTAL_CAP,
+    late files are dropped entirely and a `# ... [omitted N later files: reserving budget]`
+    marker records the drop. Cap = 15 KB per file × 4 files worth of headroom = 60 KB text ≈
+    15k tokens — fits every model in the ensemble (kimi 262k, glm 128k, nemotron 128k) with
+    room for the issue text and the SEARCH/REPLACE preamble.
+
+    A truncated file's SEARCH/REPLACE window is smaller but nonzero; the alternative (whole
+    file → prompt-too-long → drafter dies → no patch) is strictly worse. Element-level slicing
+    per SuspectElements is the honest v2 — this cap ships now to unblock the run."""
+    _PER_FILE_CAP = 15_000  # bytes per file
+    _TOTAL_CAP = 60_000  # bytes across all files (concatenated content, excludes headers)
+
+    seen: set[str] = set()
     parts: list[str] = []
+    used = 0
+    dropped = 0
     for t in targets:
         path = t.split("::")[0].split(":")[0]
+        if path in seen:
+            continue
+        seen.add(path)
+        if used >= _TOTAL_CAP:
+            dropped += 1
+            continue
         full = os.path.join(base_checkout, path)
         try:
             with open(full, encoding="utf-8", errors="replace") as fh:
                 content = fh.read()
         except OSError:
             content = "(file not found)"
+        original_size = len(content)
+        if original_size > _PER_FILE_CAP:
+            content = (
+                content[:_PER_FILE_CAP]
+                + f"\n# ... [truncated at {_PER_FILE_CAP} of {original_size} bytes]"
+            )
+        used += len(content)
         parts.append(f"# path: {path}\n```\n{content}\n```")
+    if dropped:
+        parts.append(f"# ... [omitted {dropped} later file(s): edit-context budget exhausted]")
     return "\n\n".join(parts)
 
 
