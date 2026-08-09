@@ -85,11 +85,67 @@ def _added_files(diff: str) -> set[str]:
     return {ln[6:] for ln in diff.splitlines() if ln.startswith("+++ b/") and ln[6:] != "dev/null"}
 
 
+# 2026-08-09 wall-clock reshape (item 3 of the review at
+# docs/review/REVIEW-2026-08-09-swebench-runner-shape-and-walltime.md and the mother-clone
+# rescue that hit right after re-firing pass 1 with skip_base_pytest ON): the pre-fix `_clone_at`
+# ran `git clone https://github.com/{repo}` per instance. Verified spans 500 instances across
+# ~12 unique repos; at CONCURRENCY=8 the prep runner regularly grabbed 8 astropy instances
+# simultaneously and cloned astropy (~700 MB) 8 times in parallel over one pipe — GitHub throttled
+# and the clones fought for bandwidth, so 10 min in the runner had prepped zero cases.
+#
+# Fix: one bare "mother" clone per repo under `~/.cache/substrate/swe-mothers/<owner__repo>.git`,
+# then `git clone --local` per instance (hardlinked objects, essentially instant). Two concurrent
+# workers hitting the same missing repo serialize on `fcntl.flock` of a per-repo `.lock` file, so
+# a fresh cache never triggers two parallel bare-clones of the same repo. On subsequent runs the
+# mother is reused as-is — SWE-bench base_commits are years old, so no `git fetch` is needed for
+# cache hits. Cross-process safe (the flock survives a runner restart mid-clone).
+_MOTHER_CACHE_ROOT = Path.home() / ".cache" / "substrate" / "swe-mothers"
+
+
+def _mother_clone(repo: str) -> Path:
+    """Bare mother clone for `repo` under `~/.cache/substrate/swe-mothers/`, created on first miss
+    under a per-repo `fcntl.flock` so two concurrent workers can't both bare-clone the same missing
+    repo. Returns the mother path. Idempotent."""
+    import fcntl
+
+    _MOTHER_CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+    safe = repo.replace("/", "__")
+    mother = _MOTHER_CACHE_ROOT / f"{safe}.git"
+    lock_path = _MOTHER_CACHE_ROOT / f"{safe}.lock"
+    with open(lock_path, "w") as lf:
+        fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
+        try:
+            if not mother.exists():
+                subprocess.run(
+                    [
+                        "git",
+                        "clone",
+                        "--bare",
+                        "--quiet",
+                        f"https://github.com/{repo}",
+                        str(mother),
+                    ],
+                    check=True,
+                )
+        finally:
+            fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+    return mother
+
+
 def _clone_at(repo: str, base_commit: str) -> str:
+    """A per-instance checkout at `base_commit`, cheaply produced from the on-disk mother clone.
+    `git clone --local` hardlinks objects — essentially instant even for a 700 MB repo like
+    astropy. Origin is removed so the solver's derived clones (`repair_validate_factory` at
+    topologies/swebench_solver/repair.py:98 clones this dir again) can't `git fetch` a fix from
+    GitHub via origin — the pre-mother `_clone_at` left origin pointing at github.com, a
+    pre-existing contamination hole closed here as a side benefit. (The solver still has the
+    mother's objects available through the local-clone hardlinks; the container backend at
+    swebench_container.py:78-87 does the fuller ref/reflog neuter for the executing-agent path.)"""
+    mother = _mother_clone(repo)
     d = tempfile.mkdtemp(prefix="assay-swe-")
-    url = f"https://github.com/{repo}"
-    subprocess.run(["git", "clone", "--quiet", url, d], check=True)
+    subprocess.run(["git", "clone", "--quiet", "--local", str(mother), d], check=True)
     subprocess.run(["git", "-C", d, "checkout", "--quiet", base_commit], check=True)
+    subprocess.run(["git", "-C", d, "remote", "remove", "origin"], capture_output=True, check=False)
     return d
 
 
