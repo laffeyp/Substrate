@@ -200,18 +200,27 @@ class OllamaResponder:
         """One POST to /api/chat with simple geometric retry, returning the parsed response dict.
         `max_retries` attempts, 1s/2s/4s backoff, then raise. Rate limits are a real error —
         halting the sweep is the honest response. The 8-attempt 429 marathon (2026-08-09) was a
-        compensation for wrong concurrency; it hid systemic failure as slow progress. Reverted."""
+        compensation for wrong concurrency; it hid systemic failure as slow progress. Reverted.
+
+        2026-08-09 diagnostics fix: on an HTTPStatusError, capture the response body in the
+        raised RuntimeError. Pre-fix the error carried only `Client error '400 Bad Request' for
+        url` — Ollama's actual reason (unsupported model tag, context overflow, malformed
+        payload) was thrown away. On pass 1 that hid the SYSTEMIC bug that every drafter call to
+        the ensemble cloud tags was returning 400 with a specific body reason, silently."""
         import time
 
         import httpx  # lazy: the openai-compat optional extra; kernel/CI need not have it
 
         headers, payload = self._request(prompt)
         last_exc: Exception | None = None
+        last_body: str = ""
         for attempt in range(self._max_retries):
             try:
                 resp = httpx.post(
                     self._endpoint, headers=headers, json=payload, timeout=self._timeout
                 )
+                if resp.status_code >= 400:
+                    last_body = resp.text[:400]
                 resp.raise_for_status()
                 data: dict[str, object] = resp.json()
                 return data
@@ -219,8 +228,10 @@ class OllamaResponder:
                 last_exc = exc
                 if attempt < self._max_retries - 1:
                     time.sleep(1.0 * (2**attempt))
+        body_note = f" body={last_body!r}" if last_body else ""
         raise RuntimeError(
-            f"OllamaResponder({self._model}) failed after {self._max_retries} attempts: {last_exc!r}"
+            f"OllamaResponder({self._model}) failed after {self._max_retries} attempts: "
+            f"{last_exc!r}{body_note}"
         )
 
     async def _achat(
@@ -228,17 +239,20 @@ class OllamaResponder:
     ) -> dict[str, object]:
         """Async sibling of `_chat`. Same simple geometric retry (2026-08-09 halt-on-error
         rewrite): `max_retries` attempts, 1s/2s/4s backoff, then raise. Rate-limit halting is the
-        honest response."""
+        honest response. Same response-body capture as `_chat` (see its docstring)."""
         import asyncio as _asyncio
 
         import httpx
 
         headers, payload = self._request(prompt, tools)
         last_exc: Exception | None = None
+        last_body: str = ""
         for attempt in range(self._max_retries):
             try:
                 async with httpx.AsyncClient(timeout=self._timeout) as client:
                     resp = await client.post(self._endpoint, headers=headers, json=payload)
+                if resp.status_code >= 400:
+                    last_body = resp.text[:400]
                 resp.raise_for_status()
                 data: dict[str, object] = resp.json()
                 return data
@@ -246,8 +260,10 @@ class OllamaResponder:
                 last_exc = exc
                 if attempt < self._max_retries - 1:
                     await _asyncio.sleep(1.0 * (2**attempt))
+        body_note = f" body={last_body!r}" if last_body else ""
         raise RuntimeError(
-            f"OllamaResponder({self._model}) failed after {self._max_retries} attempts: {last_exc!r}"
+            f"OllamaResponder({self._model}) failed after {self._max_retries} attempts: "
+            f"{last_exc!r}{body_note}"
         )
 
     def respond(self, prompt: str) -> str:
