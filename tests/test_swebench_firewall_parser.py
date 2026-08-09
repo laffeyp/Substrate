@@ -134,6 +134,63 @@ def test_leading_slash_boundary_blocks_prefix_confusion() -> None:
     assert ok is False
 
 
+def test_new_django_form_with_trailing_method_passes() -> None:
+    """Newer Django writes FAIL_TO_PASS as `test_x (module.path.Class.test_x)` — the METHOD
+    name appears both outside AND as the last segment inside the parens. F7-round-2 handles
+    the legacy `Class` trailing shape; F7-round-3 (2026-08-09) adds the `Class.snake_method`
+    trailing shape by dropping the last TWO segments when the second-to-last is PascalCase.
+    Real payload from `django__django-16408`."""
+    ok, reason = firewall_check(
+        _instance(
+            test_patch=_test_patch_adding("tests/known_related_objects/tests.py"),
+            fail_to_pass=[
+                "test_multilevel_reverse_fk_cyclic_select_related "
+                "(known_related_objects.tests.ExistingRelatedInstancesTests"
+                ".test_multilevel_reverse_fk_cyclic_select_related)"
+            ],
+        )
+    )
+    assert ok is True, reason
+
+
+def test_docstring_form_matched_by_content_search_in_test_patch() -> None:
+    """Django's older SimpleTestCase repr uses a DOCSTRING (no parens at all) as the test id.
+    F7-round-3 (2026-08-09) falls back to content search: if the docstring appears in an ADDED
+    line of test_patch (a `+`-prefixed diff line), the test IS being added and the id passes.
+    Real payload shape from `django__django-14608`."""
+    docstring_id = "If validate_max is set and max_num is less than TOTAL_FORMS"
+    test_patch = (
+        "diff --git a/tests/forms_tests/tests/test_formsets.py b/tests/forms_tests/tests/test_formsets.py\n"
+        "--- a/tests/forms_tests/tests/test_formsets.py\n"
+        "+++ b/tests/forms_tests/tests/test_formsets.py\n"
+        "@@ -100,0 +101,7 @@\n"
+        "+    def test_max_num_something(self):\n"
+        '+        """If validate_max is set and max_num is less than TOTAL_FORMS in the'
+        ' formset\\n"""\n'
+        "+        pass\n"
+    )
+    ok, reason = firewall_check(_instance(test_patch=test_patch, fail_to_pass=[docstring_id]))
+    assert ok is True, reason
+
+
+def test_docstring_form_not_in_test_patch_fails_closed() -> None:
+    """Content-search fallback only admits when the docstring appears in an ADDED line. A
+    docstring nowhere in test_patch is unresolvable — fail closed."""
+    docstring_id = "If validate_max is set and max_num is less than TOTAL_FORMS"
+    test_patch = _test_patch_adding("tests/forms_tests/tests/test_something_else.py")
+    ok, _ = firewall_check(_instance(test_patch=test_patch, fail_to_pass=[docstring_id]))
+    assert ok is False
+
+
+def test_docstring_form_short_string_fails_closed() -> None:
+    """Very short strings (<12 chars) would match too many diff lines. Fail closed rather than
+    fabricate a match on `def` or a variable name."""
+    ok, _ = firewall_check(
+        _instance(test_patch="+++ b/tests/x.py\n+def foo():\n", fail_to_pass=["def foo"])
+    )
+    assert ok is False
+
+
 def test_one_segment_parenthesised_group_resolves_to_a_module_file() -> None:
     """A one-segment parenthesised group `(some_module)` names an importable module. F7-round-2
     derives `some_module.py` and applies the sys.path-boundary rule. test_patch adding the

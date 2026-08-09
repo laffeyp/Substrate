@@ -97,40 +97,54 @@ def firewall_check(instance: Mapping[str, Any]) -> tuple[bool, str]:
         # pytest: "path/test_x.py::Class::test" -> the file is the path before "::".
         if "::" in test_id:
             return test_id.split("::")[0] in tp_files
-        # unittest/django: "test_func (module.path.optional_Class)". Python's unittest loader
-        # resolves this by importing `module.path[.optional_Class]` — the file is
-        # `module/path.py` on sys.path. Django puts `tests/` on sys.path at run time, so a real
-        # id `(auth_tests.test_forms.UserChangeFormTest)` resolves to `auth_tests/test_forms.py`
-        # AT sys.path root, which lives on disk at `tests/auth_tests/test_forms.py`. The match
-        # rule therefore mirrors module resolution: any prefix of the added file's path is a
-        # legal sys.path entry, so a tp_file matches iff it equals the derived path OR ends with
-        # `"/" + derived` (the `/` forces a segment boundary so `myapp/tests.py` cannot spuriously
-        # match `some_myapp/tests.py`).
+        # unittest/django parenthesised form: "test_func (module.path[.Class[.method]])". The
+        # unittest loader resolves this by importing `module.path` and walking attributes. The
+        # FILE is `module/path.py` at some sys.path prefix. Match rule (F7-round-2, 2026-08-09):
+        # tp_file matches iff it EQUALS the derived path OR ends with `"/" + derived` (`/` forces
+        # a segment boundary so `myapp/tests.py` cannot match `some_myapp/tests.py`).
         #
-        # Class vs module: Python convention is that classes are PascalCase and modules are
-        # snake_case. If the last dotted segment starts with an uppercase letter, treat it as a
-        # class name and derive from parts[:-1]; otherwise treat all segments as module path.
-        # Cover both interpretations when ambiguous (two segments where the last might be
-        # either) — match if EITHER form's derived path is present.
+        # Trailing segments: the parenthesised group can end in a Class, or Class.method
+        # (Django's newer test-id form appends the method name to the parens too). Python
+        # convention — Classes are PascalCase, modules and methods are snake_case. Peel off:
+        #   * last segment IF PascalCase (class-drop): `module.path.py`
+        #   * last two segments IF second-to-last is PascalCase (class-plus-method drop)
+        #   * always try full-module (`module.path.class.method.py`) as fallback
+        # Any candidate matching in tp_files admits the id.
         m = re.search(r"\(([\w.]+)\)", test_id)
-        if not m:
-            # Fail CLOSED on parse failure (sprint 142): an unparseable FAIL_TO_PASS id cannot be
-            # verified to be added by test_patch, so we cannot certify the structural firewall.
-            return False
-        parts = m.group(1).split(".")
-        if not parts:
-            return False
-        candidates: list[str] = []
-        # Class-drop interpretation (PascalCase last segment).
-        if len(parts) >= 2 and parts[-1][:1].isupper():
-            candidates.append("/".join(parts[:-1]) + ".py")
-        # Full-module interpretation (all segments are module path).
-        candidates.append("/".join(parts) + ".py")
+        if m:
+            parts = m.group(1).split(".")
+            candidates: list[str] = []
+            # New-Django form: `module.Class.snake_method` — drop the last two.
+            if len(parts) >= 3 and parts[-2][:1].isupper() and not parts[-1][:1].isupper():
+                candidates.append("/".join(parts[:-2]) + ".py")
+            # Legacy form: `module.Class` — drop the class.
+            if len(parts) >= 2 and parts[-1][:1].isupper():
+                candidates.append("/".join(parts[:-1]) + ".py")
+            # Full-module — last segment IS a module (rare but legal, e.g. `some_module`).
+            candidates.append("/".join(parts) + ".py")
 
-        for derived in candidates:
-            for f in tp_files:
-                if f == derived or f.endswith("/" + derived):
-                    return True
+            for derived in candidates:
+                for f in tp_files:
+                    if f == derived or f.endswith("/" + derived):
+                        return True
+
+        # Docstring form (no parens at all) — Django's SimpleTestCase repr uses the docstring's
+        # first line as the id. Cannot derive a file. Fall back to CONTENT match against
+        # test_patch: if the id string appears in an ADDED line (starts with `+` in the diff),
+        # the test IS being added by test_patch. Coarser than the structural match; only used
+        # when structural resolution fails. The lookup is against the raw test_patch text,
+        # which the outer scope has as `str(instance.get("test_patch", ""))`.
+        tp_text = str(instance.get("test_patch", ""))
+        # Truncated docstrings still work — even a 40-char prefix in an added line is a strong
+        # match. Django's SWE-bench ids tend to run 40-80 chars.
+        needle = test_id.strip()
+        if len(needle) < 12:
+            # Very short strings (a single word or two) would match too many `+` lines. Fail
+            # closed rather than fabricate a match on `def` or a variable name.
+            return False
+        for line in tp_text.splitlines():
+            if line.startswith("+") and not line.startswith("+++") and needle in line:
+                return True
         return False
 
     patch_files = _added_files(str(instance.get("patch", "")))
