@@ -197,93 +197,57 @@ class OllamaResponder:
         )
 
     def _chat(self, prompt: str) -> dict[str, object]:
-        """One POST to /api/chat with retry+backoff, returning the parsed response dict. The shared
-        core of `respond` / `respond_metered`, so the retry discipline lives in exactly one place.
-
-        429 handling (2026-08-09 rate-limit fix): a 429 gets EXTRA retries (up to 8) with
-        exponential backoff up to 60s per attempt. Ollama Cloud's rate limits recover in seconds
-        to minutes; the default 3-attempt / 1-2s backoff swallowed by every 429 storm on Pass 1
-        v4. Real transport errors and non-429 4xx/5xx keep the shorter budget. The `Retry-After`
-        header is honored when the server sends one."""
+        """One POST to /api/chat with simple geometric retry, returning the parsed response dict.
+        `max_retries` attempts, 1s/2s/4s backoff, then raise. Rate limits are a real error —
+        halting the sweep is the honest response. The 8-attempt 429 marathon (2026-08-09) was a
+        compensation for wrong concurrency; it hid systemic failure as slow progress. Reverted."""
         import time
 
         import httpx  # lazy: the openai-compat optional extra; kernel/CI need not have it
 
         headers, payload = self._request(prompt)
         last_exc: Exception | None = None
-        rate_limit_attempts = 0
-        max_rate_limit_attempts = 8
-        for attempt in range(self._max_retries + max_rate_limit_attempts):
+        for attempt in range(self._max_retries):
             try:
                 resp = httpx.post(
                     self._endpoint, headers=headers, json=payload, timeout=self._timeout
                 )
-                if resp.status_code == 429:
-                    # Rate-limited — separate retry budget, longer backoff.
-                    retry_after = resp.headers.get("Retry-After")
-                    if retry_after and retry_after.isdigit():
-                        wait_s = min(float(retry_after), 60.0)
-                    else:
-                        wait_s = min(2.0 * (2**rate_limit_attempts), 60.0)
-                    rate_limit_attempts += 1
-                    if rate_limit_attempts <= max_rate_limit_attempts:
-                        time.sleep(wait_s)
-                        continue
                 resp.raise_for_status()
                 data: dict[str, object] = resp.json()
                 return data
             except httpx.HTTPError as exc:
                 last_exc = exc
-                # Non-429 error: use the shorter retry budget, geometric backoff.
-                if attempt - rate_limit_attempts < self._max_retries - 1:
-                    time.sleep(1.0 * (2 ** (attempt - rate_limit_attempts)))
-                else:
-                    break
+                if attempt < self._max_retries - 1:
+                    time.sleep(1.0 * (2**attempt))
         raise RuntimeError(
-            f"OllamaResponder({self._model}) failed after "
-            f"{self._max_retries} attempts + {rate_limit_attempts} rate-limit retries: {last_exc!r}"
+            f"OllamaResponder({self._model}) failed after {self._max_retries} attempts: {last_exc!r}"
         )
 
     async def _achat(
         self, prompt: str, tools: list[dict[str, object]] | None = None
     ) -> dict[str, object]:
-        """Async sibling of `_chat`. Same 429-aware retry policy (2026-08-09 rate-limit fix):
-        429s get extra retries + longer backoff, real transport / non-429 errors keep the shorter
-        budget. `Retry-After` honored when present."""
+        """Async sibling of `_chat`. Same simple geometric retry (2026-08-09 halt-on-error
+        rewrite): `max_retries` attempts, 1s/2s/4s backoff, then raise. Rate-limit halting is the
+        honest response."""
         import asyncio as _asyncio
 
         import httpx
 
         headers, payload = self._request(prompt, tools)
         last_exc: Exception | None = None
-        rate_limit_attempts = 0
-        max_rate_limit_attempts = 8
-        for attempt in range(self._max_retries + max_rate_limit_attempts):
+        for attempt in range(self._max_retries):
             try:
                 async with httpx.AsyncClient(timeout=self._timeout) as client:
                     resp = await client.post(self._endpoint, headers=headers, json=payload)
-                if resp.status_code == 429:
-                    retry_after = resp.headers.get("Retry-After")
-                    if retry_after and retry_after.isdigit():
-                        wait_s = min(float(retry_after), 60.0)
-                    else:
-                        wait_s = min(2.0 * (2**rate_limit_attempts), 60.0)
-                    rate_limit_attempts += 1
-                    if rate_limit_attempts <= max_rate_limit_attempts:
-                        await _asyncio.sleep(wait_s)
-                        continue
                 resp.raise_for_status()
                 data: dict[str, object] = resp.json()
                 return data
             except httpx.HTTPError as exc:
                 last_exc = exc
-                if attempt - rate_limit_attempts < self._max_retries - 1:
-                    await _asyncio.sleep(1.0 * (2 ** (attempt - rate_limit_attempts)))
-                else:
-                    break
+                if attempt < self._max_retries - 1:
+                    await _asyncio.sleep(1.0 * (2**attempt))
         raise RuntimeError(
-            f"OllamaResponder({self._model}) failed after "
-            f"{self._max_retries} attempts + {rate_limit_attempts} rate-limit retries: {last_exc!r}"
+            f"OllamaResponder({self._model}) failed after {self._max_retries} attempts: {last_exc!r}"
         )
 
     def respond(self, prompt: str) -> str:

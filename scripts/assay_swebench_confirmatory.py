@@ -89,7 +89,6 @@ from substrate.assay.preregistration import (
 )
 from substrate.assay.run import UsageTotals, project_reproduction_for_selected
 from substrate.assay.suite import Arm, Case
-from substrate.assay.swebench import FirewallViolation
 from substrate.assay.swebench_matrix import (
     baseline_matched_compute_arm,
     n_drafts_no_correction_arm,
@@ -112,7 +111,7 @@ ROLE = os.environ.get("SWEBENCH_ROLE", "full")
 ARM_NAME = os.environ.get("SWEBENCH_ARM_NAME", "swebench_solver")
 CELLS = Path(os.environ.get("SWEBENCH_CELLS", "process/assay_smoke/swebench_cells.jsonl"))
 SCRATCH = Path(os.environ.get("SWEBENCH_SCRATCH", "process/assay_smoke/records"))
-DATASET = os.environ.get("SWEBENCH_DATASET", "princeton-nlp/SWE-bench_Lite")
+DATASET = os.environ.get("SWEBENCH_DATASET", "princeton-nlp/SWE-bench_Verified")
 SPLIT = os.environ.get("SWEBENCH_SPLIT", "test")
 MARGIN = float(os.environ.get("SWEBENCH_MARGIN", "0.10"))
 CONTROL = os.environ.get("SWEBENCH_CONTROL", ARM_NAME)
@@ -412,47 +411,28 @@ async def _run() -> int:
     # concurrent pulls fine. 300 instances at CONCURRENCY=8 finishes in ~15-30 min instead of
     # ~5-10 hours (KIT_DIARY-worthy: the pre-fix serial loop was the projection-blower on this
     # confirmatory).
+    # 2026-08-09 halt-on-error rewrite: prep failures propagate. Any prep exception (a Docker
+    # pull error, a git-clone error, a firewall violation) kills the whole prep with the
+    # instance_id in the traceback. Verified is human-audited clean, so the firewall check is
+    # not the pre-filter it was on Lite — a real firewall violation on Verified is a data bug
+    # in the benchmark and deserves to halt.
     print(f"preparing {len(ds)} cases at CONCURRENCY={CONCURRENCY}...", flush=True)
     prep_sem = asyncio.Semaphore(CONCURRENCY)
-    prep_progress = {"done": 0, "excluded": 0}
+    prep_progress = {"done": 0}
     prep_lock = asyncio.Lock()
 
-    async def _prep_one(inst: dict[str, Any]) -> tuple[Case, dict[str, object]] | None:
+    async def _prep_one(inst: dict[str, Any]) -> tuple[Case, dict[str, object]]:
         async with prep_sem:
-            try:
-                case = await asyncio.to_thread(prepare_swebench_case, inst)
-            except FirewallViolation as fv:
-                async with prep_lock:
-                    prep_progress["excluded"] += 1
-                    prep_progress["done"] += 1
-                    print(
-                        f"[{prep_progress['done']}/{len(ds)}] EXCLUDED (firewall): "
-                        f"{inst['instance_id']}: {fv.reason}",
-                        flush=True,
-                    )
-                return None
-            except Exception as exc:  # noqa: BLE001 — one bad instance must not sink the sweep
-                async with prep_lock:
-                    prep_progress["done"] += 1
-                    print(
-                        f"[{prep_progress['done']}/{len(ds)}] PREP FAILED "
-                        f"{inst['instance_id']}: {type(exc).__name__}: {exc}",
-                        flush=True,
-                    )
-                return None
+            case = await asyncio.to_thread(prepare_swebench_case, inst)
             async with prep_lock:
                 prep_progress["done"] += 1
                 if prep_progress["done"] % 20 == 0 or prep_progress["done"] == len(ds):
-                    print(
-                        f"[{prep_progress['done']}/{len(ds)}] prepared "
-                        f"(excluded={prep_progress['excluded']})",
-                        flush=True,
-                    )
+                    print(f"[{prep_progress['done']}/{len(ds)}] prepared", flush=True)
             return case, inst
 
     prepped = await asyncio.gather(*(_prep_one(inst) for inst in ds))
-    cases: list[tuple[Case, dict[str, object]]] = [c for c in prepped if c is not None]
-    print(f"prepared {len(cases)} firewall-clean cases", flush=True)
+    cases: list[tuple[Case, dict[str, object]]] = list(prepped)
+    print(f"prepared {len(cases)} cases", flush=True)
 
     # Gap 7: write the sidecar BEFORE the sweep so a mid-run abort still leaves the .cases.json
     # on disk for Sprint 152's report path.
@@ -500,93 +480,50 @@ async def _run() -> int:
                 Path(SALVAGE) / f"{arm.name}__{case.case_id}__t{trial}" if SALVAGE else None
             )
             if salv is not None and salv.exists():
-                try:
-                    events: list[Any] = list(api.read_record(salv))
-                    grade = suite.oracle.grade(events, case.ground_truth)
-                    # Sprint 158b: salvage cells still have the SelectedPatch + TestResults on
-                    # disk — project reproduction the same way run_arm_on_case does so a regrade
-                    # doesn't drop the 2x2 signal that was already there.
-                    row = _row(
-                        arm,
-                        case,
-                        trial,
-                        grade.passed,
-                        "salvage",
-                        _ZERO,
-                        0,
-                        str(salv),
-                        grade.detail,
-                        project_reproduction_for_selected(events),
-                        # F2 fix: salvage grade also stamps recall (the SwebenchRecordOracle
-                        # computes it from the record's SuspectFiles + ground_truth's gold patch).
-                        grade.recall_at_k,
-                        grade.full_recall_at_k,
-                    )
-                except Exception as exc:  # noqa: BLE001 — a salvage failure is logged, not fatal
-                    row = _row(
-                        arm,
-                        case,
-                        trial,
-                        False,
-                        "fail",
-                        _ZERO,
-                        0,
-                        str(salv),
-                        f"salvage failed: {type(exc).__name__}: {exc}",
-                    )
+                # 2026-08-09 halt-on-error rewrite: salvage failure propagates. A record that
+                # can't be re-read + re-graded is a real bug in the record layer or the oracle,
+                # not something to silently row-as-fail.
+                events: list[Any] = list(api.read_record(salv))
+                grade = suite.oracle.grade(events, case.ground_truth)
+                row = _row(
+                    arm,
+                    case,
+                    trial,
+                    grade.passed,
+                    "salvage",
+                    _ZERO,
+                    0,
+                    str(salv),
+                    grade.detail,
+                    project_reproduction_for_selected(events),
+                    grade.recall_at_k,
+                    grade.full_recall_at_k,
+                )
             else:
                 root = SCRATCH / f"{arm.name}__{case.case_id}__t{trial}"
-                try:
-                    # Gap 2: per-cell wall-clock timeout — a wedged Docker cannot stall the sweep
-                    cr = await asyncio.wait_for(
-                        run_arm_on_case(arm, case, suite.oracle, root, trial=trial),
-                        timeout=RUN_TIMEOUT,
-                    )
-                    row = _row(
-                        arm,
-                        case,
-                        trial,
-                        cr.result.passed,
-                        "run",
-                        cr.usage,
-                        cr.elapsed_ms,
-                        cr.root,
-                        cr.result.detail,
-                        # Sprint 158b: pass the reproduction verdict CaseResult carries (via
-                        # project_reproduction_for_selected in run.py). Only "run" cells populate
-                        # this — salvage/fail cells leave it empty (the default), which the
-                        # report aggregator reads as "no signal for this cell".
-                        cr.reproduction,
-                        # F2 fix (review 2026-08-08): the oracle stamped recall on the Result;
-                        # persist it so `report_from_cells` reconstructs the localization
-                        # diagnostics without re-reading the record.
-                        cr.result.recall_at_k,
-                        cr.result.full_recall_at_k,
-                    )
-                except asyncio.TimeoutError:
-                    row = _row(
-                        arm,
-                        case,
-                        trial,
-                        False,
-                        "fail",
-                        _ZERO,
-                        int(RUN_TIMEOUT * 1000),
-                        str(root),
-                        f"timed out after {RUN_TIMEOUT}s",
-                    )
-                except Exception as exc:  # noqa: BLE001 — a cell that blows up is logged, not fatal
-                    row = _row(
-                        arm,
-                        case,
-                        trial,
-                        False,
-                        "fail",
-                        _ZERO,
-                        int((time.monotonic() - started) * 1000),
-                        str(root),
-                        f"{type(exc).__name__}: {exc}",
-                    )
+                # 2026-08-09 halt-on-error rewrite: no cell-level exception swallow. A run
+                # exception (model failure, Docker failure, timeout) propagates through
+                # asyncio.gather, cancels the other in-flight cells, and halts the sweep with
+                # the traceback. That is the honest signal — better than a "fail" cell that
+                # aggregates into a bogus resolve rate. Timeout also propagates as TimeoutError.
+                cr = await asyncio.wait_for(
+                    run_arm_on_case(arm, case, suite.oracle, root, trial=trial),
+                    timeout=RUN_TIMEOUT,
+                )
+                row = _row(
+                    arm,
+                    case,
+                    trial,
+                    cr.result.passed,
+                    "run",
+                    cr.usage,
+                    cr.elapsed_ms,
+                    cr.root,
+                    cr.result.detail,
+                    cr.reproduction,
+                    cr.result.recall_at_k,
+                    cr.result.full_recall_at_k,
+                )
             async with lock:
                 with CELLS.open("a") as fh:
                     fh.write(json.dumps(row) + "\n")

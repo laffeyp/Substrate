@@ -108,14 +108,12 @@ def element_localizer_factory(
     checkout = Path(base_checkout)
 
     async def localize(_inp: Any) -> AsyncIterator[Any]:
-        try:
-            response, usage = await call_responder_metered(
-                responder, build_localize_prompt(issue, repo_skeleton)
-            )
-            yield usage
-            files = parse_suspect_files(response, known_files)[:top_k]
-        except Exception:  # noqa: BLE001 — see localizer_factory's rationale (KIT_DIARY 16).
-            files = []
+        # 2026-08-09 halt-on-error rewrite: no exception swallow. See localize.py:localizer_factory.
+        response, usage = await call_responder_metered(
+            responder, build_localize_prompt(issue, repo_skeleton)
+        )
+        yield usage
+        files = parse_suspect_files(response, known_files)[:top_k]
 
         yield SuspectFiles(files=tuple(files))
 

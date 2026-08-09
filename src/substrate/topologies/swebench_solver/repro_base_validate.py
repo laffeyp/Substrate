@@ -80,13 +80,11 @@ def repro_base_validate_factory(runner: _RunnerLike) -> _Factory:
             yield ReproductionTest(code=code)
             return
 
-        try:
-            _rc, out = await asyncio.to_thread(
-                runner.run, "", "python /sol/repro.py", {"repro.py": code}
-            )
-        except Exception:  # noqa: BLE001 — a runner exception passes the repro through
-            yield ReproductionTest(code=code)
-            return
+        # 2026-08-09 halt-on-error rewrite: no runner-exception swallow. A Docker hiccup
+        # halts the sweep instead of silently degrading the repro signal.
+        _rc, out = await asyncio.to_thread(
+            runner.run, "", "python /sol/repro.py", {"repro.py": code}
+        )
 
         status = reproduction_status(out)
         if status == Reproduction.REPRODUCED:

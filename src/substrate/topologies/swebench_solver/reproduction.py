@@ -106,18 +106,15 @@ def repro_generator_factory(responder: Responder, issue: str, *, k: int = 1) -> 
         raise ValueError(f"k must be >= 1; got {k}")
 
     async def _one_call() -> tuple[str, Any]:
-        try:
-            response, usage = await call_responder_metered(responder, build_repro_prompt(issue))
-            return parse_repro_code(response), usage
-        except Exception:  # noqa: BLE001 — a failed model call must not crash the producer (KIT_DIARY 16)
-            return "", None
+        # 2026-08-09 halt-on-error rewrite: no exception swallow. asyncio.gather propagates.
+        response, usage = await call_responder_metered(responder, build_repro_prompt(issue))
+        return parse_repro_code(response), usage
 
     async def generate(_inp: Any) -> AsyncIterator[Any]:
         outcomes = await asyncio.gather(*[_one_call() for _ in range(k)])
         codes: list[str] = []
         for code, usage in outcomes:
-            if usage is not None:
-                yield usage
+            yield usage
             if code:
                 codes.append(code)
         yield ReproductionTest(code=combine_repro_scripts(codes))

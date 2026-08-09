@@ -52,12 +52,17 @@ class _DyingResponder:
         raise RuntimeError("model died")
 
 
-async def test_repro_generator_handles_a_failed_model_call(tmp_path) -> None:  # type: ignore[no-untyped-def]
+async def test_repro_generator_model_error_records_producer_failed(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    # 2026-08-09 halt-on-error contract: a failed model call in repro_generator propagates.
+    # The producer dies, the kernel records ProducerFailed, no ReproductionTest emits. Runner
+    # halts the sweep.
     events = await _run(tmp_path, _DyingResponder(), "issue text")
-    repro = [e["payload"] for e in events if e["kind"] == "ReproductionTest"]
-    assert (
-        len(repro) == 1 and repro[0]["code"] == ""
-    )  # empty test on a failed call; the run still finishes
+    assert any(e["kind"] == "substrate.ProducerFailed" for e in events), (
+        "failed model call must record ProducerFailed"
+    )
+    assert not any(e["kind"] == "ReproductionTest" for e in events), (
+        "no fake empty ReproductionTest cover for a real crash"
+    )
 
 
 async def test_repro_generator_meters(tmp_path) -> None:  # type: ignore[no-untyped-def]

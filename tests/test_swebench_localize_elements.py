@@ -203,10 +203,10 @@ async def test_element_localizer_degrades_on_unreadable_or_missing_python(tmp_pa
     assert list(elements[0]["elements"]) == ["real"]
 
 
-async def test_element_localizer_death_resilience(tmp_path):  # type: ignore[no-untyped-def]
-    # Same posture as the file-level localizer (KIT_DIARY 16): a failed LLM call must not wedge
-    # the loop. Empty SuspectFiles + no SuspectElements + empty EditLocations, so the seed
-    # trigger still fires and the drafter starts blind (reaches a clean Exhausted).
+async def test_element_localizer_model_error_records_producer_failed(tmp_path):  # type: ignore[no-untyped-def]
+    # 2026-08-09 halt-on-error contract: a failed LLM call in the element localizer propagates.
+    # The producer dies, the kernel records ProducerFailed, and no SuspectFiles/SuspectElements/
+    # EditLocations emit. Runner sees an incomplete cell and halts the sweep.
     class _Dying:
         def respond(self, prompt: str) -> str:
             raise RuntimeError("model died mid-localize")
@@ -215,11 +215,13 @@ async def test_element_localizer_death_resilience(tmp_path):  # type: ignore[no-
     _write_repo(checkout, {"any.py": "def any():\n    pass\n"})
     events = await _run(tmp_path, _Dying(), "fix", "any.py", checkout, {"any.py"})
 
-    suspects = [e["payload"] for e in events if e["kind"] == "SuspectFiles"]
-    assert list(suspects[0]["files"]) == []
-    assert not any(e["kind"] == "SuspectElements" for e in events)
-    locs = [e["payload"] for e in events if e["kind"] == "EditLocations"]
-    assert list(locs[0]["targets"]) == []
+    assert any(e["kind"] == "substrate.ProducerFailed" for e in events), (
+        "localizer model error must record ProducerFailed"
+    )
+    assert not any(e["kind"] == "SuspectFiles" for e in events), (
+        "no fake empty-SuspectFiles cover for a real crash"
+    )
+    assert not any(e["kind"] == "EditLocations" for e in events)
 
 
 async def test_element_localizer_syntax_error_file_stays_as_whole_file_target(tmp_path):  # type: ignore[no-untyped-def]

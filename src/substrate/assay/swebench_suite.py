@@ -38,7 +38,7 @@ from ..topologies.swebench_solver.select_regression import (
     make_regression_planner,
 )
 from .suite import ABLATION, BASELINE, FULL, Arm, Case, Suite, Topology
-from .swebench import FirewallViolation, firewall_check, swebench_record_oracle
+from .swebench import swebench_record_oracle
 
 
 class PreparedPayload(TypedDict):
@@ -85,15 +85,17 @@ def _clone_at(repo: str, base_commit: str) -> str:
 def prepare_swebench_case(
     instance: dict[str, Any], *, namespace: str = "swebench", timeout: int = 1800
 ) -> Case:
-    """ENV-GATED (git + Docker). The Adapter's per-case setup: firewall-check the instance, clone at
-    base_commit, discover the canonical test modules, build the firewall-clean full regression command,
-    and run it once at base for the passed-at-base set. Returns a `Case` whose `payload` holds PRIMITIVES
-    every Arm reconstructs from; `ground_truth` is the instance (the Oracle reads its instance_id).
-    Raises if the instance fails the firewall (it must never be benchmarked)."""
-    ok, reason = firewall_check(instance)
-    if not ok:
-        raise FirewallViolation(str(instance["instance_id"]), reason)
+    """ENV-GATED (git + Docker). The Adapter's per-case setup: clone at base_commit, discover
+    canonical test modules, build the regression command, and run it once at base for the
+    passed-at-base set. Returns a `Case` whose `payload` holds PRIMITIVES every Arm reconstructs
+    from; `ground_truth` is the instance (the Oracle reads its instance_id).
 
+    2026-08-09 halt-on-error rewrite: no firewall pre-filter. SWE-bench Verified is human-audited
+    clean, so a firewall violation on Verified is a data bug in the benchmark and deserves to
+    halt the sweep, not silently exclude. Callers using Lite (which does carry leaky instances)
+    can call `firewall_check` themselves and skip the leaky ones upstream — that's a benchmark
+    choice, not a substrate design.
+    """
     base = _clone_at(instance["repo"], instance["base_commit"])
     repo_files = subprocess.run(
         ["git", "-C", base, "ls-files"], capture_output=True, text=True

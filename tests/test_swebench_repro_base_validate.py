@@ -138,13 +138,18 @@ async def test_empty_incoming_code_passes_through_without_runner(tmp_path) -> No
     assert runner.calls == []  # no wasted Docker call on an empty repro
 
 
-async def test_runner_exception_passes_original_through(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    # Death-resilience: a runner exception (Docker hiccup) must never wedge the topology. The
-    # original repro passes through — degrades to the pre-155 behaviour (one missed demote),
-    # never a correctness bug.
+async def test_runner_exception_records_producer_failed(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    # 2026-08-09 halt-on-error contract: a Docker runner exception in repro_base_validate
+    # propagates. The producer dies, the kernel records ProducerFailed, no second
+    # ReproductionTest emits. Runner halts. A "Docker hiccup" is a real error, not something
+    # to silently pass around.
     events = await _run(tmp_path, _DyingRunner(), "assert original()")
+    assert any(e["kind"] == "substrate.ProducerFailed" for e in events), (
+        "runner exception must record ProducerFailed"
+    )
+    # Only the seed emit (the original ReproductionTest) is on the record — no validator overwrite.
     codes = _emitted_codes(events)
-    assert codes == ["assert original()", "assert original()"]
+    assert codes == ["assert original()"], "validator must not emit after a runner exception"
 
 
 async def test_adversarial_output_with_tied_markers_reads_as_reproduced_and_keeps(tmp_path) -> None:  # type: ignore[no-untyped-def]

@@ -204,7 +204,10 @@ class _FlakyRunner:
         return (0, "1 passed in 0.1s") if test_command == "REG" else (0, "Issue resolved")
 
 
-async def test_runner_failure_does_not_wedge(tmp_path) -> None:  # type: ignore[no-untyped-def]
+async def test_runner_failure_records_producer_failed(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """2026-08-09 halt-on-error contract: a Docker runner exception in select_exec propagates
+    from the producer, the kernel records ProducerFailed, and the topology finalizes without a
+    SelectedPatch. No silent 'runner-error TestResults' pretending the cell succeeded."""
     base = _fixture_repo()
     topo = swebench_solver_topology(
         responders=[_SolverResponder() for _ in range(2)],
@@ -220,14 +223,17 @@ async def test_runner_failure_does_not_wedge(tmp_path) -> None:  # type: ignore[
     )
     await Runtime(tmp_path / "run").run(topo)
     events = list(read_record(tmp_path / "run"))
-    # always exactly N=2 TestResults (one a recorded runner-error), and a SelectedPatch still comes out.
-    assert len([e for e in events if e["kind"] == "TestResults"]) == 2
-    assert len([e for e in events if e["kind"] == "SelectedPatch"]) == 1
+    assert any(e["kind"] == "substrate.ProducerFailed" for e in events), (
+        "runner failure must record ProducerFailed, not silent TestResults"
+    )
+    assert not any(e["kind"] == "SelectedPatch" for e in events), (
+        "failed run must not emit a SelectedPatch"
+    )
 
 
 class _DyingDrafter:
-    """Localizes fine, but the DRAFT model call dies — proves the drafter emits a failed Candidate so the
-    round completes (-> Exhausted), never wedging the run on a dead coroutine (review #62)."""
+    """Localizes fine, but the DRAFT model call dies — the drafter producer raises and the
+    kernel records ProducerFailed. No silent 'failed Candidate' pretending the round completed."""
 
     def respond(self, prompt: str) -> str:
         if "suspect file" in prompt:
@@ -235,7 +241,10 @@ class _DyingDrafter:
         raise RuntimeError("model died")
 
 
-async def test_drafter_model_error_does_not_wedge(tmp_path) -> None:  # type: ignore[no-untyped-def]
+async def test_drafter_model_error_records_producer_failed(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """2026-08-09 halt-on-error contract: a drafter model failure propagates as ProducerFailed
+    on the record. The topology finalizes without a SelectedPatch. The runner (upstream of
+    this test) then sees an incomplete cell and halts the sweep."""
     base = _fixture_repo()
     topo = swebench_solver_topology(
         responders=[_DyingDrafter() for _ in range(2)],
@@ -251,20 +260,25 @@ async def test_drafter_model_error_does_not_wedge(tmp_path) -> None:  # type: ig
     )
     await Runtime(tmp_path / "run").run(topo)
     events = list(read_record(tmp_path / "run"))
-    # the failed drafts don't apply -> all fail -> Exhausted CLEANLY (not a watchdog wedge); no patch.
-    assert any(e["kind"] == "Exhausted" for e in events)
+    assert any(e["kind"] == "substrate.ProducerFailed" for e in events), (
+        "drafter model error must record ProducerFailed, not a silent failed Candidate"
+    )
     assert not any(e["kind"] == "SelectedPatch" for e in events)
 
 
 class _DyingLocalizer:
-    """The localizer model call dies — the WORST wedge (the localizer is the INITIAL producer; its death
-    means no EditLocations -> the loop never even starts). Must degrade to empty localization, not hang."""
+    """The localizer model call dies — the localizer producer raises and the kernel records
+    ProducerFailed. No silent empty-SuspectFiles pretending the localizer just found nothing."""
 
     def respond(self, prompt: str) -> str:
         raise RuntimeError("localizer model died")
 
 
-async def test_localizer_model_error_does_not_wedge(tmp_path) -> None:  # type: ignore[no-untyped-def]
+async def test_localizer_model_error_records_producer_failed(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """2026-08-09 halt-on-error contract: a localizer model failure propagates as ProducerFailed.
+    The topology finalizes without EditLocations, so nothing seeds the loop. No SelectedPatch.
+    Distinguishes 'localizer honestly found nothing' from 'localizer crashed' — the former
+    would emit SuspectFiles(files=()), the latter emits ProducerFailed."""
     base = _fixture_repo()
     topo = swebench_solver_topology(
         responders=[_DyingLocalizer() for _ in range(2)],
@@ -280,7 +294,10 @@ async def test_localizer_model_error_does_not_wedge(tmp_path) -> None:  # type: 
     )
     await Runtime(tmp_path / "run").run(topo)
     events = list(read_record(tmp_path / "run"))
-    # localizer error -> empty SuspectFiles -> the loop still seeds + drafts blind -> clean Exhausted.
-    assert any(e["kind"] == "SuspectFiles" and e["payload"]["files"] == [] for e in events)
-    assert any(e["kind"] == "Exhausted" for e in events)
+    assert any(e["kind"] == "substrate.ProducerFailed" for e in events), (
+        "localizer model error must record ProducerFailed, not silent empty SuspectFiles"
+    )
+    assert not any(e["kind"] == "SuspectFiles" and e["payload"]["files"] == [] for e in events), (
+        "no fake empty-SuspectFiles cover for a real crash"
+    )
     assert not any(e["kind"] == "SelectedPatch" for e in events)

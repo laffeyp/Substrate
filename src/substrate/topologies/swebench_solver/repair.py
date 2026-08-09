@@ -23,7 +23,7 @@ from typing import Any
 
 from ...adapters import Responder, call_responder_metered
 from ..best_of_n.contracts import Candidate, Verdict
-from .applier import ApplyResult, apply_candidate
+from .applier import apply_candidate
 from .records import AppliedPatch
 
 _Factory = Callable[[], Any]
@@ -69,17 +69,10 @@ def repair_drafter_factory(
         failures = str(inp.get("context", "")) if hasattr(inp, "get") else ""
         ctx = (str(inp.get("edit_context", "")) if hasattr(inp, "get") else "") or edit_context
         prompt = build_repair_prompt(spec, ctx, failures)
-        try:
-            response, usage = await call_responder_metered(
-                responders[slot % len(responders)], prompt
-            )
-            yield usage
-        except Exception as exc:  # noqa: BLE001 — a model error must not kill the slot's coroutine
-            # If the drafter died here, this slot would emit no Candidate -> no Verdict -> the round never
-            # reaches n verdicts -> the judge never fires -> the run wedges to the watchdog (review #62).
-            # Emit a FAILED candidate instead: the validator rejects it -> failed Verdict -> the round
-            # completes and the correction loop proceeds. Errors-as-observations, as everywhere else.
-            response = f"(drafter model error: {type(exc).__name__}: {str(exc)[:120]})"
+        # 2026-08-09 halt-on-error rewrite: no exception swallow. A model error propagates,
+        # the producer dies, ProducerFailed lands on the record, the runner halts.
+        response, usage = await call_responder_metered(responders[slot % len(responders)], prompt)
+        yield usage
         yield Candidate(round=rnd, slot=slot, response=response)
 
     return lambda: draft
@@ -96,6 +89,10 @@ def repair_validate_factory(base_checkout: str) -> _Factory:
         response = str(inp.get("response", "")) if hasattr(inp, "get") else ""
         clone = tempfile.mkdtemp(prefix=f"swebench-r{rnd}s{slot}-")
         try:
+            # 2026-08-09 halt-on-error: git clone infrastructural failure raises out. Apply
+            # is deterministic and returns ApplyResult(applied=False, error=...) on expected
+            # failure modes (parse, path-escape, missing file) — those are legitimate Verdicts,
+            # NOT errors.
             await asyncio.to_thread(
                 subprocess.run,
                 ["git", "clone", "--quiet", "--local", base_checkout, clone],
@@ -103,10 +100,6 @@ def repair_validate_factory(base_checkout: str) -> _Factory:
                 capture_output=True,
             )
             result = await asyncio.to_thread(apply_candidate, response, clone)
-        except Exception as exc:  # noqa: BLE001 — a clone/apply failure is a Verdict, never a crash
-            result = ApplyResult(
-                applied=False, error=f"clone/apply failed: {type(exc).__name__}: {exc}"
-            )
         finally:
             shutil.rmtree(clone, ignore_errors=True)
         yield Verdict(

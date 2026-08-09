@@ -67,18 +67,15 @@ def localizer_factory(
     refinement, design §5)."""
 
     async def localize(_inp: Any) -> AsyncIterator[Any]:
-        try:
-            response, usage = await call_responder_metered(
-                responder, build_localize_prompt(issue, repo_skeleton)
-            )
-            yield usage
-            files = parse_suspect_files(response, known_files)[:top_k]
-        except Exception:  # noqa: BLE001 — the localizer is the INITIAL producer; its death wedges the
-            # WHOLE instance (no EditLocations -> the seed trigger never fires -> the loop never starts).
-            # Emit empty localization so the loop seeds, drafts blind, and reaches a clean Exhausted
-            # (errors-as-observations, symmetric to the drafter — review #63). Every model-call producer
-            # gets this; audit them as a SET, not one at a time (KIT_DIARY 16).
-            files = []
+        # 2026-08-09 halt-on-error rewrite: no exception swallow. If the model call fails, the
+        # producer dies, the kernel records ProducerFailed, the runner halts. Death-resilience
+        # (former KIT_DIARY 16 pattern) turned every systemic Ollama failure into a null result
+        # that looked like data. Kernel-level halt is the honest signal.
+        response, usage = await call_responder_metered(
+            responder, build_localize_prompt(issue, repo_skeleton)
+        )
+        yield usage
+        files = parse_suspect_files(response, known_files)[:top_k]
         yield SuspectFiles(files=tuple(files))
         yield EditLocations(targets=tuple(files))
 
