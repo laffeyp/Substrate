@@ -47,7 +47,26 @@ class ArmReport:
     control Arm itself AND whenever the control did not run (gated by the conformance check). `p_value`
     is RAW (uncorrected — see module docstring). `elapsed_ms` is the real wall-clock (latency, where
     concurrency shows up); `inference_ms` is summed per-call latency (work, overcounts under
-    concurrency). Token/time totals are separate fields; `estimated_usage` flags them as estimates."""
+    concurrency). Token/time totals are separate fields; `estimated_usage` flags them as estimates.
+
+    `model_ensemble_id` + `split_id` (sprint 154, ratified 2026-08-08) qualify the delta so a reader
+    knows which (models, dataset split) the number belongs to — a delta is a property of
+    (topology, model, split), not the topology alone (Tran & Kiela; docs/benchmarking-design-round2.md).
+    Stable strings the run entrypoint reads from the pre-registration file; default empty strings so
+    existing callers are unchanged and coding reports without an ensemble/split still print.
+
+    `repro_2x2` + `repro_kappa` + `repro_agreement_rate` (sprint 158) aggregate the SWE-bench
+    solver's reproduction verdict for the winning slot vs. the oracle's held-out grade — the number
+    that decides whether the model-generated repro is a trustworthy tiebreak, per
+    docs/swebench-solver-design.md §5. The 2x2 keys `resolved_and_passed` /
+    `resolved_and_failed` / `reproduced_and_passed` / `reproduced_and_failed` name the intersection
+    of (repro verdict, oracle grade); `other`-verdict cells are EXCLUDED (they carry no signal for
+    the tiebreak question). `repro_kappa` is Cohen's κ over the 2x2 (chance-corrected agreement —
+    the honest number, distinct from raw agreement which COLLAPSES TO THE ORACLE'S PASS RATE
+    whenever the repro is constant, giving a repro that always says RESOLVED a spuriously-high
+    agreement score anchored to how often the oracle happened to pass). `repro_agreement_rate`
+    is the raw diagonal share for continuity. All three are `None` on rows with no repro data
+    (coding assays, the pre-158 no-column shape, or SWE-bench cells with all-`other` verdicts)."""
 
     arm: str
     role: str
@@ -79,6 +98,21 @@ class ArmReport:
     inference_ms: int  # summed per-call inference time — work, NOT latency
     model_calls: int
     estimated_usage: bool
+    model_ensemble_id: str = ""  # sprint 154: names the model set the delta belongs to
+    split_id: str = ""  # sprint 154: names the dataset split the delta was measured on
+    # sprint 158: SWE-bench repro-vs-oracle 2x2 + Cohen's kappa. All None for rows with no repro
+    # data. Defaults keep coding assays and pre-158 callers unchanged.
+    repro_2x2: dict[str, int] | None = None
+    repro_kappa: float | None = None
+    repro_agreement_rate: float | None = None
+    # sprint 159: resolve-per-call efficiency (Kapoor & Narayanan 2024, "AI Agents That
+    # Matter"). Secondary endpoint alongside the primary pass_rate — an ensemble that beats a
+    # baseline while spending 3x the model calls is a compute win, not a mechanism win. The
+    # sprint 160 writeup plots this as an efficiency frontier so a caller can distinguish
+    # mechanism-driven gains from compute-driven ones. `None` when `model_calls == 0` (no
+    # metered calls this run — a salvage/fail cell would set this state per bench_coding
+    # semantics); otherwise `passes / model_calls`, the honest denominator.
+    resolve_per_call: float | None = None
 
 
 @dataclass(frozen=True)
@@ -124,6 +158,74 @@ class _Mid:
     inference: int
     calls: int
     estimated: bool
+    repro_2x2: dict[str, int] | None
+    repro_kappa: float | None
+    repro_agreement_rate: float | None
+
+
+_REPRODUCED = "reproduced"
+_RESOLVED = "resolved"
+
+
+def _repro_aggregate(
+    results: Sequence[CaseResult],
+) -> tuple[dict[str, int] | None, float | None, float | None]:
+    """Aggregate the SWE-bench repro-vs-oracle 2x2 for one arm's CaseResults (sprint 158).
+
+    Keys: `resolved_and_passed` / `resolved_and_failed` / `reproduced_and_passed` /
+    `reproduced_and_failed`. Cells with `reproduction == "other"` (or unset — coding rows, pre-158
+    rows) are excluded — they carry no signal for the tiebreak question the number answers.
+
+    Cohen's κ:
+        p_o = (a+d) / n  (observed agreement — the diagonal)
+        p_e = ((a+b)(a+c) + (c+d)(b+d)) / n^2   (chance agreement from the marginals)
+        κ = (p_o - p_e) / (1 - p_e)
+    Returns `None` on any degenerate case:
+      - n == 0 (no repro-signalling cells at all)
+      - 1 - p_e == 0 (both marginals collapse to a single row/col — the marginals promise 100%
+        chance agreement, so κ is undefined; the classic Cohen 1960 degenerate case)
+
+    Raw agreement rate (a+d)/n is returned alongside κ for continuity. Both are `None` when the
+    2x2 itself is `None` (no repro data) so downstream readers can distinguish "no signal" from
+    "signal was zero".
+    """
+    a = b = c = d = 0
+    for r in results:
+        # Compare against the enum's canonical wire form ONLY (Reproduction.RESOLVED.value =
+        # "resolved"; Reproduction.REPRODUCED.value = "reproduced"). Sprint 158 review F2:
+        # `.lower()` was hiding a real drift signal (a non-canonical case on the wire is a
+        # vocabulary_change_required-shaped event, not a typo the aggregator should paper over).
+        # Every WRITER goes through msgspec.to_builtins on a Reproduction enum, so lowercase is
+        # the contract; anything else was produced out-of-band and must not enter the 2x2.
+        repro = r.reproduction or ""
+        if repro == _RESOLVED and r.result.passed:
+            a += 1
+        elif repro == _RESOLVED and not r.result.passed:
+            b += 1
+        elif repro == _REPRODUCED and r.result.passed:
+            c += 1
+        elif repro == _REPRODUCED and not r.result.passed:
+            d += 1
+        # "other" / "" / any non-canonical value: excluded from the 2x2 (no signal or drift).
+
+    n = a + b + c + d
+    if n == 0:
+        return None, None, None
+
+    twox2 = {
+        "resolved_and_passed": a,
+        "resolved_and_failed": b,
+        "reproduced_and_passed": c,
+        "reproduced_and_failed": d,
+    }
+    agreement = (a + d) / n
+    p_e = ((a + b) * (a + c) + (c + d) * (b + d)) / (n * n)
+    if abs(1.0 - p_e) < 1e-12:
+        # Marginals collapse to one row or column — chance agreement is 100%, κ undefined. Report
+        # the 2x2 + raw agreement, leave κ as None (Cohen 1960 degenerate case).
+        return twox2, None, agreement
+    kappa = (agreement - p_e) / (1.0 - p_e)
+    return twox2, kappa, agreement
 
 
 def _arm_trial_bools(
@@ -141,7 +243,16 @@ def _arm_trial_bools(
     return out
 
 
-def build_report(suite: Suite, results: Sequence[CaseResult]) -> Report:
+def build_report(
+    suite: Suite,
+    results: Sequence[CaseResult],
+    *,
+    model_ensemble_id: str = "",
+    split_id: str = "",
+) -> Report:
+    """Build the paired comparison Report. `model_ensemble_id` and `split_id` (sprint 154) are stamped
+    on every ArmReport so a reader can qualify the delta by (topology, model, split). Empty strings
+    are the honest default — coding assays without a formal ensemble/split id still print."""
     check = check_control_ran(results, suite)
     case_ids = [c.case_id for c in suite.cases]
 
@@ -210,6 +321,11 @@ def build_report(suite: Suite, results: Sequence[CaseResult]) -> Report:
                 seed=0,
             )
 
+        # sprint 158: repro-vs-oracle 2x2 + kappa across this arm's cells. `_repro_aggregate`
+        # returns (None, None, None) when the arm has no repro-signalling cells (coding assays,
+        # pre-158 rows, all-`other` verdicts) — the ArmReport fields stay None accordingly.
+        twox2, kappa, agree = _repro_aggregate(arm_results)
+
         mids.append(
             _Mid(
                 arm=arm.name,
@@ -231,6 +347,9 @@ def build_report(suite: Suite, results: Sequence[CaseResult]) -> Report:
                 inference=sum(r.usage.inference_ms for r in arm_results),
                 calls=sum(r.usage.model_calls for r in arm_results),
                 estimated=any(r.usage.estimated for r in arm_results),
+                repro_2x2=twox2,
+                repro_kappa=kappa,
+                repro_agreement_rate=agree,
             )
         )
 
@@ -263,6 +382,16 @@ def build_report(suite: Suite, results: Sequence[CaseResult]) -> Report:
             inference_ms=m.inference,
             model_calls=m.calls,
             estimated_usage=m.estimated,
+            model_ensemble_id=model_ensemble_id,
+            split_id=split_id,
+            repro_2x2=m.repro_2x2,
+            repro_kappa=m.repro_kappa,
+            repro_agreement_rate=m.repro_agreement_rate,
+            # sprint 159: passes / model_calls. Zero calls (a salvage/fail cell chain) -> None
+            # rather than 0/0 -> ZeroDivisionError; the efficiency-frontier plot in sprint 160
+            # then simply omits the point rather than treating "no compute" as "infinite
+            # efficiency".
+            resolve_per_call=(m.passes / m.calls) if m.calls > 0 else None,
         )
         for i, m in enumerate(mids)
     )

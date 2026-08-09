@@ -39,7 +39,18 @@ class Result(Struct, frozen=True):
     for a pass/fail oracle, or a metric value in [0, 1]); `metric` names what `score` measures
     ("resolved", "exact_match", ...). `oracle_class` and `replayable` record HOW the grade was
     reached, so a downstream Report can label run-and-observe grades honestly. `detail` is a short
-    human-readable note (observed vs target, or the external grader's summary)."""
+    human-readable note (observed vs target, or the external grader's summary).
+
+    `grader_error_band` (sprint 153, ratified 2026-08-08) is the known residual oracle error for
+    this benchmark — the fraction of `passed=True` verdicts that are actually incorrect per external
+    validation. Xia & Chen (2025, "Are 'Solved Issues' in SWE-bench Really Solved Correctly?",
+    arxiv 2503.15223) put ~0.078 on SWE-bench Lite; SWE-Bench+ (Aleithan et al. 2024,
+    arxiv 2410.06992) reports a considerably larger contamination rate (~0.30) on a different
+    axis — cite whichever residual matches the specific claim. SWE-bench Verified is ~0.02;
+    SWE-bench-Live is `None` (not published). The value rides on the Result so a headline that
+    reports 108 resolved can honestly print `108 ± 0.078 * 108 ≈ 108 ± 8` — a bare `108` reads as
+    ground truth when it isn't. `None` = no residual known/asserted for this oracle; the reader
+    should not compute an error band. Additive with default `None`; existing callers unchanged."""
 
     passed: bool
     score: float
@@ -47,6 +58,7 @@ class Result(Struct, frozen=True):
     oracle_class: str
     replayable: bool
     detail: str = ""
+    grader_error_band: float | None = None
 
 
 @runtime_checkable

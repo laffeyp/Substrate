@@ -22,7 +22,7 @@ import subprocess
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict, cast
 
 from ..adapters import OllamaResponder
 from ..topologies.swebench_solver.assemble import swebench_solver_topology
@@ -38,7 +38,28 @@ from ..topologies.swebench_solver.select_regression import (
     make_regression_planner,
 )
 from .suite import ABLATION, BASELINE, FULL, Arm, Case, Suite, Topology
-from .swebench import firewall_check, swebench_record_oracle
+from .swebench import FirewallViolation, firewall_check, swebench_record_oracle
+
+
+class PreparedPayload(TypedDict):
+    """Sprint 143 — typed shape of a SWE-bench `Case.payload` produced by `prepare_swebench_case`.
+
+    The generic assay `Case.payload` is `dict[str, Any]` by the harness contract; this TypedDict
+    types the SWE-bench-specific fields so a caller hand-rolling a payload for
+    `solver_topology_from_payload` fails mypy unless every required key is present with the right
+    type. No runtime cost — the object at runtime is still a `dict`. The type is the wall that
+    keeps future code from opening a second door around `prepare_swebench_case`.
+    """
+
+    base_checkout: str
+    repo_skeleton: str
+    known_files: list[str]
+    regression_files: list[str]
+    exclude: list[str]
+    spec: dict[str, Any]
+    passed_at_base: list[str]
+    image: str
+    issue: str
 
 
 def safe_case_id(instance_id: str) -> str:
@@ -71,7 +92,7 @@ def prepare_swebench_case(
     Raises if the instance fails the firewall (it must never be benchmarked)."""
     ok, reason = firewall_check(instance)
     if not ok:
-        raise ValueError(f"instance {instance['instance_id']} fails the firewall: {reason}")
+        raise FirewallViolation(str(instance["instance_id"]), reason)
 
     base = _clone_at(instance["repo"], instance["base_commit"])
     repo_files = subprocess.run(
@@ -89,7 +110,7 @@ def prepare_swebench_case(
     _, base_out = runner.run("", full_reg)  # empty patch -> run on base_commit
     passed_at_base = sorted(passed_tests(base_out))
 
-    payload: dict[str, Any] = {
+    payload: PreparedPayload = {
         "base_checkout": base,
         "repo_skeleton": "\n".join(repo_files),
         "known_files": repo_files,
@@ -101,12 +122,12 @@ def prepare_swebench_case(
         "issue": instance["problem_statement"],
     }
     return Case(
-        case_id=safe_case_id(instance["instance_id"]), payload=payload, ground_truth=instance
+        case_id=safe_case_id(instance["instance_id"]), payload=dict(payload), ground_truth=instance
     )
 
 
 def solver_topology_from_payload(
-    payload: dict[str, Any], responders: list[Any], *, n: int, max_rounds: int
+    payload: PreparedPayload, responders: list[Any], *, n: int, max_rounds: int
 ) -> Topology:
     """Reconstruct the swebench_solver topology for a prepared Case payload — the runner + the
     per-candidate firewall-clean regression planner + passed-at-base, with the given responders. Pure
@@ -149,9 +170,11 @@ def swebench_solver_arm(
         responders = [
             OllamaResponder(models[i % len(models)], max_tokens=max_tokens) for i in range(slots)
         ]
-        return solver_topology_from_payload(
-            case.payload, responders, n=slots, max_rounds=max_rounds
-        )
+        # The cast is the Adapter's promise: this Case was built by `prepare_swebench_case`, so its
+        # payload matches PreparedPayload. Any callsite that constructs a Case without going through
+        # the Adapter loses the type refinement, which is exactly the door we want closed at check time.
+        payload = cast(PreparedPayload, case.payload)
+        return solver_topology_from_payload(payload, responders, n=slots, max_rounds=max_rounds)
 
     return Arm(name=name, role=role, build=build)
 

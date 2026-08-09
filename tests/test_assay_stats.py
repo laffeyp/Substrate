@@ -13,12 +13,14 @@ from substrate.assay.stats import (
     EQUIVALENT,
     INCONCLUSIVE,
     INFERIOR,
+    SCORE_TOST_ZERO_DISCORDANT,
     SUPERIOR,
     UNDERPOWERED,
     benjamini_hochberg,
     bootstrap_delta_pass_k,
     equivalence_power_floor,
     equivalence_verdict,
+    equivalence_verdict_score_tost,
     pass_hat_k,
 )
 
@@ -153,6 +155,69 @@ def test_exact_mcnemar_discordant_boundary():
     assert exact_mcnemar_p(5, 6) > 0.05
     # a lopsided split IS significant (this is where a real arm/control difference shows).
     assert exact_mcnemar_p(0, 12) < 0.05
+
+
+def test_score_tost_zero_discordant_fallback_is_inconclusive():
+    # b == c == 0 hits the restricted-MLE boundary; per roadmap round-3 sprint 150 the answer is
+    # INCONCLUSIVE with `zero_discordant`, not a manufactured equivalence claim from a run with no
+    # discordant pairs to measure — same conservative posture as the bootstrap's zero-width-CI
+    # fallback at stats.py:172-177. This is the specific pin the roadmap called for.
+    verdict, note = equivalence_verdict_score_tost(b=0, c=0, n=100, margin=0.10)
+    assert verdict == INCONCLUSIVE
+    assert note == SCORE_TOST_ZERO_DISCORDANT
+    # n == 0 is inherently INCONCLUSIVE too, distinct note so a caller can tell the two apart.
+    verdict0, note0 = equivalence_verdict_score_tost(b=0, c=0, n=0, margin=0.10)
+    assert verdict0 == INCONCLUSIVE
+    assert note0 == "n=0"
+
+
+def test_score_tost_equivalent_with_enough_pairs_and_tight_delta():
+    # near-perfect concordance on a large paired run: b = c = 3 out of n = 400 discordant, Delta_hat
+    # exactly 0. The margin (0.20) admits 90 pairs by the power floor — 400 clears it — and the
+    # score test's null-restricted variance places the CI safely inside +/-0.20 -> EQUIVALENT.
+    verdict, note = equivalence_verdict_score_tost(b=3, c=3, n=400, margin=0.20)
+    assert verdict == EQUIVALENT
+    assert note == "score-tost"
+
+
+def test_score_tost_underpowered_downgrades_equivalent():
+    # same Delta_hat = 0 shape as above but at n = 50 — well below the ~90-pair floor for margin
+    # 0.20. Would read EQUIVALENT on the math alone; the power gate downgrades to UNDERPOWERED so
+    # a thin run cannot manufacture the claim (mirrors the bootstrap-side gate at stats.py:177).
+    verdict, _ = equivalence_verdict_score_tost(b=1, c=1, n=50, margin=0.20)
+    assert verdict == UNDERPOWERED
+
+
+def test_score_tost_superior_and_inferior_fire_regardless_of_n():
+    # a lopsided discordant split at small n: c >> b -> arm wins by a wide margin -> SUPERIOR
+    # (Delta > margin) even without the power gate; a difference test needs less power than a tie.
+    v_sup, _ = equivalence_verdict_score_tost(b=1, c=20, n=25, margin=0.10)
+    assert v_sup == SUPERIOR
+    # mirror: control wins big -> INFERIOR (Delta < -margin).
+    v_inf, _ = equivalence_verdict_score_tost(b=20, c=1, n=25, margin=0.10)
+    assert v_inf == INFERIOR
+
+
+def test_score_tost_inconclusive_when_delta_hat_straddles_margin():
+    # Delta_hat = (c - b)/n = 5/50 = 0.10 exactly ON the margin boundary — a real gap the run
+    # cannot resolve. Neither one-sided test can reject at 5% -> INCONCLUSIVE (not EQUIVALENT, not
+    # SUPERIOR): the honest state a matched-pair equivalence trial ends in when the data straddles.
+    v, _ = equivalence_verdict_score_tost(b=5, c=10, n=50, margin=0.10)
+    assert v == INCONCLUSIVE
+
+
+def test_score_tost_matches_bootstrap_in_the_easy_case():
+    # sanity check: a clear-difference arm at ample n reads SUPERIOR on both methods. Not an exact
+    # numerical equivalence — score-TOST and percentile-CI bootstrap are different tests — just a
+    # co-verdict on a case where both should agree, so a caller who consults both never sees a
+    # nonsense divergence on the loud signals.
+    arm = {f"c{i}": [True, True, True] for i in range(120)}
+    control = {f"c{i}": [False, False, False] for i in range(120)}
+    dci = bootstrap_delta_pass_k(arm, control, k=1, margin=0.10, n_boot=1000, seed=0)
+    # b=0 (control failed everywhere), c=120 (arm passed everywhere), n=120
+    v_score, _ = equivalence_verdict_score_tost(b=0, c=120, n=120, margin=0.10)
+    assert dci.verdict == SUPERIOR
+    assert v_score == SUPERIOR
 
 
 def test_pass_hat_k_matches_hand_computation():

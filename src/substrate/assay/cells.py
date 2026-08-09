@@ -16,10 +16,13 @@ from typing import Any
 
 from .coding import coding_suite
 from .coding_problems import coding_problem_bank
-from .oracle import EXTERNAL_GRADER, Result
+from .oracle import EXTERNAL_GRADER, LogProjectionOracle, Result
 from .report import Report, build_report
 from .run import CaseResult, UsageTotals
-from .suite import Suite
+from .suite import Arm, Case, Suite, Topology
+
+CODING_ASSAY_KIND = "coding"
+SWEBENCH_ASSAY_KIND = "swebench"
 
 
 def read_meta(cells_path: Path) -> dict[str, Any]:
@@ -35,7 +38,9 @@ def read_rows(cells_path: Path) -> list[dict[str, Any]]:
 
 def caseresult_from_row(r: dict[str, Any]) -> CaseResult:
     """One JSONL row -> a CaseResult. Null compute (salvage/fail cells — no calls MADE) coerces to 0
-    for the totals; the report's compute axis then reflects only what was measured."""
+    for the totals; the report's compute axis then reflects only what was measured. `reproduction`
+    (sprint 158) reads the optional column added by the confirmatory runner — empty for coding
+    rows and for SWE-bench rows that emitted no SelectedPatch / TestResults."""
     p = bool(r["passed"])
     return CaseResult(
         arm=str(r["arm"]),
@@ -59,12 +64,49 @@ def caseresult_from_row(r: dict[str, Any]) -> CaseResult:
         ),
         elapsed_ms=int(r.get("elapsed_ms") or 0),
         root=str(r.get("root", "")),
+        reproduction=str(r.get("reproduction", "") or ""),
     )
 
 
-def suite_from_meta(meta: dict[str, Any]) -> Suite:
-    """Rebuild the same Suite the run used (arms / control / margin / pass_k) — model names are labels;
-    the arm STRUCTURE (strong_ref control + the ablation ladder) is what build_report pairs on."""
+def read_cases_sidecar(cells_path: Path) -> list[dict[str, Any]]:
+    """The `.cases.json` sidecar the SWE-bench confirmatory runner writes alongside the JSONL
+    (sprint 144a gap #7 at scripts/assay_swebench_confirmatory.py:177). One entry per prepared Case,
+    carrying `case_id`, `instance_id`, `repo`, `base_commit`, `image`, `regression_files`, `exclude`,
+    `passed_at_base`. Missing sidecar returns `[]` — `suite_from_meta` then reconstructs the case
+    set from the observed cell rows, which is enough for the paired-comparison report even without
+    the runner primitives (those are needed only for a re-run, not for scoring)."""
+    sidecar = cells_path.with_suffix(".cases.json")
+    if not sidecar.exists():
+        return []
+    data = json.loads(sidecar.read_text())
+    if not isinstance(data, list):
+        raise ValueError(
+            f"{sidecar} malformed: expected a JSON array of case descriptors, got {type(data).__name__}"
+        )
+    return data
+
+
+def _stub_arm_build(_case: Case) -> Topology:
+    """A cells-reconstructed Suite is for REPORTING only — `build_report` never calls `Arm.build`
+    (it walks results). This stub trips a runtime error if a caller accidentally treats a
+    reconstructed Suite as runnable, so the write-side and read-side of the assay layer don't share
+    an accidental door."""
+    raise RuntimeError(
+        "this Suite was reconstructed from cells.jsonl for reporting; its arms are not runnable"
+    )
+
+
+def _stub_oracle() -> LogProjectionOracle:
+    """Report-only oracle placeholder — `build_report` reads the recorded `CaseResult` grades, not
+    the Suite's oracle. Constructing a real ExternalGraderOracle here would require a live report_dir
+    and a dataset_name pointing at the harness, which the report path has no business needing."""
+    return LogProjectionOracle(extract=lambda _record: None)
+
+
+def _suite_from_meta_coding(meta: dict[str, Any]) -> Suite:
+    """The pre-sprint-152 shape kept intact for `assay_kind == "coding"` (the default). Model names
+    are labels; the arm STRUCTURE (strong control + the ablation ladder) is what `build_report`
+    pairs on."""
     problems = coding_problem_bank()
     n = int(meta.get("n_problems", len(problems)))
     return coding_suite(
@@ -73,6 +115,106 @@ def suite_from_meta(meta: dict[str, Any]) -> Suite:
         weak_models=list(meta.get("weak_models", ["weak"])),
         equivalence_margin=float(meta.get("margin", 0.1)),
         pass_k=int(meta.get("pass_k", 1)),
+    )
+
+
+def _suite_from_meta_swebench(
+    meta: dict[str, Any],
+    rows: list[dict[str, Any]],
+    cases_sidecar: list[dict[str, Any]],
+) -> Suite:
+    """Reconstruct a SWE-bench Suite for report generation.
+
+    The confirmatory runner (`scripts/assay_swebench_confirmatory.py`, sprint 144a) writes three
+    files per sweep: `<name>.jsonl` (one row per (arm, case, trial) cell), `<name>.meta.json`
+    (config + fingerprint + arm/margin/pass_k), and `<name>.cases.json` (the per-case sidecar for
+    reconstruction without re-cloning). This branch reads the last two — the arm structure comes
+    from the observed cell rows (so a mid-flight resume grades whatever actually ran, not what
+    meta was configured to run), and the case set comes from the sidecar; a missing sidecar falls
+    back to the case_ids observed in the rows, which is sufficient for the paired McNemar / bootstrap
+    but drops the instance-level metadata a substrate-ui pane would render.
+
+    The oracle is a stub. `build_report` (assay/report.py:152-297) never calls `oracle.grade` — it
+    walks the `CaseResult` list which already carries the recorded grade. Constructing a real
+    `swebench_record_oracle` here would need a live Docker report directory and a dataset name that
+    the READ path has no business owning; the write path (the confirmatory runner) is where the
+    oracle actually lives.
+    """
+    control_arm = str(meta.get("control_arm") or meta.get("arm_name") or "swebench_solver")
+
+    observed_arms: dict[str, str] = {}
+    for row in rows:
+        name = str(row.get("arm", ""))
+        if name and name not in observed_arms:
+            observed_arms[name] = str(row.get("role", "full"))
+    if control_arm not in observed_arms:
+        observed_arms[control_arm] = str(meta.get("role", "full"))
+
+    if cases_sidecar:
+        cases: tuple[Case, ...] = tuple(
+            Case(
+                case_id=str(entry["case_id"]),
+                payload={},
+                ground_truth={"instance_id": str(entry.get("instance_id", entry["case_id"]))},
+            )
+            for entry in cases_sidecar
+        )
+    else:
+        seen: dict[str, None] = {}
+        for row in rows:
+            cid = str(row.get("case_id", ""))
+            if cid and cid not in seen:
+                seen[cid] = None
+        cases = tuple(
+            Case(case_id=cid, payload={}, ground_truth={"instance_id": cid}) for cid in seen
+        )
+    if not cases:
+        raise ValueError(
+            "cannot reconstruct a SWE-bench Suite: neither .cases.json nor rows carry any case_id"
+        )
+
+    arms = tuple(Arm(name=n, role=r, build=_stub_arm_build) for n, r in observed_arms.items())
+    return Suite(
+        name=str(meta.get("name", "swebench")),
+        version=str(meta.get("version", "0.1")),
+        cases=cases,
+        arms=arms,
+        oracle=_stub_oracle(),
+        control_arm=control_arm,
+        primary_metric=str(meta.get("primary_metric", "resolved")),
+        null_rule=str(
+            meta.get(
+                "null_rule",
+                "reconstructed from cells; the original run's null_rule is authoritative",
+            )
+        ),
+        equivalence_margin=float(meta.get("margin", 0.1)),
+        pass_k=int(meta.get("pass_k", 1)),
+    )
+
+
+def suite_from_meta(
+    meta: dict[str, Any],
+    *,
+    rows: list[dict[str, Any]] | None = None,
+    cases_sidecar: list[dict[str, Any]] | None = None,
+) -> Suite:
+    """Dispatch on `meta.get("assay_kind")` (sprint 152). The default is `"coding"` so
+    pre-152 cells files (which never wrote the key) read the same way they always did. The
+    `"swebench"` branch reconstructs from the `.cases.json` sidecar the confirmatory runner writes
+    (sprint 144a gap #7); rows are used to recover the observed arm structure so a report grades
+    whatever actually ran, not what meta was configured to run.
+
+    A new `assay_kind` value raises rather than silently coding-parsing SWE-bench data. That's the
+    signal-not-guess posture — an unknown assay kind is a versioning event, not a fallback."""
+    kind = str(meta.get("assay_kind", CODING_ASSAY_KIND))
+    if kind == CODING_ASSAY_KIND:
+        return _suite_from_meta_coding(meta)
+    if kind == SWEBENCH_ASSAY_KIND:
+        return _suite_from_meta_swebench(meta, rows or [], cases_sidecar or [])
+    raise ValueError(
+        f"unknown assay_kind {kind!r} in meta.json — supported: "
+        f"{sorted((CODING_ASSAY_KIND, SWEBENCH_ASSAY_KIND))!r}. Add a branch to suite_from_meta."
     )
 
 
@@ -112,6 +254,9 @@ def report_from_cells(cells_path: Path) -> tuple[Report, dict[str, Any]]:
     unverified — so a post-hoc-edited margin cannot silently drive a confirmatory verdict."""
     meta = read_meta(cells_path)
     rows = read_rows(cells_path)
+    cases_sidecar = read_cases_sidecar(cells_path)
     meta["_provenance"] = provenance_status(meta, rows)
     results = [caseresult_from_row(r) for r in rows]
-    return build_report(suite_from_meta(meta), results), meta
+    return build_report(
+        suite_from_meta(meta, rows=rows, cases_sidecar=cases_sidecar), results
+    ), meta

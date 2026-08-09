@@ -58,11 +58,39 @@ def _sum_usage(record: Sequence[Mapping[str, Any]]) -> UsageTotals:
     )
 
 
+def project_reproduction_for_selected(record: Sequence[Mapping[str, Any]]) -> str:
+    """The `reproduction` status the SWE-bench SELECT reported for the winning slot — projected
+    off the record for sprint 158's 2x2 vs. held-out grade. Returns one of `"reproduced"` /
+    `"resolved"` / `"other"` (the `Reproduction` enum's wire values) or `""` when the record
+    carries no `SelectedPatch` or no matching `TestResults` (a coding-assay record, an errored
+    run, an Arm that never emitted a patch — all legitimately no-signal states).
+
+    Reads the LAST `SelectedPatch`'s `slot` and matches it to the LAST `TestResults` with the
+    same slot — the topology can re-emit both on retry / loop rounds, and only the terminal
+    verdict counts. Empty when either is absent."""
+    selected = [e["payload"] for e in record if e["kind"] == "SelectedPatch"]
+    if not selected:
+        return ""
+    slot = int(selected[-1].get("slot", -1))
+    matching = [
+        e["payload"]
+        for e in record
+        if e["kind"] == "TestResults" and int(e["payload"].get("slot", -2)) == slot
+    ]
+    if not matching:
+        return ""
+    return str(matching[-1].get("reproduction", ""))
+
+
 @dataclass(frozen=True)
 class CaseResult:
     """The graded outcome of one Arm running one Case on one Trial, plus the run's token/inference
     totals, the REAL elapsed wall-clock of the run (`elapsed_ms` — the latency axis, where concurrency
-    shows up), and the root its record sits at (so a reader can open the inner record behind any number)."""
+    shows up), the root its record sits at (so a reader can open the inner record behind any number),
+    and the SWE-bench SELECT's reproduction verdict for the winning slot (sprint 158, projected off
+    the record via `project_reproduction_for_selected`). `reproduction` is `""` for coding assays and
+    for SWE-bench runs that produced no SelectedPatch / TestResults — a legitimate no-signal state
+    that sprint 158's 2x2 aggregation reads as "no repro data for this cell"."""
 
     arm: str
     role: str
@@ -72,6 +100,7 @@ class CaseResult:
     usage: UsageTotals
     elapsed_ms: int
     root: str
+    reproduction: str = ""
 
 
 async def run_arm_on_case(
@@ -95,6 +124,7 @@ async def run_arm_on_case(
         usage=_sum_usage(record),
         elapsed_ms=elapsed_ms,
         root=str(root),
+        reproduction=project_reproduction_for_selected(record),
     )
 
 

@@ -48,6 +48,12 @@ dev = [
   "httpx",                          # so dev + CI type-check/test the [openai-compat] reference adapter
 ]
 openai-compat = ["httpx"]           # optional extra; kernel imports none of these
+# The SWE-bench confirmatory + host + agent scripts hard-import `datasets` (HuggingFace, to
+# load the Lite split) and `swebench` (the official grading harness). Neither is a runtime dep
+# of the kernel — they're only needed on the Architect's box for a real Docker eval run.
+# `uv sync --extra swebench` installs both in one command so a new operator does not have to
+# know to pip-install them by hand (the pre-2026-08-08 tribal state).
+swebench = ["datasets", "swebench"]
 
 [project.urls]
 Repository = "https://github.com/laffeyp/Substrate"
@@ -71,6 +77,14 @@ markers = [
   # record. Self-skip when the models are absent (so CI / other machines stay green); run here.
   # Deselect with `-m "not realmodel"`. The per-test timeouts override the 30s suite default below.
   "realmodel: runs against a live local model (Ollama); skips if the model is absent",
+  # SWE-bench harness binding gold-differential checks. Runs the OFFICIAL swebench evaluation harness
+  # in Docker against a real instance (gold patch → resolved; empty patch → not-resolved). The one
+  # end-to-end check that pins substrate.assay.swebench's binding to the harness on-disk contract.
+  # Skips when swebench isn't importable OR Docker isn't running OR the eval image isn't pullable.
+  # Long: an emulated x86 image pull + evaluation on arm64 can take 10+ min. Deselect with
+  # `-m "not swebench_harness"`. Restored from the deleted swebench_smoke.py + assay_swebench_smoke.py
+  # after Sprint 146 removed them without pytest coverage equivalents (sprint 146a).
+  "swebench_harness: pins the swebench 4.x harness binding via a live Docker gold-differential run",
 ]
 # Hard safety net: any test (e.g. a never-quiescent writer or a self-feeding Trigger
 # loop) FAILS FAST instead of wedging the machine. Each test finishes well under a second (this timeout is PER-TEST, not whole-suite); 30s is
@@ -95,6 +109,11 @@ files = ["src/substrate"]
 # `type: ignore[import-not-found]` comments (which churn as mypy dedups the missing package).
 [[tool.mypy.overrides]]
 module = "swebench.*"
+ignore_missing_imports = true
+
+# HuggingFace `datasets` — no bundled stubs; the loader is used only by scripts (bench + confirmatory).
+[[tool.mypy.overrides]]
+module = "datasets"
 ignore_missing_imports = true
 
 # F-API-6: the CLI is the standing proof that the public API suffices — `substrate.cli` may

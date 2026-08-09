@@ -1,0 +1,115 @@
+{
+  "_note": "SPRINT 160-plan DRAFT — placeholders in <ANGLE_BRACKETS> the Architect fills before Pass 1. Freeze (commit) this file BEFORE the first arm executes. Every field frozen for this run — a change to any of them opens a new, separately-reported run version. See docs/benchmarking-preregistration-template.md for the field-by-field discipline.",
+  "_reads": "scripts/assay_swebench_confirmatory.py's preregistration_guard() (sprint 151) reads `arms_hash` and `comparator`. The rest is authoritative human record for the writeup.",
+
+  "run_id": "swebench-lite-2026-08",
+  "date_committed_utc": "<YYYY-MM-DD HH:MM:SSZ — filled by the Architect at commit time>",
+  "commit_hash_asserted_pre_execution": "<git rev-parse HEAD at commit — the timestamp anchor>",
+
+  "question": "Do substrate's ensemble + correction mechanisms beat a compute-matched single-strong-model baseline on SWE-bench Lite?",
+  "claim_type": "difference",
+
+  "suite": {
+    "name": "swebench",
+    "version": "0.1",
+    "dataset": "princeton-nlp/SWE-bench_Lite",
+    "split": "test",
+    "n_problems": 300,
+    "bank_manifest_hash": "<sha256[:12] of sorted instance_ids from the frozen dataset>"
+  },
+
+  "adapter": {
+    "identity": "substrate.assay.swebench_suite.prepare_swebench_case + swebench harness pin",
+    "version": "<git rev of substrate at commit>",
+    "asserts_identical_output_per_case": true
+  },
+
+  "arms": [
+    {"name": "single_draft_baseline", "role": "baseline", "models": ["<STRONG_MODEL>"], "n": 1, "max_rounds": 1},
+    {"name": "n_drafts_no_correction", "role": "ablation", "models": ["<STRONG_MODEL>"], "n": 3, "max_rounds": 1},
+    {"name": "n_drafts_repair", "role": "full", "models": ["<STRONG_MODEL>"], "n": 3, "max_rounds": 2},
+    {"name": "n_drafts_repair_ensemble", "role": "full", "models": ["<ENSEMBLE_MODEL_A>", "<ENSEMBLE_MODEL_B>", "<ENSEMBLE_MODEL_C>"], "n": 3, "max_rounds": 2},
+    {"name": "baseline_matched_compute", "role": "baseline", "models": ["<STRONG_MODEL>"], "n": "<K_FROM_PASS1>", "max_rounds": 1}
+  ],
+  "control_arm": "single_draft_baseline",
+  "arms_hash": "<12-char sha256, computed via substrate.assay.preregistration.arms_fingerprint(arms, params_by_arm=…) once the models + K are filled>",
+
+  "oracle": {
+    "class": "external-grader",
+    "grader": "swebench 4.x harness (Docker, --network none) via substrate.assay.swebench.swebench_record_oracle",
+    "replayable": false
+  },
+
+  "primary_estimand": "pass^k reliability (pass_k=1 — per-trial resolve rate the harness reports)",
+  "primary_test": {
+    "difference": "exact two-sided McNemar (assay/report.py:exact_mcnemar_p), alpha=0.05",
+    "equivalence": "Tango 1998 / Nam 1997 score-TOST (assay/stats.py:equivalence_verdict_score_tost), alpha=0.05",
+    "forbidden": ["McNemar p>alpha => equivalent", "Wald CI-inclusion TOST"]
+  },
+  "equivalence_margin": 0.10,
+  "power": {
+    "assumed_p_disc": 0.20,
+    "assumed_marginal_pass": 0.30,
+    "mde_at_this_n_difference": "<compute vs 300 pairs>",
+    "power_at_delta_equivalence": "<compute vs 300 pairs — margin 0.10 needs ~360; 300 is UNDERPOWERED for equivalence at this margin; a null therefore reports 'underpowered' not 'equivalent'>"
+  },
+  "decision_rule": {
+    "difference_declared_iff": "exact McNemar p < 0.05 AND BH-FDR retains the rejection across the 4 non-control comparisons",
+    "equivalence_declared_iff": "score-TOST verdict == 'equivalent' AND n_pairs >= power floor for the margin",
+    "underpowered_verdict_iff": "score-TOST verdict == 'underpowered' — reported as such, never as 'no difference'"
+  },
+
+  "multiplicity": {
+    "comparisons_vs_control": 4,
+    "correction": "BH-FDR (assay/stats.py:benjamini_hochberg) at alpha=0.05"
+  },
+
+  "compute": {
+    "matched_currency": "model_calls (not FLOPs, not wall — the Kapoor & Narayanan 2024 axis)",
+    "k_calls_from_pass1": "<median model_calls per case observed on n_drafts_repair_ensemble>",
+    "reported_axes": ["resolve_rate", "completion_tokens", "elapsed_ms", "model_calls", "resolve_per_call"]
+  },
+
+  "frozen_run_parameters": {
+    "trials_per_cell": 3,
+    "seed_generation_rule": "asyncio.gather over todo list in enumeration order; no seeded model calls beyond the Responder-native seed",
+    "decoding_params": {"temperature": "<Ollama default>", "top_p": "<Ollama default>", "max_tokens": 2048},
+    "concurrency": 8,
+    "run_timeout_seconds": 1800
+  },
+
+  "verifier_selection": {
+    "selector_is_firewalled_held_out_grader": true,
+    "pass_at_k_is_secondary_only": true
+  },
+
+  "contamination_filter": {
+    "per_model_cutoff_dates": {
+      "<STRONG_MODEL>": "<YYYY-MM>",
+      "<ENSEMBLE_MODEL_A>": "<YYYY-MM>",
+      "<ENSEMBLE_MODEL_B>": "<YYYY-MM>",
+      "<ENSEMBLE_MODEL_C>": "<YYYY-MM>"
+    },
+    "instances_filtered_to_after_each_model_cutoff": false,
+    "_note": "SWE-bench Lite is a public/dated split; contamination is a known limit. Report the resolve rate WITH the contamination note per KIT_DIARY 21. A contamination-clean number needs SWE-bench-Live (out of Sprint 160's scope)."
+  },
+
+  "firewall_audit_ci_gate": {
+    "held_out_test_files_absent_from_sandbox": true,
+    "no_visible_test_assertion_duplicates_held_out": true,
+    "firewall_check_enforced_per_case": "assay/swebench.py:firewall_check called at every arm build (assay/swebench_matrix.py:_build_repair_arm_from_models + assay/swebench_suite.py:prepare_swebench_case)"
+  },
+
+  "comparator": {
+    "source": "Agentless + GPT-4o (Xia et al. 2024, arxiv 2407.01489)",
+    "split": "SWE-bench Lite",
+    "model": "gpt-4o-2024-08-06",
+    "resolve_rate": 0.278
+  },
+
+  "model_ensemble_id": "<STRONG_MODEL>:solo | <ENSEMBLE_MODEL_A>+<B>+<C>:trio",
+  "split_id": "SWE-bench_Lite:test:2024-frozen",
+
+  "grader_error_band": 0.078,
+  "grader_error_band_source": "Xia & Chen 2025, arxiv 2503.15223 — 'Are Solved Issues in SWE-bench Really Solved Correctly?' — ~7.8% residual on Lite"
+}

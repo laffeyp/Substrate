@@ -36,6 +36,7 @@ from substrate import api
 from substrate.assay import run_arm_on_case
 from substrate.assay.coding import coding_suite
 from substrate.assay.coding_problems import coding_problem_bank
+from substrate.assay.preregistration import fingerprint as _fingerprint
 from substrate.assay.run import UsageTotals
 from substrate.assay.suite import Arm, Case, Suite
 
@@ -84,8 +85,10 @@ def _config() -> dict[str, object]:
     }
 
 
-def _fingerprint(cfg: dict[str, object]) -> str:
-    return hashlib.sha256(json.dumps(cfg, sort_keys=True).encode()).hexdigest()[:12]
+# sprint 151 review fold: `_fingerprint` is now imported from substrate.assay.preregistration so
+# the pre-reg gate and this script's provenance stamp hash the same bytes. Prior local
+# implementation deleted (was byte-identical, but two copies is where finding 151-#2's divergence
+# risk lived — one authoritative helper, no drift).
 
 
 def _load_rows() -> dict[tuple[str, str, int], dict[str, object]]:

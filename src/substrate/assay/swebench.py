@@ -44,6 +44,21 @@ KEY_PREDICTION = "model_patch"
 DEFAULT_MODEL_NAME = "substrate-coding-flow"
 
 
+class FirewallViolation(ValueError):
+    """Sprint 143 — typed exception raised by `prepare_swebench_case` when `firewall_check` fails.
+
+    Categorical (not stringly-typed) so a caller that catches the wrong ValueError does not
+    silently admit a leaky instance. IS-A ValueError, so existing broad handlers keep working; new
+    code should catch `FirewallViolation` explicitly. The `reason` attribute carries the string
+    `firewall_check` returned.
+    """
+
+    def __init__(self, instance_id: str, reason: str) -> None:
+        super().__init__(f"instance {instance_id} fails the firewall: {reason}")
+        self.instance_id = instance_id
+        self.reason = reason
+
+
 def make_prediction(
     instance_id: str, model_patch: str, *, model_name: str = DEFAULT_MODEL_NAME
 ) -> dict[str, str]:
@@ -81,7 +96,13 @@ def firewall_check(instance: Mapping[str, Any]) -> tuple[bool, str]:
         # fragment "module/sub"; require it to appear in a test_patch path (the file IS added by test_patch).
         m = re.search(r"\(([\w.]+)\)", test_id)
         if not m:
-            return True  # unparseable id -> don't false-fail; condition 1 still guards
+            # Fail CLOSED on parse failure (sprint 142): an unparseable FAIL_TO_PASS id cannot be
+            # verified to be added by test_patch, so we cannot certify the structural firewall for
+            # this instance. Condition 1 (patch/test_patch file intersection) does NOT cover this
+            # case — it catches shared source files, not held-out test ids we cannot resolve to a
+            # file. Returning False here classifies the id as leaked (absent from test_patch);
+            # firewall_check then surfaces it in the `leaked` list and the instance is excluded.
+            return False
         parts = m.group(1).split(".")
         frag = "/".join(parts[:-1]) if len(parts) > 1 else parts[0]
         return any(frag in f for f in tp_files)
@@ -348,6 +369,8 @@ __all__ = [
     "KEY_MODEL",
     "KEY_PREDICTION",
     "DEFAULT_MODEL_NAME",
+    "FirewallViolation",
+    "firewall_check",
     "make_prediction",
     "write_predictions",
     "read_resolved",

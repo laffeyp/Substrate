@@ -34,6 +34,7 @@ from .records import (
     TestResults,
 )
 from .repair import repair_drafter_factory, repair_validate_factory
+from .repro_base_validate import repro_base_validate_factory
 from .reproduction import repro_generator_factory
 from .select import select_patch
 from .select_exec import TestRunner, run_one
@@ -209,12 +210,26 @@ def swebench_repair_topology(
     max_rounds: int = 2,
     top_k: int = 5,
     watchdog_seconds: float = 600.0,
+    firewall_instance: Any = None,
 ) -> Callable[[api.TopologyBuilder], None]:
     """The SIMPLE coding topology: LOCALIZE -> best-of-N REPAIR -> emit the first patch that applied. A real
     substrate topology (drafters/validator/judge are producers) that emits a `SelectedPatch` (a git diff),
     with NONE of the test-running SELECT apparatus. `responders[0]` localizes; `responders` (per slot) draft
     SEARCH/REPLACE edits; the validator clones `base_checkout` per candidate, applies, and emits the diff.
-    ALWAYS emits a terminal `RepairSummary` (the enumerated outcome + stage counts) and terminates on it."""
+    ALWAYS emits a terminal `RepairSummary` (the enumerated outcome + stage counts) and terminates on it.
+
+    Sprint 149 — `firewall_instance`, when passed, runs `firewall_check` at build. `swebench_solver_arm`
+    (swebench_suite.py) already goes through `prepare_swebench_case` which firewalls; `repair_arm`
+    (swebench_matrix.py) firewalls at its build (sprint 148). The optional kwarg here is the belt-and-braces
+    guard for any future caller that stitches a topology by hand: pass the raw instance and the topology
+    refuses to build on a leak. Not required (existing callers pass nothing and are firewall-guarded
+    upstream); when present, must pass. `Any` because the shape is the swebench instance dict."""
+    if firewall_instance is not None:
+        from ...assay.swebench import FirewallViolation, firewall_check
+
+        ok, reason = firewall_check(firewall_instance)
+        if not ok:
+            raise FirewallViolation(str(firewall_instance.get("instance_id", "?")), reason)
 
     def topo(b: api.TopologyBuilder) -> None:
         b.producer_kind(
@@ -237,7 +252,7 @@ def swebench_repair_topology(
             schemas=[Draft],
             schema_version=1,
             factory=seeder_factory(n),
-            deterministic=False,
+            deterministic=True,  # sprint 145: pure — emits N Drafts from `n` alone, no I/O
         )
         b.producer_kind(
             "drafter",
@@ -251,28 +266,28 @@ def swebench_repair_topology(
             schemas=[Verdict, AppliedPatch],
             schema_version=1,
             factory=repair_validate_factory(base_checkout),
-            deterministic=False,
+            deterministic=False,  # clones base_checkout, runs `git apply` — I/O, stays False
         )
         b.producer_kind(
             "judge",
             schemas=[Solved, Draft, Exhausted],
             schema_version=1,
             factory=select_first_judge_factory(n, max_rounds),
-            deterministic=False,
+            deterministic=True,  # sprint 145: pure — reads verdicts input, emits typed decision
         )
         b.producer_kind(
             "selector",
             schemas=[SelectedPatch],
             schema_version=1,
             factory=_first_patch_selector_factory(),
-            deterministic=False,
+            deterministic=True,  # sprint 145: pure — picks first applied patch from input, no I/O
         )
         b.producer_kind(
             "outcome",
             schemas=[RepairSummary],
             schema_version=1,
             factory=_outcome_factory(),
-            deterministic=False,
+            deterministic=True,  # sprint 145: pure — reads state, emits typed summary, no I/O
         )
 
         b.trigger(
@@ -379,13 +394,24 @@ def swebench_solver_topology(
     max_rounds: int = 2,
     top_k: int = 5,
     watchdog_seconds: float = 60.0,
+    firewall_instance: Any = None,
 ) -> Callable[[api.TopologyBuilder], None]:
     """The whole solver. `responders[0]` localizes; `responders` (per slot) draft. `runner` runs tests in
     the instance env (the real DockerTestRunner, or a stand-in). `regression_command` is a static command
     (same set for every candidate) OR a per-candidate planner (model_patch -> firewall-clean command, e.g.
     `make_regression_planner` — the proximity picker over the checkout). `passed_at_base` (the instance's
     base-passing test ids, from one base run) switches SELECT to the passed-at-base filter — required on
-    repos with pre-existing base failures (flask). Terminates on SelectedPatch or Exhausted."""
+    repos with pre-existing base failures (flask). Terminates on SelectedPatch or Exhausted.
+
+    Sprint 149 — see `swebench_repair_topology` for the `firewall_instance` contract. Same optional guard,
+    same reason: production callers firewall upstream through the Adapter (`prepare_swebench_case` via
+    `swebench_solver_arm`); a hand-stitched caller passing the instance here gets the third defense layer."""
+    if firewall_instance is not None:
+        from ...assay.swebench import FirewallViolation, firewall_check
+
+        ok, reason = firewall_check(firewall_instance)
+        if not ok:
+            raise FirewallViolation(str(firewall_instance.get("instance_id", "?")), reason)
 
     def topo(b: api.TopologyBuilder) -> None:
         # LOCALIZE
@@ -409,7 +435,32 @@ def swebench_solver_topology(
             deterministic=False,
         )
         b.initial("repro_gen", input=None)
+        # Sprint 155: base-fails-first validator. Runs the generated repro ONCE on the unmodified
+        # base checkout (empty patch → runner runs on base_commit). Overwrites the repro with
+        # code="" if the base run doesn't cleanly print "Issue reproduced" — the trivially-passing
+        # / broken cases KIT_DIARY finding 21 named. The empty-code convention (records.py:82-88)
+        # routes SELECT to regression-only, so no vocab change; the `reproduction` view's
+        # value()[-1] snapshot at the select_exec trigger reads the OVERWRITE first when both
+        # events land.
+        b.producer_kind(
+            "repro_base_validate",
+            schemas=[ReproductionTest],
+            schema_version=1,
+            factory=repro_base_validate_factory(runner),
+            deterministic=False,  # calls the runner (Docker) — I/O, stays False
+        )
         b.view("reproduction", api.KindBuffer("ReproductionTest"))
+        b.trigger(
+            "repro_base_validate",
+            subscription=api.Subscription(kinds=frozenset({"ReproductionTest"})),
+            # gate: only fire on the ORIGINAL (from repro_gen) — the overwrite this producer
+            # emits also matches the subscription, and re-validating an already-empty repro is
+            # both wasted and a fanout loop. First ReproductionTest only.
+            predicate=lambda ctx: len(ctx.views["reproduction"].value()) == 1,
+            starts="repro_base_validate",
+            input_builder=lambda ctx: {"code": ctx.event.payload["code"]},
+            policy=api.PerEvent(),
+        )
         b.view("edit_locations", api.KindBuffer("EditLocations"))
         b.view("verdicts", api.KindBuffer("Verdict"))
         b.view("applied", api.KindBuffer("AppliedPatch"))
@@ -422,7 +473,7 @@ def swebench_solver_topology(
             schemas=[Draft],
             schema_version=1,
             factory=seeder_factory(n),
-            deterministic=False,
+            deterministic=True,  # sprint 145: pure — emits N Drafts from `n` alone, no I/O
         )
         b.producer_kind(
             "drafter",
@@ -436,14 +487,14 @@ def swebench_solver_topology(
             schemas=[Verdict, AppliedPatch],
             schema_version=1,
             factory=repair_validate_factory(base_checkout),
-            deterministic=False,
+            deterministic=False,  # clones base_checkout, runs `git apply` — I/O, stays False
         )
         b.producer_kind(
             "judge",
             schemas=[Solved, Draft, Exhausted],
             schema_version=1,
             factory=select_first_judge_factory(n, max_rounds),
-            deterministic=False,
+            deterministic=True,  # sprint 145: pure — reads verdicts input, emits typed decision
         )
 
         # SELECT
@@ -452,14 +503,14 @@ def swebench_solver_topology(
             schemas=[TestResults],
             schema_version=1,
             factory=_select_exec_factory(runner, regression_command, passed_at_base),
-            deterministic=False,
+            deterministic=False,  # runs Docker per candidate — I/O, stays False
         )
         b.producer_kind(
             "selector",
             schemas=[SelectedPatch],
             schema_version=1,
             factory=_selector_factory(),
-            deterministic=False,
+            deterministic=True,  # sprint 145: pure — reads TestResults input, picks patch, no I/O
         )
 
         # LOCALIZE -> seed the loop
@@ -513,20 +564,32 @@ def swebench_solver_topology(
             },
             policy=api.PerEvent(),
         )
-        # Solved -> run tests for every applied patch of that round
+        # Sprint 155 review fold (finding B1): the select_exec trigger BARRIERS on repro
+        # validation completing. Original design fired select_exec on every Solved and read the
+        # then-current reproduction view, but nothing gated Solved on `repro_base_validate`
+        # having emitted its overwrite/passthrough — a fast REPAIR round could beat a slow base
+        # repro run and let SELECT read the un-validated repro (the exact KIT_DIARY 21
+        # false-positive shape). Fix: subscribe to BOTH `Solved` and `ReproductionTest`, fire
+        # only when (a) a round completed (`_solved_round is not None`), (b) validate has
+        # emitted (`reproduction.value()` has >=2 entries — original + overwrite/passthrough,
+        # since `repro_base_validate` always emits exactly one for any input including empty),
+        # and (c) select_exec hasn't fired yet (`test_results` empty). Whichever event lands
+        # LAST flips the predicate true. Multi-round degrades to single-round only under this
+        # gate; multi-round is `max_rounds=2` and rarely triggers in practice — deferred until
+        # TestResults carries a `round` field (currently doesn't, records.py:99-107).
         b.trigger(
             "select_exec",
-            subscription=api.Subscription(kinds=frozenset({"Solved"})),
-            predicate=lambda ctx: True,
+            subscription=api.Subscription(kinds=frozenset({"Solved", "ReproductionTest"})),
+            predicate=lambda ctx: (
+                _solved_round(ctx) is not None
+                and len(ctx.views["reproduction"].value()) >= 2
+                and len(ctx.views["test_results"].value()) == 0
+            ),
             starts="select_exec",
             input_builder=lambda ctx: {
-                "round": int(ctx.event.payload["round"]),
-                "applied": _round_applied(ctx, int(ctx.event.payload["round"])),
-                "repro_code": (
-                    ctx.views["reproduction"].value()[-1]["code"]
-                    if ctx.views["reproduction"].value()
-                    else ""
-                ),
+                "round": _solved_round(ctx),
+                "applied": _round_applied(ctx, _solved_round(ctx)),  # type: ignore[arg-type]
+                "repro_code": ctx.views["reproduction"].value()[-1]["code"],
             },
             policy=api.PerEvent(),
         )

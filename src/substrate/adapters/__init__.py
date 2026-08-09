@@ -13,6 +13,7 @@ via a thin shim at `reference/_models.py`. New code should import from `substrat
 
 from __future__ import annotations
 
+from .ensemble import EnsembleResponder
 from .models import (
     CliResponder,
     DeterministicResponder,
@@ -28,6 +29,7 @@ __all__ = [
     "DeterministicResponder",
     "OllamaResponder",
     "CliResponder",
+    "EnsembleResponder",
     "ModelUsage",
     "call_responder",
     "call_responder_metered",

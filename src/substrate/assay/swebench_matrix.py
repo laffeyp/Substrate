@@ -24,7 +24,7 @@ from ..adapters import OllamaResponder, Responder
 from ..topologies.swebench_solver.assemble import swebench_repair_topology
 from ..topologies.swebench_solver.records import SelectedPatch
 from .suite import Arm, Case, Suite
-from .swebench import swebench_record_oracle
+from .swebench import FirewallViolation, firewall_check, swebench_record_oracle
 from .swebench_agent import solve_in_container
 from .swebench_host import solve_on_host
 from .swebench_suite import safe_case_id
@@ -89,31 +89,149 @@ def container_arm(
     return Arm(name=name, role=role, build=build)
 
 
+def _build_repair_arm_from_models(
+    case: Case,
+    models: Sequence[str],
+    *,
+    n: int,
+    max_rounds: int,
+    max_tokens: int,
+) -> Callable[[api.TopologyBuilder], None]:
+    """Common body for every repair-topology-based arm (sprint 159). Firewall-checks the instance,
+    clones the base repo, builds one `OllamaResponder` per slot (models cycled round-robin), and
+    returns the wired `swebench_repair_topology`. Sole seam so a new arm shape (ensemble, matched
+    compute, no-correction) is one factory call over the four levers — models, n, max_rounds,
+    max_tokens — never a re-implementation of the firewall/clone/wire boilerplate."""
+    inst = case.ground_truth
+    ok, reason = firewall_check(inst)
+    if not ok:
+        raise FirewallViolation(str(inst.get("instance_id", "?")), reason)
+    clone = host_clone(f"https://github.com/{inst['repo']}", inst["base_commit"])
+    files = subprocess.run(
+        ["git", "-C", clone, "ls-files"], capture_output=True, text=True
+    ).stdout.split()
+    responders: list[Responder] = [
+        OllamaResponder(models[i % len(models)], max_tokens=max_tokens) for i in range(n)
+    ]
+    return swebench_repair_topology(
+        responders=responders,
+        base_checkout=clone,
+        issue=str(inst["problem_statement"]),
+        repo_skeleton="\n".join(files),
+        known_files=set(files),
+        n=n,
+        max_rounds=max_rounds,
+    )
+
+
+def single_draft_baseline_arm(
+    name: str, role: str = "baseline", *, model: str, max_tokens: int = 2048
+) -> Arm:
+    """Arm #1 of the sprint 159 five-arm matrix — one model, N=1, no correction (max_rounds=1).
+    The floor: what a single draft from a single model produces without any of the substrate's
+    machinery. Every gain over this is a substrate contribution."""
+
+    def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
+        return _build_repair_arm_from_models(
+            case, [model], n=1, max_rounds=1, max_tokens=max_tokens
+        )
+
+    return Arm(name=name, role=role, build=build)
+
+
+def n_drafts_no_correction_arm(
+    name: str,
+    role: str = "ablation",
+    *,
+    model: str,
+    n: int = 3,
+    max_tokens: int = 2048,
+) -> Arm:
+    """Arm #2 — one model, N drafts, NO correction round. Isolates the value of drawing multiple
+    candidates from a single model (temperature diversity) from the value of the correction
+    loop. Delta vs. `single_draft_baseline_arm` = value of best-of-N; delta vs.
+    `n_drafts_repair_arm` = value of the correction round."""
+
+    def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
+        return _build_repair_arm_from_models(
+            case, [model], n=n, max_rounds=1, max_tokens=max_tokens
+        )
+
+    return Arm(name=name, role=role, build=build)
+
+
+def n_drafts_repair_ensemble_arm(
+    name: str,
+    role: str = "full",
+    *,
+    models: Sequence[str],
+    max_rounds: int = 2,
+    max_tokens: int = 2048,
+) -> Arm:
+    """Arm #4 — N drafts (N = len(models)) from a HETEROGENEOUS ensemble, correction on. The
+    hypothesis: distinct models make distinct mistakes, so an ensemble's best-of-N samples a
+    wider hypothesis space than N temperature-samples from one model (per KIT_DIARY finding on
+    the R-19 thinking trio). Compared against `n_drafts_repair_arm` (one model at N=len(models))
+    to isolate the ensemble contribution — same N, same rounds, only the model set differs."""
+
+    def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
+        return _build_repair_arm_from_models(
+            case, list(models), n=len(models), max_rounds=max_rounds, max_tokens=max_tokens
+        )
+
+    return Arm(name=name, role=role, build=build)
+
+
+def baseline_matched_compute_arm(
+    name: str,
+    role: str = "baseline",
+    *,
+    model: str,
+    k_calls: int,
+    max_tokens: int = 2048,
+) -> Arm:
+    """Arm #5 — the compute-matched baseline (per Kapoor & Narayanan 2024 "AI Agents That
+    Matter"). Runs a SINGLE STRONG MODEL at K attempts where K is chosen so total model_calls
+    roughly matches the ensemble arm's median. If the ensemble arm beats the single-model
+    baseline while consuming the same compute, that's a mechanism win; if the compute-matched
+    baseline catches up, the ensemble's advantage was compute-purchased, not mechanism-driven.
+
+    Operationalisation: N=K single-model best-of-N with no correction — K attempts, first
+    applyable wins, same SELECT pipeline as every other arm. NOT literally "oracle picks best of
+    K" (which would require an oracle-in-arm pattern the current Suite contract doesn't
+    support); Sprint 160's writeup names the operational choice alongside the number. `k_calls`
+    is passed in — the confirmatory runner derives it from the ensemble arm's median model_calls
+    per case, so it's a data-driven pre-reg parameter (Sprint 160 freezes it)."""
+    if k_calls < 1:
+        raise ValueError(f"k_calls must be >= 1; got {k_calls}")
+
+    def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
+        return _build_repair_arm_from_models(
+            case, [model], n=k_calls, max_rounds=1, max_tokens=max_tokens
+        )
+
+    return Arm(name=name, role=role, build=build)
+
+
 def repair_arm(
     name: str, role: str, *, model: str, n: int = 3, max_rounds: int = 2, max_tokens: int = 2048
 ) -> Arm:
     """A REAL substrate coding topology as an Arm: localize -> best-of-N SEARCH/REPLACE repair -> emit the
     first patch that applied (`swebench_repair_topology`). The substrate producers DO the coding — this is
     not a function in a shell. `build` clones the repo at base_commit (I/O at build, env-gated) and wires
-    the topology; the per-candidate validator clones from it and produces the git diff."""
+    the topology; the per-candidate validator clones from it and produces the git diff.
+
+    Sprint 148 — the firewall is called at build. Every other arm in this module hits its firewall via the
+    backend it wraps (`solve_on_host` at swebench_host.py:58, `solve_in_container` at
+    swebench_agent.py:88); this one wraps the topology directly, so the guard has to live here or a leaky
+    instance silently reaches the drafters. Parity with the other arm-building paths — same discipline."""
 
     def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
-        inst = case.ground_truth
-        clone = host_clone(f"https://github.com/{inst['repo']}", inst["base_commit"])
-        files = subprocess.run(
-            ["git", "-C", clone, "ls-files"], capture_output=True, text=True
-        ).stdout.split()
-        responders: list[Responder] = [
-            OllamaResponder(model, max_tokens=max_tokens) for _ in range(n)
-        ]
-        return swebench_repair_topology(
-            responders=responders,
-            base_checkout=clone,
-            issue=str(inst["problem_statement"]),
-            repo_skeleton="\n".join(files),
-            known_files=set(files),
-            n=n,
-            max_rounds=max_rounds,
+        # Sprint 159: kept as-is (backward-compat entrypoint) but body now delegates to the
+        # shared `_build_repair_arm_from_models` factory. Semantically identical to the
+        # pre-159 shape: one model, N slots, correction on.
+        return _build_repair_arm_from_models(
+            case, [model], n=n, max_rounds=max_rounds, max_tokens=max_tokens
         )
 
     return Arm(name=name, role=role, build=build)
@@ -156,4 +274,13 @@ def swebench_matrix_suite(
     )
 
 
-__all__ = ["host_arm", "container_arm", "repair_arm", "swebench_matrix_suite"]
+__all__ = [
+    "baseline_matched_compute_arm",
+    "container_arm",
+    "host_arm",
+    "n_drafts_no_correction_arm",
+    "n_drafts_repair_ensemble_arm",
+    "repair_arm",
+    "single_draft_baseline_arm",
+    "swebench_matrix_suite",
+]
