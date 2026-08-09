@@ -39,3 +39,4 @@ arena-logs*/
 
 # Local disposal archive (2026-07-22 top-level cleanup) — disk-only, never history.
 process/archive/root-debris-20260722/
+process/assay_confirmatory_swebench_lite_2026-08/
