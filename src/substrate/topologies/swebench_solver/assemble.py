@@ -22,6 +22,7 @@ from ...adapters import ModelUsage, Responder
 from ..best_of_n import seeder_factory, select_first_judge_factory
 from ..best_of_n.contracts import Candidate, Draft, Exhausted, Solved, Verdict
 from .localize import localizer_factory
+from .localize_elements import element_localizer_factory
 from .records import (
     AppliedPatch,
     EditLocations,
@@ -30,6 +31,7 @@ from .records import (
     Reproduction,
     ReproductionTest,
     SelectedPatch,
+    SuspectElements,
     SuspectFiles,
     TestResults,
 )
@@ -40,6 +42,19 @@ from .select import select_patch
 from .select_exec import TestRunner, run_one
 
 _Factory = Callable[[], Any]
+
+
+# F10 fix (review 2026-08-08): view names as module-level string constants so a typo becomes a
+# NameError at import time, not a KeyError when the trigger's predicate fires. Sixteen
+# `ctx.views["…"]` sites across this file used bare literals — the exact contract-truth gap KIT_DIARY
+# finding 33 named (six literals + no static check + only surfaces at run time). Consolidating them
+# here also documents the view topology in one place.
+_VIEW_APPLIED = "applied"
+_VIEW_EDIT_LOCATIONS = "edit_locations"
+_VIEW_REPRODUCTION = "reproduction"
+_VIEW_SOLVED = "solved"
+_VIEW_TEST_RESULTS = "test_results"
+_VIEW_VERDICTS = "verdicts"
 
 
 def _build_edit_context(base_checkout: str, targets: tuple[str, ...]) -> str:
@@ -59,11 +74,11 @@ def _build_edit_context(base_checkout: str, targets: tuple[str, ...]) -> str:
 
 
 def _round_verdicts(ctx: api.TriggerContext, rnd: int) -> list[dict[str, Any]]:
-    return [v for v in ctx.views["verdicts"].value() if int(v["round"]) == rnd]
+    return [v for v in ctx.views[_VIEW_VERDICTS].value() if int(v["round"]) == rnd]
 
 
 def _round_applied(ctx: api.TriggerContext, rnd: int) -> list[dict[str, Any]]:
-    return [a for a in ctx.views["applied"].value() if int(a["round"]) == rnd]
+    return [a for a in ctx.views[_VIEW_APPLIED].value() if int(a["round"]) == rnd]
 
 
 def _select_exec_factory(
@@ -189,13 +204,13 @@ def _outcome_factory() -> _Factory:
 
 
 def _outcome_input(ctx: api.TriggerContext, *, is_selected: bool) -> dict[str, Any]:
-    el = ctx.views["edit_locations"].value()
+    el = ctx.views[_VIEW_EDIT_LOCATIONS].value()
     return {
         "is_selected": is_selected,
         "slot": int(ctx.event.payload["slot"]) if is_selected else -1,
         "localized": len(el[-1]["targets"]) if el else 0,
-        "drafted": len(ctx.views["verdicts"].value()),
-        "applied": len(ctx.views["applied"].value()),
+        "drafted": len(ctx.views[_VIEW_VERDICTS].value()),
+        "applied": len(ctx.views[_VIEW_APPLIED].value()),
     }
 
 
@@ -209,7 +224,7 @@ def swebench_repair_topology(
     n: int = 3,
     max_rounds: int = 2,
     top_k: int = 5,
-    watchdog_seconds: float = 600.0,
+    watchdog_seconds: float = 60.0,
     firewall_instance: Any = None,
 ) -> Callable[[api.TopologyBuilder], None]:
     """The SIMPLE coding topology: LOCALIZE -> best-of-N REPAIR -> emit the first patch that applied. A real
@@ -309,8 +324,8 @@ def swebench_repair_topology(
                 "context": ctx.event.payload["context"],
                 "edit_context": _build_edit_context(
                     base_checkout,
-                    tuple(ctx.views["edit_locations"].value()[-1]["targets"])
-                    if ctx.views["edit_locations"].value()
+                    tuple(ctx.views[_VIEW_EDIT_LOCATIONS].value()[-1]["targets"])
+                    if ctx.views[_VIEW_EDIT_LOCATIONS].value()
                     else (),
                 ),
             },
@@ -393,7 +408,11 @@ def swebench_solver_topology(
     n: int = 3,
     max_rounds: int = 2,
     top_k: int = 5,
-    watchdog_seconds: float = 60.0,
+    # F6 fix (review 2026-08-08): defaults were swapped — repair-only (less work) had 600s and the
+    # full solver (repair + Docker test execution per candidate) had 60s. A test or script that
+    # instantiated the solver topology at defaults got guillotined before select_exec finished
+    # even one candidate. Solver needs the longer budget; repair keeps the shorter one.
+    watchdog_seconds: float = 600.0,
     firewall_instance: Any = None,
 ) -> Callable[[api.TopologyBuilder], None]:
     """The whole solver. `responders[0]` localizes; `responders` (per slot) draft. `runner` runs tests in
@@ -415,12 +434,18 @@ def swebench_solver_topology(
 
     def topo(b: api.TopologyBuilder) -> None:
         # LOCALIZE
+        # F9 fix (review 2026-08-08): swap the solver's file-level `localizer_factory` for the
+        # element-level `element_localizer_factory`. Emits SuspectElements per Python suspect
+        # file so EditLocations carries `file::element` targets, and `_build_edit_context` trims
+        # to class/function granularity per Agentless. Non-Python + syntax-error files degrade
+        # to whole-file targets (see element_localizer_factory docstring); no silent drops.
+        # SuspectElements was defined-but-dead pre-fix; this closes the drift.
         b.producer_kind(
             "localizer",
-            schemas=[SuspectFiles, EditLocations, ModelUsage],
+            schemas=[SuspectFiles, SuspectElements, EditLocations, ModelUsage],
             schema_version=1,
-            factory=localizer_factory(
-                responders[0], issue, repo_skeleton, known_files, top_k=top_k
+            factory=element_localizer_factory(
+                responders[0], issue, repo_skeleton, base_checkout, known_files, top_k=top_k
             ),
             deterministic=False,
         )
@@ -456,7 +481,7 @@ def swebench_solver_topology(
             # gate: only fire on the ORIGINAL (from repro_gen) — the overwrite this producer
             # emits also matches the subscription, and re-validating an already-empty repro is
             # both wasted and a fanout loop. First ReproductionTest only.
-            predicate=lambda ctx: len(ctx.views["reproduction"].value()) == 1,
+            predicate=lambda ctx: len(ctx.views[_VIEW_REPRODUCTION].value()) == 1,
             starts="repro_base_validate",
             input_builder=lambda ctx: {"code": ctx.event.payload["code"]},
             policy=api.PerEvent(),
@@ -534,8 +559,8 @@ def swebench_solver_topology(
                 "context": ctx.event.payload["context"],
                 "edit_context": _build_edit_context(
                     base_checkout,
-                    tuple(ctx.views["edit_locations"].value()[-1]["targets"])
-                    if ctx.views["edit_locations"].value()
+                    tuple(ctx.views[_VIEW_EDIT_LOCATIONS].value()[-1]["targets"])
+                    if ctx.views[_VIEW_EDIT_LOCATIONS].value()
                     else (),
                 ),
             },
@@ -582,14 +607,14 @@ def swebench_solver_topology(
             subscription=api.Subscription(kinds=frozenset({"Solved", "ReproductionTest"})),
             predicate=lambda ctx: (
                 _solved_round(ctx) is not None
-                and len(ctx.views["reproduction"].value()) >= 2
-                and len(ctx.views["test_results"].value()) == 0
+                and len(ctx.views[_VIEW_REPRODUCTION].value()) >= 2
+                and len(ctx.views[_VIEW_TEST_RESULTS].value()) == 0
             ),
             starts="select_exec",
             input_builder=lambda ctx: {
                 "round": _solved_round(ctx),
                 "applied": _round_applied(ctx, _solved_round(ctx)),  # type: ignore[arg-type]
-                "repro_code": ctx.views["reproduction"].value()[-1]["code"],
+                "repro_code": ctx.views[_VIEW_REPRODUCTION].value()[-1]["code"],
             },
             policy=api.PerEvent(),
         )
@@ -599,13 +624,13 @@ def swebench_solver_topology(
             subscription=api.Subscription(kinds=frozenset({"TestResults"})),
             predicate=lambda ctx: (
                 _solved_round(ctx) is not None
-                and len([r for r in ctx.views["test_results"].value()])
+                and len([r for r in ctx.views[_VIEW_TEST_RESULTS].value()])
                 >= len(_round_applied(ctx, _solved_round(ctx)))  # type: ignore[arg-type]
             ),
             starts="selector",
             input_builder=lambda ctx: {
                 "applied": _round_applied(ctx, _solved_round(ctx)),  # type: ignore[arg-type]
-                "results": list(ctx.views["test_results"].value()),
+                "results": list(ctx.views[_VIEW_TEST_RESULTS].value()),
             },
             policy=api.PerEvent(),
         )
@@ -623,5 +648,5 @@ def swebench_solver_topology(
 
 def _solved_round(ctx: api.TriggerContext) -> int | None:
     """The round that emitted Solved (the only round whose applied patches get tested), or None."""
-    solved = ctx.views["solved"].value()
+    solved = ctx.views[_VIEW_SOLVED].value()
     return int(solved[-1]["round"]) if solved else None

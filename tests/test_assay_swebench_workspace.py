@@ -131,3 +131,41 @@ def test_workspace_diff_captures_a_new_file(tmp_path):
     (repo / "newmod.py").write_text("y = 9\n")  # git add -A must surface new files
     patch = workspace_diff(str(repo))
     assert "newmod.py" in patch and "+y = 9" in patch
+
+
+def test_section_b_path_parses_bare_header():
+    # F8 fix regression pin: the standard `diff --git a/X b/Y` form still parses.
+    from substrate.assay.swebench_workspace import _section_b_path
+
+    assert _section_b_path("diff --git a/src/foo.py b/src/foo.py") == "src/foo.py"
+
+
+def test_section_b_path_parses_both_sides_quoted_header():
+    # Path with spaces or special chars — git C-quotes both sides.
+    from substrate.assay.swebench_workspace import _section_b_path
+
+    assert (
+        _section_b_path('diff --git "a/path with space.py" "b/path with space.py"')
+        == "path with space.py"
+    )
+
+
+def test_section_b_path_parses_mixed_quote_headers_post_F8():
+    # F8 fix (review 2026-08-08): git emits ONE-side-quoted headers for renames where only one
+    # side contains special chars, and for some rename-and-mode-change combinations. Pre-fix the
+    # regex only matched bare-both and quoted-both — a mixed-quote rename returned None, the
+    # section was dropped from filter_diff, and the patch graded not-resolved silently.
+    from substrate.assay.swebench_workspace import _section_b_path
+
+    # a-side bare, b-side quoted (new path has a space).
+    assert _section_b_path('diff --git a/old_name.py "b/new name.py"') == "new name.py"
+    # a-side quoted, b-side bare.
+    assert _section_b_path('diff --git "a/old name.py" b/new_name.py') == "new_name.py"
+
+
+def test_section_b_path_returns_none_on_unparseable_header():
+    # Malformed header MUST return None so the caller's fail-safe drop fires.
+    from substrate.assay.swebench_workspace import _section_b_path
+
+    assert _section_b_path("not a diff header at all") is None
+    assert _section_b_path("diff --git broken") is None

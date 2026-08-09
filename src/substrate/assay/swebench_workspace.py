@@ -27,17 +27,25 @@ import tempfile
 # utilities), so a directory match would false-drop legitimate fixes. The authoritative drop set is
 # `graded_test_files`; this filename match only backstops pre-existing test files test_patch doesn't touch.
 _TEST_FILE = re.compile(r"(^|/)(test_[^/]*\.py|[^/]*_test\.py|tests?\.py|conftest\.py)$")
-# the `diff --git` header b-side path, both forms git emits: bare `a/X b/Y` and, for paths with spaces or
-# special chars, the C-quoted `"a/X" "b/Y"`. A header that matches NEITHER is treated as unparseable.
-_HDR_BARE = re.compile(r"^diff --git a/(\S+) b/(\S+)$")
-_HDR_QUOTED = re.compile(r'^diff --git "a/(.+)" "b/(.+)"$')
+# the `diff --git` header b-side path, all three forms git emits: bare `a/X b/Y`, both-sides
+# C-quoted `"a/X" "b/Y"`, and MIXED — either side quoted independently. Git quotes any side that
+# needs escaping (spaces, non-ASCII), so a rename that changes only one side's special-char status
+# emits a mixed-quote header. F8 fix (review 2026-08-08): pre-fix regex covered bare-both and
+# quoted-both only; a mixed-quote rename dropped from filter_diff and the model_patch graded
+# not-resolved. A header that matches NONE is treated as unparseable (caller fails safe).
+_HDR_A = r'(?:a/(\S+)|"a/(.+?)")'
+_HDR_B = r'(?:b/(\S+)|"b/(.+?)")'
+_HDR = re.compile(rf"^diff --git {_HDR_A} {_HDR_B}$")
 
 
 def _section_b_path(header_line: str) -> str | None:
     """The b-side path of a `diff --git` header, or None if the header can't be parsed (caller fails safe)."""
     line = header_line.rstrip("\n")
-    m = _HDR_BARE.match(line) or _HDR_QUOTED.match(line)
-    return m.group(2) if m else None
+    m = _HDR.match(line)
+    if not m:
+        return None
+    # The b-side is captured either at group 3 (bare) or group 4 (quoted); at most one is set.
+    return m.group(3) or m.group(4)
 
 
 def is_test_file(path: str) -> bool:

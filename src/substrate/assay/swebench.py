@@ -92,8 +92,16 @@ def firewall_check(instance: Mapping[str, Any]) -> tuple[bool, str]:
         # pytest: "path/test_x.py::Class::test" -> the file is the path before "::".
         if "::" in test_id:
             return test_id.split("::")[0] in tp_files
-        # unittest/django: "test_func (module.sub.Class)" -> the module (drop the Class) maps to a file
-        # fragment "module/sub"; require it to appear in a test_patch path (the file IS added by test_patch).
+        # unittest/django: "test_func (module.sub.Class)" -> the parenthesised group is the module
+        # path, with a trailing class name. Drop the class, dot-join the module segments, append
+        # ".py" — that IS the file path convention unittest uses. Compare for EQUALITY against
+        # test_patch's added files, not substring.
+        #
+        # F7 fix (review 2026-08-08): the pre-fix "any(frag in f for f in tp_files)" was substring
+        # match. For "test_x (myapp.tests)" -> frag = "myapp", which matched ANY tp_file under
+        # myapp/ — so a pre-existing test at myapp/other/test_foo.py passed the firewall whenever
+        # test_patch happened to add anything under myapp/. That is the exact leak the firewall
+        # exists to catch.
         m = re.search(r"\(([\w.]+)\)", test_id)
         if not m:
             # Fail CLOSED on parse failure (sprint 142): an unparseable FAIL_TO_PASS id cannot be
@@ -104,8 +112,12 @@ def firewall_check(instance: Mapping[str, Any]) -> tuple[bool, str]:
             # firewall_check then surfaces it in the `leaked` list and the instance is excluded.
             return False
         parts = m.group(1).split(".")
-        frag = "/".join(parts[:-1]) if len(parts) > 1 else parts[0]
-        return any(frag in f for f in tp_files)
+        if len(parts) < 2:
+            # A one-segment parenthesised group ("test_func (something)") is not a module.Class
+            # form — cannot resolve to a file. Fail closed, same reason as unparseable ids.
+            return False
+        module_path = "/".join(parts[:-1]) + ".py"
+        return module_path in tp_files
 
     patch_files = _added_files(str(instance.get("patch", "")))
     tp_files = _added_files(str(instance.get("test_patch", "")))

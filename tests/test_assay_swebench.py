@@ -179,10 +179,23 @@ def test_firewall_check_both_test_id_formats() -> None:
     }
     assert firewall_check(preexisting)[0] is False
 
-    # django/unittest format: "test (module.Class)" -> module maps to the test_patch file.
+    # django/unittest format: "test (module.Class)" -> the parser maps `module.sub.Class` to
+    # `module/sub.py` and checks FILE EQUALITY against test_patch (F7 fix, review 2026-08-08).
+    # So `test_x (model_fields.tests.SomeTest)` derives to `model_fields/tests.py`, and
+    # test_patch must add THAT file — not any file with those segments in its path.
     django_clean = {
         "patch": "+++ b/django/db/models.py\n",
-        "test_patch": "+++ b/tests/model_fields/tests.py\n",
+        "test_patch": "+++ b/model_fields/tests.py\n",
         "FAIL_TO_PASS": ["test_x (model_fields.tests.SomeTest)"],
     }
     assert firewall_check(django_clean)[0] is True
+
+    # F7 regression: substring-leak of pre-existing tests must fail closed.
+    django_leak = {
+        "patch": "+++ b/django/db/models.py\n",
+        # test_patch adds a file UNDER model_fields/ but NOT the derived-file path
+        # `model_fields/tests.py`. Pre-F7 the substring "model_fields" hit and this passed.
+        "test_patch": "+++ b/model_fields/regression/new_test.py\n",
+        "FAIL_TO_PASS": ["test_x (model_fields.tests.SomeTest)"],
+    }
+    assert firewall_check(django_leak)[0] is False

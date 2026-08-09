@@ -15,20 +15,17 @@ measured (it times the whole solve). Wiring metered calls is a later refinement.
 from __future__ import annotations
 
 import asyncio
-import subprocess
 from collections.abc import AsyncIterator, Callable, Sequence
-from typing import Any
+from typing import Any, cast
 
 from .. import api
 from ..adapters import OllamaResponder, Responder
-from ..topologies.swebench_solver.assemble import swebench_repair_topology
 from ..topologies.swebench_solver.records import SelectedPatch
 from .suite import Arm, Case, Suite
 from .swebench import FirewallViolation, firewall_check, swebench_record_oracle
 from .swebench_agent import solve_in_container
 from .swebench_host import solve_on_host
-from .swebench_suite import safe_case_id
-from .swebench_workspace import host_clone
+from .swebench_suite import PreparedPayload, safe_case_id, solver_topology_from_payload
 
 _Factory = Callable[[], Any]
 
@@ -89,7 +86,7 @@ def container_arm(
     return Arm(name=name, role=role, build=build)
 
 
-def _build_repair_arm_from_models(
+def _build_solver_arm_from_payload(
     case: Case,
     models: Sequence[str],
     *,
@@ -97,31 +94,37 @@ def _build_repair_arm_from_models(
     max_rounds: int,
     max_tokens: int,
 ) -> Callable[[api.TopologyBuilder], None]:
-    """Common body for every repair-topology-based arm (sprint 159). Firewall-checks the instance,
-    clones the base repo, builds one `OllamaResponder` per slot (models cycled round-robin), and
-    returns the wired `swebench_repair_topology`. Sole seam so a new arm shape (ensemble, matched
-    compute, no-correction) is one factory call over the four levers — models, n, max_rounds,
-    max_tokens — never a re-implementation of the firewall/clone/wire boilerplate."""
+    """Common body for every sprint-159 matrix arm. F1 fix (review 2026-08-08): reads the
+    `PreparedPayload` off `case.payload` and builds the FULL `swebench_solver_topology` via
+    `solver_topology_from_payload` — so sprint 155's base-fails-first repro validator, sprint
+    158's repro 2x2, and the whole `select_exec` + `select.select_patch` rerank ARE ACTIVE on
+    every matrix arm. Pre-F1 the helper called `swebench_repair_topology` (no test execution,
+    no reranking), making the confirmatory measure repair alone; that machinery was dead code
+    in the planned Pass 2.
+
+    Requires the Case to have gone through `prepare_swebench_case` upstream so `case.payload`
+    is a populated PreparedPayload — the confirmatory runner already does this at line 303-310.
+    A caller of `swebench_matrix_suite` that passes raw Cases with empty payload will get a
+    KeyError at build time (fail loud rather than silently degrade to the pre-F1 behaviour).
+
+    Firewall check remains at build time — the payload already came from a firewall-clean
+    upstream call, but callers can be belt-and-braces without cost.
+    """
     inst = case.ground_truth
     ok, reason = firewall_check(inst)
     if not ok:
         raise FirewallViolation(str(inst.get("instance_id", "?")), reason)
-    clone = host_clone(f"https://github.com/{inst['repo']}", inst["base_commit"])
-    files = subprocess.run(
-        ["git", "-C", clone, "ls-files"], capture_output=True, text=True
-    ).stdout.split()
+    payload = cast(PreparedPayload, case.payload)
+    if "base_checkout" not in payload:
+        raise ValueError(
+            f"matrix arm on case {case.case_id!r}: `case.payload` is empty. Cases fed into a "
+            "sprint-159 matrix arm must go through `prepare_swebench_case` upstream so the "
+            "PreparedPayload is populated (image, spec, regression_files, passed_at_base, ...)."
+        )
     responders: list[Responder] = [
         OllamaResponder(models[i % len(models)], max_tokens=max_tokens) for i in range(n)
     ]
-    return swebench_repair_topology(
-        responders=responders,
-        base_checkout=clone,
-        issue=str(inst["problem_statement"]),
-        repo_skeleton="\n".join(files),
-        known_files=set(files),
-        n=n,
-        max_rounds=max_rounds,
-    )
+    return solver_topology_from_payload(payload, responders, n=n, max_rounds=max_rounds)
 
 
 def single_draft_baseline_arm(
@@ -132,7 +135,7 @@ def single_draft_baseline_arm(
     machinery. Every gain over this is a substrate contribution."""
 
     def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
-        return _build_repair_arm_from_models(
+        return _build_solver_arm_from_payload(
             case, [model], n=1, max_rounds=1, max_tokens=max_tokens
         )
 
@@ -153,7 +156,7 @@ def n_drafts_no_correction_arm(
     `n_drafts_repair_arm` = value of the correction round."""
 
     def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
-        return _build_repair_arm_from_models(
+        return _build_solver_arm_from_payload(
             case, [model], n=n, max_rounds=1, max_tokens=max_tokens
         )
 
@@ -175,7 +178,7 @@ def n_drafts_repair_ensemble_arm(
     to isolate the ensemble contribution — same N, same rounds, only the model set differs."""
 
     def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
-        return _build_repair_arm_from_models(
+        return _build_solver_arm_from_payload(
             case, list(models), n=len(models), max_rounds=max_rounds, max_tokens=max_tokens
         )
 
@@ -206,7 +209,7 @@ def baseline_matched_compute_arm(
         raise ValueError(f"k_calls must be >= 1; got {k_calls}")
 
     def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
-        return _build_repair_arm_from_models(
+        return _build_solver_arm_from_payload(
             case, [model], n=k_calls, max_rounds=1, max_tokens=max_tokens
         )
 
@@ -216,21 +219,17 @@ def baseline_matched_compute_arm(
 def repair_arm(
     name: str, role: str, *, model: str, n: int = 3, max_rounds: int = 2, max_tokens: int = 2048
 ) -> Arm:
-    """A REAL substrate coding topology as an Arm: localize -> best-of-N SEARCH/REPLACE repair -> emit the
-    first patch that applied (`swebench_repair_topology`). The substrate producers DO the coding — this is
-    not a function in a shell. `build` clones the repo at base_commit (I/O at build, env-gated) and wires
-    the topology; the per-candidate validator clones from it and produces the git diff.
+    """A substrate coding topology as an Arm — one model, N slots, correction on. F1 fix (review
+    2026-08-08): now routes through `_build_solver_arm_from_payload`, so the arm runs the FULL
+    `swebench_solver_topology` (localize + repair + repro_gen + repro_base_validate + select_exec
+    + `select.select_patch` rerank), not the pre-F1 repair-only path. Kept as the backward-compat
+    entrypoint but the "repair" in the name is now historical — this is the solver at these
+    settings, same as every sprint-159 matrix sibling.
 
-    Sprint 148 — the firewall is called at build. Every other arm in this module hits its firewall via the
-    backend it wraps (`solve_on_host` at swebench_host.py:58, `solve_in_container` at
-    swebench_agent.py:88); this one wraps the topology directly, so the guard has to live here or a leaky
-    instance silently reaches the drafters. Parity with the other arm-building paths — same discipline."""
+    Sprint 148: firewall check at build time — parity with the other matrix arms."""
 
     def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
-        # Sprint 159: kept as-is (backward-compat entrypoint) but body now delegates to the
-        # shared `_build_repair_arm_from_models` factory. Semantically identical to the
-        # pre-159 shape: one model, N slots, correction on.
-        return _build_repair_arm_from_models(
+        return _build_solver_arm_from_payload(
             case, [model], n=n, max_rounds=max_rounds, max_tokens=max_tokens
         )
 
