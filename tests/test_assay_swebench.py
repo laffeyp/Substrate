@@ -179,24 +179,32 @@ def test_firewall_check_both_test_id_formats() -> None:
     }
     assert firewall_check(preexisting)[0] is False
 
-    # django/unittest format: "test (module.Class)" -> the parser maps `module.sub.Class` to
-    # `module/sub.py` and checks FILE EQUALITY against test_patch (F7 fix, review 2026-08-08).
-    # So `test_x (model_fields.tests.SomeTest)` derives to `model_fields/tests.py`, and
-    # test_patch must add THAT file — not any file with those segments in its path.
+    # Real Django format: `test_x (auth_tests.test_forms.UserChangeFormTest)` — the parser
+    # derives `auth_tests/test_forms.py` and matches with the sys.path-boundary rule
+    # (equality OR endswith `"/" + derived`). Django puts `tests/` on sys.path, so test_patch
+    # adds the file at `tests/auth_tests/test_forms.py` — matches as suffix. Real payload from
+    # `django__django-16139`.
     django_clean = {
-        "patch": "+++ b/django/db/models.py\n",
-        "test_patch": "+++ b/model_fields/tests.py\n",
-        "FAIL_TO_PASS": ["test_x (model_fields.tests.SomeTest)"],
+        "patch": "+++ b/django/contrib/auth/forms.py\n",
+        "test_patch": "+++ b/tests/auth_tests/test_forms.py\n",
+        "FAIL_TO_PASS": [
+            "test_link_to_password_reset_in_helptext_via_to_field "
+            "(auth_tests.test_forms.UserChangeFormTest)"
+        ],
     }
     assert firewall_check(django_clean)[0] is True
 
-    # F7 regression: substring-leak of pre-existing tests must fail closed.
+    # F7 regression pin: substring-leak must fail closed. Pre-F7 substring `auth_tests` matched
+    # `tests/auth_tests/other_file.py` — a pre-existing test not touched by test_patch.
+    # Post-F7-round-2 the derived path `auth_tests/test_forms.py` doesn't equal or suffix-match
+    # `tests/auth_tests/other_file.py`, so the leak fails closed.
     django_leak = {
-        "patch": "+++ b/django/db/models.py\n",
-        # test_patch adds a file UNDER model_fields/ but NOT the derived-file path
-        # `model_fields/tests.py`. Pre-F7 the substring "model_fields" hit and this passed.
-        "test_patch": "+++ b/model_fields/regression/new_test.py\n",
-        "FAIL_TO_PASS": ["test_x (model_fields.tests.SomeTest)"],
+        "patch": "+++ b/django/contrib/auth/forms.py\n",
+        "test_patch": "+++ b/tests/auth_tests/other_file.py\n",
+        "FAIL_TO_PASS": [
+            "test_link_to_password_reset_in_helptext_via_to_field "
+            "(auth_tests.test_forms.UserChangeFormTest)"
+        ],
     }
     assert firewall_check(django_leak)[0] is False
 

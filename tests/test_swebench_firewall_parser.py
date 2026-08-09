@@ -61,10 +61,8 @@ def test_parseable_pytest_id_missing_from_test_patch_fails() -> None:
 
 
 def test_parseable_unittest_id_added_by_test_patch_passes() -> None:
-    """Regression bar: a well-formed unittest id whose derived file path IS in test_patch passes.
-    F7 fix (review 2026-08-08): the parser now maps `module.sub.ClassName` -> `module/sub.py` and
-    requires FILE EQUALITY against test_patch's added files, not substring. So the test_patch
-    must add the exact `module/sub.py` file, not any file with those segments in its path."""
+    """Direct-add case: test_patch adds the derived file at the project root. F7-round-2 rule:
+    file must equal the derived path OR end with `"/" + derived` (a legal sys.path prefix)."""
     ok, reason = firewall_check(
         _instance(
             test_patch=_test_patch_adding("module/sub.py"),
@@ -74,16 +72,48 @@ def test_parseable_unittest_id_added_by_test_patch_passes() -> None:
     assert ok is True, reason
 
 
-def test_unittest_id_substring_leak_fails_closed_post_F7() -> None:
-    """F7 fix (review 2026-08-08): pre-fix the parser used substring match against tp_files —
-    `any(frag in f for f in tp_files)` where `frag = "myapp"`. That let a pre-existing test at
-    `myapp/other/test_foo.py` pass the firewall whenever test_patch happened to add ANY file
-    under `myapp/`. The exact leak the firewall exists to catch. Post-fix: the derived file
-    path is `myapp.py`, which is NOT equal to `myapp/other/test_foo.py`, so the check fails."""
+def test_real_django_shape_passes_post_F7_round_2() -> None:
+    """The Pass 1 breakage that motivated F7-round-2 (2026-08-09). Django places `tests/` on
+    sys.path at test time, so a FAIL_TO_PASS id `(auth_tests.test_forms.UserChangeFormTest)`
+    resolves at run time to `auth_tests/test_forms.py`, and test_patch adds the file at
+    `tests/auth_tests/test_forms.py`. The pre-fix equality rule failed this shape — every
+    Django instance (~14 on Lite, 114 excluded in the aborted first Pass 1) got excluded.
+    Post-fix sys.path-boundary suffix match reads it correctly. Real payload from the actual
+    `django__django-16139` instance."""
     ok, reason = firewall_check(
         _instance(
-            # test_patch adds a file under myapp/ but NOT the specific file the unittest id
-            # resolves to. Pre-F7 this passed (substring "myapp" hit). Post-F7 fails.
+            test_patch=_test_patch_adding("tests/auth_tests/test_forms.py"),
+            fail_to_pass=[
+                "test_link_to_password_reset_in_helptext_via_to_field "
+                "(auth_tests.test_forms.UserChangeFormTest)"
+            ],
+        )
+    )
+    assert ok is True, reason
+
+
+def test_real_django_shape_deep_module_passes() -> None:
+    """Deeper Django path — the derived module has multiple internal segments — must match
+    when test_patch adds the file under `tests/`. Payload from `django__django-16408`."""
+    ok, reason = firewall_check(
+        _instance(
+            test_patch=_test_patch_adding("tests/known_related_objects/tests.py"),
+            fail_to_pass=[
+                "test_multilevel_reverse_fk_cyclic_select_related "
+                "(known_related_objects.tests.ExistingRelatedInstancesTests)"
+            ],
+        )
+    )
+    assert ok is True, reason
+
+
+def test_unittest_id_substring_leak_fails_closed_post_F7_round_2() -> None:
+    """The specific leak the firewall exists to catch. Pre-F7: substring `"myapp"` matched any
+    tp_file under `myapp/`. Post-F7-round-2: derived `myapp/tests.py` (class-drop, since `tests`
+    is not PascalCase) plus `myapp/tests.py` full-module — neither matches `myapp/other/
+    test_foo.py` as an equality or `/`-boundary suffix. Leak fails closed."""
+    ok, reason = firewall_check(
+        _instance(
             test_patch=_test_patch_adding("myapp/other/test_foo.py"),
             fail_to_pass=["test_foo (myapp.tests)"],
         )
@@ -92,8 +122,33 @@ def test_unittest_id_substring_leak_fails_closed_post_F7() -> None:
     assert "test_foo (myapp.tests)" in reason
 
 
-def test_one_segment_parenthesised_group_fails_closed() -> None:
-    """A one-segment parenthesised group ('test_func (something)') is not a `module.Class` form
-    and cannot resolve to a file path. Fail closed, same reason as fully-unparseable ids."""
-    ok, _reason = firewall_check(_instance(fail_to_pass=["test_func (somemodule)"]))
+def test_leading_slash_boundary_blocks_prefix_confusion() -> None:
+    """`myapp/tests.py` must NOT match `some_myapp/tests.py`. The leading `/` in
+    `endswith("/" + derived)` forces a segment break."""
+    ok, _reason = firewall_check(
+        _instance(
+            test_patch=_test_patch_adding("some_myapp/tests.py"),
+            fail_to_pass=["test_x (myapp.tests.SomeClass)"],
+        )
+    )
     assert ok is False
+
+
+def test_one_segment_parenthesised_group_resolves_to_a_module_file() -> None:
+    """A one-segment parenthesised group `(some_module)` names an importable module. F7-round-2
+    derives `some_module.py` and applies the sys.path-boundary rule. test_patch adding the
+    file at any sys.path-legal path passes; a different filename fails closed."""
+    ok_hit, _ = firewall_check(
+        _instance(
+            test_patch=_test_patch_adding("tests/some_module.py"),
+            fail_to_pass=["test_func (some_module)"],
+        )
+    )
+    assert ok_hit is True
+    ok_miss, _ = firewall_check(
+        _instance(
+            test_patch=_test_patch_adding("tests/other_module.py"),
+            fail_to_pass=["test_func (some_module)"],
+        )
+    )
+    assert ok_miss is False

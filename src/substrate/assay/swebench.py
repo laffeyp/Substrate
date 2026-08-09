@@ -97,32 +97,41 @@ def firewall_check(instance: Mapping[str, Any]) -> tuple[bool, str]:
         # pytest: "path/test_x.py::Class::test" -> the file is the path before "::".
         if "::" in test_id:
             return test_id.split("::")[0] in tp_files
-        # unittest/django: "test_func (module.sub.Class)" -> the parenthesised group is the module
-        # path, with a trailing class name. Drop the class, dot-join the module segments, append
-        # ".py" — that IS the file path convention unittest uses. Compare for EQUALITY against
-        # test_patch's added files, not substring.
+        # unittest/django: "test_func (module.path.optional_Class)". Python's unittest loader
+        # resolves this by importing `module.path[.optional_Class]` — the file is
+        # `module/path.py` on sys.path. Django puts `tests/` on sys.path at run time, so a real
+        # id `(auth_tests.test_forms.UserChangeFormTest)` resolves to `auth_tests/test_forms.py`
+        # AT sys.path root, which lives on disk at `tests/auth_tests/test_forms.py`. The match
+        # rule therefore mirrors module resolution: any prefix of the added file's path is a
+        # legal sys.path entry, so a tp_file matches iff it equals the derived path OR ends with
+        # `"/" + derived` (the `/` forces a segment boundary so `myapp/tests.py` cannot spuriously
+        # match `some_myapp/tests.py`).
         #
-        # F7 fix (review 2026-08-08): the pre-fix "any(frag in f for f in tp_files)" was substring
-        # match. For "test_x (myapp.tests)" -> frag = "myapp", which matched ANY tp_file under
-        # myapp/ — so a pre-existing test at myapp/other/test_foo.py passed the firewall whenever
-        # test_patch happened to add anything under myapp/. That is the exact leak the firewall
-        # exists to catch.
+        # Class vs module: Python convention is that classes are PascalCase and modules are
+        # snake_case. If the last dotted segment starts with an uppercase letter, treat it as a
+        # class name and derive from parts[:-1]; otherwise treat all segments as module path.
+        # Cover both interpretations when ambiguous (two segments where the last might be
+        # either) — match if EITHER form's derived path is present.
         m = re.search(r"\(([\w.]+)\)", test_id)
         if not m:
             # Fail CLOSED on parse failure (sprint 142): an unparseable FAIL_TO_PASS id cannot be
-            # verified to be added by test_patch, so we cannot certify the structural firewall for
-            # this instance. Condition 1 (patch/test_patch file intersection) does NOT cover this
-            # case — it catches shared source files, not held-out test ids we cannot resolve to a
-            # file. Returning False here classifies the id as leaked (absent from test_patch);
-            # firewall_check then surfaces it in the `leaked` list and the instance is excluded.
+            # verified to be added by test_patch, so we cannot certify the structural firewall.
             return False
         parts = m.group(1).split(".")
-        if len(parts) < 2:
-            # A one-segment parenthesised group ("test_func (something)") is not a module.Class
-            # form — cannot resolve to a file. Fail closed, same reason as unparseable ids.
+        if not parts:
             return False
-        module_path = "/".join(parts[:-1]) + ".py"
-        return module_path in tp_files
+        candidates: list[str] = []
+        # Class-drop interpretation (PascalCase last segment).
+        if len(parts) >= 2 and parts[-1][:1].isupper():
+            candidates.append("/".join(parts[:-1]) + ".py")
+        # Full-module interpretation (all segments are module path).
+        candidates.append("/".join(parts) + ".py")
+
+        for derived in candidates:
+            for f in tp_files:
+                if f == derived or f.endswith("/" + derived):
+                    return True
+        return False
 
     patch_files = _added_files(str(instance.get("patch", "")))
     tp_files = _added_files(str(instance.get("test_patch", "")))

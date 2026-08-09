@@ -406,15 +406,52 @@ async def _run() -> int:
 
     # The Adapter door — every instance goes through prepare_swebench_case; a firewall failure is
     # excluded and logged, never silently admitted. `prepare_swebench_case` runs one Docker call
-    # per instance to compute passed_at_base — expensive at 300 instances, but done once.
-    cases: list[tuple[Case, dict[str, object]]] = []
-    for inst in ds:
-        try:
-            case = prepare_swebench_case(inst)
-        except FirewallViolation as fv:
-            print(f"EXCLUDED (firewall): {inst['instance_id']}: {fv.reason}", flush=True)
-            continue
-        cases.append((case, inst))
+    # per instance to compute passed_at_base + a git clone. Both are IO-bound (Docker image pull
+    # bandwidth + git clone bandwidth), so a serial for-loop leaves the machine idle. Parallelise
+    # across CONCURRENCY workers via asyncio.to_thread; the Docker daemon and git handle
+    # concurrent pulls fine. 300 instances at CONCURRENCY=8 finishes in ~15-30 min instead of
+    # ~5-10 hours (KIT_DIARY-worthy: the pre-fix serial loop was the projection-blower on this
+    # confirmatory).
+    print(f"preparing {len(ds)} cases at CONCURRENCY={CONCURRENCY}...", flush=True)
+    prep_sem = asyncio.Semaphore(CONCURRENCY)
+    prep_progress = {"done": 0, "excluded": 0}
+    prep_lock = asyncio.Lock()
+
+    async def _prep_one(inst: dict[str, Any]) -> tuple[Case, dict[str, object]] | None:
+        async with prep_sem:
+            try:
+                case = await asyncio.to_thread(prepare_swebench_case, inst)
+            except FirewallViolation as fv:
+                async with prep_lock:
+                    prep_progress["excluded"] += 1
+                    prep_progress["done"] += 1
+                    print(
+                        f"[{prep_progress['done']}/{len(ds)}] EXCLUDED (firewall): "
+                        f"{inst['instance_id']}: {fv.reason}",
+                        flush=True,
+                    )
+                return None
+            except Exception as exc:  # noqa: BLE001 — one bad instance must not sink the sweep
+                async with prep_lock:
+                    prep_progress["done"] += 1
+                    print(
+                        f"[{prep_progress['done']}/{len(ds)}] PREP FAILED "
+                        f"{inst['instance_id']}: {type(exc).__name__}: {exc}",
+                        flush=True,
+                    )
+                return None
+            async with prep_lock:
+                prep_progress["done"] += 1
+                if prep_progress["done"] % 20 == 0 or prep_progress["done"] == len(ds):
+                    print(
+                        f"[{prep_progress['done']}/{len(ds)}] prepared "
+                        f"(excluded={prep_progress['excluded']})",
+                        flush=True,
+                    )
+            return case, inst
+
+    prepped = await asyncio.gather(*(_prep_one(inst) for inst in ds))
+    cases: list[tuple[Case, dict[str, object]]] = [c for c in prepped if c is not None]
     print(f"prepared {len(cases)} firewall-clean cases", flush=True)
 
     # Gap 7: write the sidecar BEFORE the sweep so a mid-run abort still leaves the .cases.json
