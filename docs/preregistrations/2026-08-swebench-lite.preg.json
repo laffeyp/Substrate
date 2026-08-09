@@ -85,13 +85,14 @@
 
   "contamination_filter": {
     "per_model_cutoff_dates": {
-      "deepseek-v4-pro:cloud": "<YYYY-MM>",
-      "glm-5.2:cloud": "<YYYY-MM — verify with the model card at run time>",
-      "kimi-k2.7-code:cloud": "<YYYY-MM — verify with the model card at run time>",
-      "nemotron-3-super:cloud": "<YYYY-MM — verify with the model card at run time>"
+      "deepseek-v4-pro:cloud": "2024-04",
+      "glm-5.2:cloud": "2023-12",
+      "kimi-k2.7-code:cloud": "2024-06",
+      "nemotron-3-super:cloud": "2024-06"
     },
+    "_source_note": "Model self-reports gathered live 2026-08-09. Each model was asked its knowledge cutoff and to cite a specific event from the last month before that cutoff. Grounding events: deepseek-v4-pro cited the April 2024 solar eclipse; glm-5.2 cited the November 2023 Sam Altman firing/rehiring at OpenAI; kimi-k2.7-code cited the May 2024 GPT-4o announcement; nemotron-3-super cited the May 2024 Eurovision final. Self-reports are indicative, not authoritative — vendors do not publish the true training-data cutoff for these models.",
     "instances_filtered_to_after_each_model_cutoff": false,
-    "_note": "SWE-bench Lite is a public/dated split; contamination is a known limit. Report the resolve rate WITH the contamination note per KIT_DIARY 21. A contamination-clean number needs SWE-bench-Live (out of Sprint 160's scope)."
+    "_contamination_finding": "SWE-bench Lite was released 2023-11 (Jimenez et al., arxiv 2310.06770). Every model in the ensemble + strong slot has a self-reported cutoff AFTER that date, so every instance is potentially in training data. This is the KIT_DIARY 21 caveat made concrete. The confirmatory number carries this caveat on its face; a contamination-CLEAN number requires SWE-bench-Live (out of Sprint 160's scope). The comparator Agentless + GPT-4o (Xia et al. 2024) has the same limit — it too postdates the Lite release."
   },
 
   "firewall_audit_ci_gate": {
