@@ -12,17 +12,28 @@ import json
 
 import pytest
 
-from substrate.assay.oracle import EXTERNAL_GRADER
+from substrate.assay.oracle import EXTERNAL_GRADER, Verdict
 from substrate.assay.swebench import (
     KEY_INSTANCE_ID,
     KEY_MODEL,
     KEY_PREDICTION,
+    REASON_CONTAINER_CRASHED,
+    REASON_DOCKER_ERROR,
+    REASON_FIREWALL_VIOLATION,
+    REASON_GIT_ERROR,
+    REASON_HARNESS_ERROR,
+    REASON_TIMED_OUT,
+    HarnessOutcome,
+    _HARNESS_REASONS,
     make_prediction,
     model_patch_from_record,
     read_resolved,
     read_run_report,
+    read_swebench_timeouts,
+    run_swebench_one,
     swebench_oracle,
     swebench_record_oracle,
+    timeout_for_instance,
     verify_constants,
     write_predictions,
 )
@@ -290,6 +301,71 @@ def test_swebench_record_oracle_stamps_recall_even_when_patch_empty():
     assert result.passed is False
     assert result.recall_at_k == pytest.approx(0.5)  # 1 of 2 gold files hit
     assert result.full_recall_at_k is False
+
+
+def test_harness_reasons_closed_set_names_the_six_documented_states():
+    # H-3 (ratified 2026-08-10): the closed set of reason strings for NO_VERDICT rows.
+    # Named constants + the frozenset must stay in sync; a new failure mode extends BOTH
+    # (design v3 §"The runner contract").
+    assert _HARNESS_REASONS == frozenset(
+        {
+            REASON_TIMED_OUT,
+            REASON_CONTAINER_CRASHED,
+            REASON_DOCKER_ERROR,
+            REASON_HARNESS_ERROR,
+            REASON_GIT_ERROR,
+            REASON_FIREWALL_VIOLATION,
+        }
+    )
+    # The strings are the exact wire form the writeup + runner rows quote.
+    assert REASON_TIMED_OUT == "timed_out"
+    assert REASON_CONTAINER_CRASHED == "container_crashed"
+
+
+def test_harness_outcome_carries_typed_verdict_and_reason():
+    o = HarnessOutcome(verdict=Verdict.NO_VERDICT, reason=REASON_TIMED_OUT, detail="wall 60s")
+    assert o.verdict is Verdict.NO_VERDICT
+    assert o.reason == REASON_TIMED_OUT
+    with pytest.raises((AttributeError, TypeError)):
+        o.reason = REASON_HARNESS_ERROR  # type: ignore[misc]
+
+
+def test_run_swebench_one_empty_patch_is_fail_without_docker(tmp_path):
+    # Defensive: an empty patch is a FAIL, not a NO_VERDICT — the harness never had
+    # anything to grade. Docker never fires. Callers that go through the oracle already
+    # short-circuit; the grader is defensive so a direct caller cannot get NO_VERDICT
+    # for empty input.
+    out = run_swebench_one(
+        "astropy__astropy-12345",
+        "",
+        dataset_name="princeton-nlp/SWE-bench_Verified",
+        model_name="substrate",
+        run_id="test-empty",
+        report_dir=tmp_path,
+        timeout_seconds=60,
+    )
+    assert out.verdict is Verdict.FAIL
+    assert out.reason == ""
+
+
+def test_read_swebench_timeouts_returns_empty_dict_when_absent(tmp_path):
+    missing = tmp_path / "nope.json"
+    assert read_swebench_timeouts(missing) == {}
+
+
+def test_read_swebench_timeouts_parses_repo_map(tmp_path):
+    p = tmp_path / "t.json"
+    p.write_text('{"astropy/astropy": 3600, "django/django": 1800}')
+    assert read_swebench_timeouts(p) == {"astropy/astropy": 3600, "django/django": 1800}
+
+
+def test_timeout_for_instance_uses_table_prefix():
+    table = {"astropy/astropy": 3600, "sympy/sympy": 5400}
+    # instance_id shape: `{owner}__{repo}-{issue}` -> `{owner}/{repo}`
+    assert timeout_for_instance("astropy__astropy-12345", table) == 3600
+    assert timeout_for_instance("sympy__sympy-987", table) == 5400
+    # Unknown repo falls back to the 60-min default (a repo we didn't measure).
+    assert timeout_for_instance("some__unknown-1", table) == 60 * 60
 
 
 def test_swebench_record_oracle_recall_none_on_missing_gold_or_suspects():

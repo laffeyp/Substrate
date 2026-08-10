@@ -1,0 +1,14 @@
+{
+  "astropy/astropy": 3600,
+  "django/django": 3600,
+  "matplotlib/matplotlib": 1800,
+  "mwaskom/seaborn": 1200,
+  "pallets/flask": 1200,
+  "psf/requests": 1200,
+  "pydata/xarray": 3600,
+  "pylint-dev/pylint": 1800,
+  "pytest-dev/pytest": 1800,
+  "scikit-learn/scikit-learn": 3600,
+  "sphinx-doc/sphinx": 1800,
+  "sympy/sympy": 5400
+}

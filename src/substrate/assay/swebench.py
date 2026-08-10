@@ -28,9 +28,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
+
+from msgspec import Struct
 
 from .oracle import EXTERNAL_GRADER, ExternalGraderOracle, Result, Verdict
 
@@ -47,6 +51,76 @@ KEY_MODEL = "model_name_or_path"
 KEY_PREDICTION = "model_patch"
 
 DEFAULT_MODEL_NAME = "substrate-coding-flow"
+
+
+# H-3 (ratified 2026-08-10): the closed set of `reason` strings shared by the oracle and the
+# runner. Every `NO_VERDICT` verdict carries exactly one of these strings; every runner-side
+# cell-level error uses the same lexicon. `pass`/`fail` verdicts carry the empty string.
+# One vocabulary, one translation table (design v3 §"The oracle contract"). Verified callers
+# import the named constants, not the raw literals — the closed set is checked at the writer
+# boundary.
+REASON_TIMED_OUT = "timed_out"
+REASON_CONTAINER_CRASHED = "container_crashed"
+REASON_DOCKER_ERROR = "docker_error"
+REASON_HARNESS_ERROR = "harness_error"
+REASON_GIT_ERROR = "git_error"
+REASON_FIREWALL_VIOLATION = "firewall_violation"
+
+_HARNESS_REASONS: frozenset[str] = frozenset(
+    {
+        REASON_TIMED_OUT,
+        REASON_CONTAINER_CRASHED,
+        REASON_DOCKER_ERROR,
+        REASON_HARNESS_ERROR,
+        REASON_GIT_ERROR,
+        REASON_FIREWALL_VIOLATION,
+    }
+)
+
+# Per-repo wall-clock timeouts for the harness (seconds). Loaded from swebench_timeouts.json
+# so the pre-registration can pin the table's sha256. The default when a repo is unknown
+# is 60 min — the design's fallback for the confirmatory (v3 §"The grader contract").
+_DEFAULT_TIMEOUT_SECONDS = 60 * 60
+_SWEBENCH_TIMEOUTS_PATH = Path(__file__).parent / "swebench_timeouts.json"
+
+
+def read_swebench_timeouts(path: Path | None = None) -> dict[str, int]:
+    """Load the per-repo timeout table (seconds). Path defaults to
+    `assay/swebench_timeouts.json`; the pre-reg pins its sha256 so a change trips the gate.
+    Returns {repo -> seconds}; empty dict if the file is absent (callers fall back to the
+    default via `timeout_for_instance`)."""
+    p = path or _SWEBENCH_TIMEOUTS_PATH
+    if not p.exists():
+        return {}
+    return {str(k): int(v) for k, v in json.loads(p.read_text()).items()}
+
+
+def timeout_for_instance(instance_id: str, table: Mapping[str, int] | None = None) -> int:
+    """The wall-clock deadline for one instance (seconds). Reads the repo prefix off the
+    instance_id (`{owner}__{repo}-{issue}` -> `{owner}/{repo}`) and looks it up in the table;
+    falls back to `_DEFAULT_TIMEOUT_SECONDS` on any miss."""
+    if table is None:
+        table = read_swebench_timeouts()
+    # instance_id shape: `astropy__astropy-12345`
+    if "__" in instance_id:
+        owner, _, rest = instance_id.partition("__")
+        repo = rest.split("-")[0] if "-" in rest else rest
+        key = f"{owner}/{repo}"
+        if key in table:
+            return table[key]
+    return _DEFAULT_TIMEOUT_SECONDS
+
+
+class HarnessOutcome(Struct, frozen=True):
+    """One grader call's typed outcome (design v3 §"The grader contract"). `verdict` is one
+    of `PASS | FAIL | NO_VERDICT`; on `NO_VERDICT`, `reason` names WHY out of the closed
+    `_HARNESS_REASONS` set. On `PASS` or `FAIL`, `reason` is the empty string. `detail`
+    carries a short human-readable note (exit code + last stderr chunk on
+    `container_crashed`; exception class on `harness_error`)."""
+
+    verdict: Verdict
+    reason: str = ""
+    detail: str = ""
 
 
 class FirewallViolation(ValueError):
@@ -288,6 +362,141 @@ def run_swebench(
     raise FileNotFoundError(f"no swebench run report {report_name} in {rdir} or {Path.cwd()}")
 
 
+def _container_name(instance_id: str, run_id: str) -> str:
+    """The container name the swebench harness pins for one instance/run pair
+    (`test_spec.get_instance_container_name`, harness 4.x). Named here so `docker kill`
+    can target it under `subprocess.TimeoutExpired` — the invariant lives in a named
+    function, not a scattered f-string."""
+    return f"sweb.eval.{instance_id.lower()}.{run_id}"
+
+
+def _docker_kill(container_name: str) -> None:
+    """Best-effort `docker kill <name>`. Never raises — the caller has already timed out
+    and just needs the container gone. Absent daemon, missing container, permission errors
+    all fall through silently (the no-orphan-container invariant is enforced by the caller
+    that also calls `docker rm` cleanup if the harness leaves one behind)."""
+    try:
+        subprocess.run(
+            ["docker", "kill", container_name],
+            timeout=30,
+            capture_output=True,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+
+
+def run_swebench_one(
+    instance_id: str,
+    model_patch: str,
+    *,
+    dataset_name: str,
+    model_name: str,
+    run_id: str,
+    report_dir: Path | str,
+    timeout_seconds: int,
+    split: str = "test",
+    namespace: str = "swebench",
+) -> HarnessOutcome:
+    """ENV-GATED (Docker). Grade ONE instance in ONE container with a hard wall-clock.
+
+    Owns the entire lifecycle for one grade call: writes the one-row predictions file,
+    fires the harness in a subprocess (so `subprocess.run(timeout=T)` can enforce the
+    deadline — an in-process `run_evaluation.main` call cannot be interrupted from a
+    thread), kills the container by its deterministic name on timeout, parses the report
+    on completion. Returns a typed `HarnessOutcome` — every one of the four failure modes
+    from the design's verdict-mapping table lands on a distinct `reason` string from the
+    shared `_HARNESS_REASONS` closed set.
+
+    Container name is `sweb.eval.{instance_id}.{run_id}` (the harness's own naming rule);
+    on `subprocess.TimeoutExpired`, `docker kill` targets that name so no orphan container
+    survives the call (design v3 §"No orphaned containers")."""
+    verify_constants()
+    report_dir = Path(report_dir)
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    if not model_patch.strip():
+        # Consistent with the sync oracle: an empty patch is a definite FAIL, no harness
+        # call needed. The oracle already returns FAIL for this shape; the grader is
+        # defensive so a direct caller can't get a NO_VERDICT for an empty patch.
+        return HarnessOutcome(verdict=Verdict.FAIL, reason="", detail="empty patch")
+
+    pred = make_prediction(instance_id, model_patch, model_name=model_name)
+    preds_path = write_predictions([pred], report_dir / f"preds_{run_id}.jsonl")
+    container = _container_name(instance_id, run_id)
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "swebench.harness.run_evaluation",
+        "--dataset_name",
+        dataset_name,
+        "--split",
+        split,
+        "--instance_ids",
+        instance_id,
+        "--predictions_path",
+        str(preds_path),
+        "--max_workers",
+        "1",
+        "--run_id",
+        run_id,
+        "--timeout",
+        str(timeout_seconds),
+        "--namespace",
+        namespace,
+        "--report_dir",
+        str(report_dir),
+        "--cache_level",
+        "env",
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            timeout=timeout_seconds + 60,  # 60s margin over the harness's own timeout
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        _docker_kill(container)
+        return HarnessOutcome(
+            verdict=Verdict.NO_VERDICT,
+            reason=REASON_TIMED_OUT,
+            detail=f"wall-clock exceeded {timeout_seconds}s for {instance_id}",
+        )
+    except FileNotFoundError as e:
+        return HarnessOutcome(
+            verdict=Verdict.NO_VERDICT,
+            reason=REASON_HARNESS_ERROR,
+            detail=f"{type(e).__name__}: {e}",
+        )
+
+    # The harness always writes a report if the container ran to completion. Missing
+    # report + non-zero exit => container_crashed; missing report + zero exit =>
+    # harness_error (unusual but possible if the report writer itself died).
+    try:
+        resolved = read_resolved(report_dir, run_id, model_name, instance_id)
+    except FileNotFoundError:
+        if proc.returncode != 0:
+            tail = (proc.stderr or "")[-400:]
+            return HarnessOutcome(
+                verdict=Verdict.NO_VERDICT,
+                reason=REASON_CONTAINER_CRASHED,
+                detail=f"exit={proc.returncode} stderr_tail={tail!r}",
+            )
+        return HarnessOutcome(
+            verdict=Verdict.NO_VERDICT,
+            reason=REASON_HARNESS_ERROR,
+            detail=f"exit=0 but no report.json for {instance_id}",
+        )
+    return HarnessOutcome(
+        verdict=Verdict.PASS if resolved else Verdict.FAIL,
+        reason="",
+        detail=f"resolved={resolved} for {instance_id}",
+    )
+
+
 def swebench_oracle(
     *, report_dir: Path | str, run_id: str, model_name: str = DEFAULT_MODEL_NAME
 ) -> ExternalGraderOracle:
@@ -394,22 +603,32 @@ class SwebenchRecordOracle:
         report_root: Path | str,
         dataset_name: str,
         model_name: str = DEFAULT_MODEL_NAME,
-        grade: Callable[[str, str], bool] | None = None,
+        grade: Callable[[str, str], bool | HarnessOutcome] | None = None,
         grader_error_band: float | None = _LITE_GRADER_ERROR_BAND,
+        namespace: str = "swebench",
     ) -> None:
         self._report_root = report_root
         self._dataset_name = dataset_name
         self._model_name = model_name
         self._grade_override = grade
         self._grader_error_band = grader_error_band
+        self._namespace = namespace
 
-    def _default_grade(self, instance_id: str, model_patch: str) -> bool:
-        return grade_patch(
+    def _default_grade(self, instance_id: str, model_patch: str) -> HarnessOutcome:
+        # H-3 (ratified 2026-08-10): route the real grade through `run_swebench_one` so the
+        # grader owns container lifecycle + wall-clock, and the NO_VERDICT states carry
+        # typed reason strings from the closed `_HARNESS_REASONS` set.
+        h = hashlib.sha1(f"{self._model_name}:{model_patch}".encode()).hexdigest()[:10]
+        run_id = f"assay-{instance_id}-{h}"
+        return run_swebench_one(
             instance_id,
             model_patch,
-            report_root=self._report_root,
             dataset_name=self._dataset_name,
             model_name=self._model_name,
+            run_id=run_id,
+            report_dir=Path(self._report_root) / instance_id,
+            timeout_seconds=timeout_for_instance(instance_id),
+            namespace=self._namespace,
         )
 
     def grade(self, record: Any, ground_truth: Any) -> Result:
@@ -465,15 +684,27 @@ class SwebenchRecordOracle:
                     recall_at_k=recall,
                     full_recall_at_k=full_recall,
                 )
-        do_grade = self._grade_override or self._default_grade
-        resolved = do_grade(instance_id, patch)
+        if self._grade_override is not None:
+            raw = self._grade_override(instance_id, patch)
+            outcome = (
+                raw
+                if isinstance(raw, HarnessOutcome)
+                else HarnessOutcome(
+                    verdict=Verdict.PASS if raw else Verdict.FAIL,
+                    reason="",
+                    detail=f"override resolved={raw}",
+                )
+            )
+        else:
+            outcome = self._default_grade(instance_id, patch)
         return Result(
-            verdict=Verdict.PASS if resolved else Verdict.FAIL,
-            score=1.0 if resolved else 0.0,
+            verdict=outcome.verdict,
+            score=1.0 if outcome.verdict is Verdict.PASS else 0.0,
             metric="resolved",
             oracle_class=EXTERNAL_GRADER,
             replayable=False,
-            detail=f"swebench resolved={resolved} for {instance_id} ({len(patch)}b patch)",
+            detail=f"{outcome.detail} ({len(patch)}b patch)"
+            + (f" reason={outcome.reason}" if outcome.reason else ""),
             grader_error_band=self._grader_error_band,
             recall_at_k=recall,
             full_recall_at_k=full_recall,
@@ -485,7 +716,7 @@ def swebench_record_oracle(
     report_root: Path | str,
     dataset_name: str,
     model_name: str = DEFAULT_MODEL_NAME,
-    grade: Callable[[str, str], bool] | None = None,
+    grade: Callable[[str, str], bool | HarnessOutcome] | None = None,
     grader_error_band: float | None = _LITE_GRADER_ERROR_BAND,
 ) -> SwebenchRecordOracle:
     """Legacy factory kept for backward compat. Returns a `SwebenchRecordOracle` (F2 fix, review
@@ -714,6 +945,13 @@ __all__ = [
     "KEY_PREDICTION",
     "DEFAULT_MODEL_NAME",
     "FirewallViolation",
+    "HarnessOutcome",
+    "REASON_CONTAINER_CRASHED",
+    "REASON_DOCKER_ERROR",
+    "REASON_FIREWALL_VIOLATION",
+    "REASON_GIT_ERROR",
+    "REASON_HARNESS_ERROR",
+    "REASON_TIMED_OUT",
     "SwebenchRecordOracle",
     "SwebenchExtractOnlyOracle",
     "batch_grade_from_records",
@@ -722,8 +960,11 @@ __all__ = [
     "write_predictions",
     "read_resolved",
     "read_run_report",
+    "read_swebench_timeouts",
+    "timeout_for_instance",
     "verify_constants",
     "run_swebench",
+    "run_swebench_one",
     "swebench_oracle",
     "model_patch_from_record",
     "suspect_files_from_record",
