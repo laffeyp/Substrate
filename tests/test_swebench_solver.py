@@ -9,7 +9,7 @@ from pathlib import Path
 from substrate.api import Runtime, read_record
 from substrate.topologies.swebench_solver.assemble import (
     swebench_repair_topology,
-    swebench_solver_topology,
+    swebench_solver_topology_with_test_selection,
 )
 
 _FIX = "# path: m.py\n<<<<<<< SEARCH\n    return x\n=======\n    return x + 1\n>>>>>>> REPLACE\n"
@@ -49,7 +49,7 @@ class _StubRunner:
 
 async def test_swebench_solver_end_to_end_on_a_fixture(tmp_path) -> None:  # type: ignore[no-untyped-def]
     base = _fixture_repo()
-    topo = swebench_solver_topology(
+    topo = swebench_solver_topology_with_test_selection(
         responders=[_SolverResponder() for _ in range(2)],
         base_checkout=base,
         issue="make f(x) return x + 1",
@@ -91,7 +91,7 @@ class _BaseDiffRunner:
 
 async def test_passed_at_base_routes_select_through_regression_held(tmp_path) -> None:  # type: ignore[no-untyped-def]
     base = _fixture_repo()
-    topo = swebench_solver_topology(
+    topo = swebench_solver_topology_with_test_selection(
         responders=[_SolverResponder() for _ in range(2)],
         base_checkout=base,
         issue="make f(x) return x + 1",
@@ -209,7 +209,7 @@ async def test_runner_failure_records_producer_failed(tmp_path) -> None:  # type
     from the producer, the kernel records ProducerFailed, and the topology finalizes without a
     SelectedPatch. No silent 'runner-error TestResults' pretending the cell succeeded."""
     base = _fixture_repo()
-    topo = swebench_solver_topology(
+    topo = swebench_solver_topology_with_test_selection(
         responders=[_SolverResponder() for _ in range(2)],
         base_checkout=base,
         issue="make f(x) return x + 1",
@@ -246,7 +246,7 @@ async def test_drafter_model_error_records_producer_failed(tmp_path) -> None:  #
     on the record. The topology finalizes without a SelectedPatch. The runner (upstream of
     this test) then sees an incomplete cell and halts the sweep."""
     base = _fixture_repo()
-    topo = swebench_solver_topology(
+    topo = swebench_solver_topology_with_test_selection(
         responders=[_DyingDrafter() for _ in range(2)],
         base_checkout=base,
         issue="make f(x) return x + 1",
@@ -280,7 +280,7 @@ async def test_localizer_model_error_records_producer_failed(tmp_path) -> None: 
     Distinguishes 'localizer honestly found nothing' from 'localizer crashed' — the former
     would emit SuspectFiles(files=()), the latter emits ProducerFailed."""
     base = _fixture_repo()
-    topo = swebench_solver_topology(
+    topo = swebench_solver_topology_with_test_selection(
         responders=[_DyingLocalizer() for _ in range(2)],
         base_checkout=base,
         issue="make f(x) return x + 1",

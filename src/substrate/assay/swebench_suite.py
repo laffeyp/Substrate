@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, NotRequired, TypedDict, cast
 
 from ..adapters import OllamaResponder
-from ..topologies.swebench_solver.assemble import swebench_solver_topology
+from ..topologies.swebench_solver.assemble import swebench_solver_topology_with_test_selection
 from ..topologies.swebench_solver.select_docker import (
     DockerTestRunner,
     build_regression_command,
@@ -241,7 +241,7 @@ def solver_topology_from_payload(
         passed_at_base = None
     else:
         passed_at_base = frozenset(payload["passed_at_base"])
-    return swebench_solver_topology(
+    return swebench_solver_topology_with_test_selection(
         responders=responders,
         base_checkout=str(payload["base_checkout"]),
         issue=str(payload["issue"]),

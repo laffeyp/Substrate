@@ -111,7 +111,9 @@ def main() -> None:
 
     from substrate.api import Runtime, read_record
     from substrate.assay.swebench import make_prediction, read_resolved, run_swebench
-    from substrate.topologies.swebench_solver.assemble import swebench_solver_topology
+    from substrate.topologies.swebench_solver.assemble import (
+        swebench_solver_topology_with_test_selection,
+    )
 
     files = (
         subprocess.run(["git", "-C", base, "ls-files"], capture_output=True, text=True)
@@ -132,7 +134,7 @@ def main() -> None:
         ) -> tuple[int, str]:
             return (0, "1 passed in 0.0s")
 
-    topo = swebench_solver_topology(
+    topo = swebench_solver_topology_with_test_selection(
         responders=[_GoldResponder()],
         base_checkout=base,
         issue=inst["problem_statement"][:4000],

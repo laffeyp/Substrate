@@ -435,7 +435,7 @@ def swebench_repair_topology(
     return topo
 
 
-def swebench_solver_topology(
+def swebench_solver_topology_with_test_selection(
     *,
     responders: list[Responder],
     base_checkout: str,

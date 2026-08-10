@@ -105,3 +105,96 @@ def test_baseline_matched_compute_default_role_is_baseline():
     # mechanism (one strong model vs. three at N=1 each).
     arm = baseline_matched_compute_arm("matched", model="m", k_calls=9)
     assert arm.role == "baseline"
+
+
+class _RecordingBuilder:
+    """A stub TopologyBuilder that records every producer_kind name registered against it.
+    Used to inspect what a topology declares without wiring the real substrate runtime."""
+
+    def __init__(self):
+        self.producer_kinds: list[str] = []
+
+    def producer_kind(self, name, **_kw):
+        self.producer_kinds.append(name)
+
+    def initial(self, *_a, **_kw):
+        pass
+
+    def view(self, *_a, **_kw):
+        pass
+
+    def trigger(self, *_a, **_kw):
+        pass
+
+    def termination(self, *_a, **_kw):
+        pass
+
+
+def _payload_for_test():
+    # Minimal PreparedPayload the light topology needs. `base_checkout` and `repo_skeleton`
+    # can be strings the topology never dereferences at build time (only at run time).
+    return {
+        "base_checkout": "/tmp/does-not-exist",
+        "issue": "test issue",
+        "repo_skeleton": "",
+        "known_files": set(),
+        "image": "img",
+        "spec": None,
+        "regression_files": (),
+        "passed_at_base": (),
+        "exclude": (),
+        "skip_base_pytest": True,
+    }
+
+
+def _case_for_test():
+    from substrate.assay.suite import Case
+
+    inst = _inst()
+    return Case(
+        case_id="pallets_1776_flask-4045",
+        payload=_payload_for_test(),
+        ground_truth=inst,
+    )
+
+
+def test_matrix_arms_dispatch_light_topology_producer_kinds_omit_select_exec():
+    # Design v3 §"The five-arm matrix" (ratified 2026-08-10): every arm builds the LIGHT
+    # `swebench_repair_topology`; the heavy `select_exec` test-execution SELECT apparatus
+    # is out. This test builds every arm factory's topology and asserts producer_kinds
+    # never include `select_exec`. A regression here fails BEFORE the confirmatory fires.
+    case = _case_for_test()
+    arms = [
+        single_draft_baseline_arm("single", model="m"),
+        n_drafts_no_correction_arm("no_correction", model="m", n=3),
+        n_drafts_repair_ensemble_arm("ensemble", models=("m1", "m2", "m3")),
+        baseline_matched_compute_arm("matched", model="m_strong", k_calls=9),
+    ]
+    for arm in arms:
+        topo = arm.build(case)
+        b = _RecordingBuilder()
+        topo(b)
+        assert "select_exec" not in b.producer_kinds, (
+            f"arm {arm.name!r} declared a select_exec producer — the heavy topology leaked "
+            "back into the matrix. Design v3 §'The five-arm matrix' forbids this at the gate."
+        )
+
+
+def test_include_test_selection_true_opts_into_heavy_topology():
+    # The `include_test_selection=True` branch is the follow-up two-phase path — not what
+    # any confirmatory arm takes. Verify it does dispatch a topology whose producer_kinds
+    # DO include `select_exec`, so the escape hatch is real and not accidentally dead.
+    from substrate.assay.swebench_matrix import _build_solver_arm_from_payload
+
+    case = _case_for_test()
+    topo = _build_solver_arm_from_payload(
+        case,
+        ["m"],
+        n=1,
+        max_rounds=1,
+        max_tokens=2048,
+        include_test_selection=True,
+    )
+    b = _RecordingBuilder()
+    topo(b)
+    assert "select_exec" in b.producer_kinds

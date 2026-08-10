@@ -24,7 +24,9 @@ from datasets import load_dataset
 from substrate.api import Runtime, read_record
 from substrate.assay.swebench import firewall_check, make_prediction, read_resolved, run_swebench
 from substrate.reference._models import OllamaResponder
-from substrate.topologies.swebench_solver.assemble import swebench_solver_topology
+from substrate.topologies.swebench_solver.assemble import (
+    swebench_solver_topology_with_test_selection,
+)
 from substrate.topologies.swebench_solver.localize import full_recall_at_k, recall_at_k
 from substrate.topologies.swebench_solver.select_docker import (
     DockerTestRunner,
@@ -95,7 +97,7 @@ def main() -> None:
     # a real coder model for every seam (localizer + repro reuse responders[0]; drafters per slot).
     responders = [OllamaResponder(MODEL, max_tokens=2048, num_ctx=32768) for _ in range(N)]
 
-    topo = swebench_solver_topology(
+    topo = swebench_solver_topology_with_test_selection(
         responders=responders,
         base_checkout=base,
         issue=inst["problem_statement"],
