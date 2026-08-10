@@ -32,7 +32,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from .oracle import EXTERNAL_GRADER, ExternalGraderOracle, Result
+from .oracle import EXTERNAL_GRADER, ExternalGraderOracle, Result, Verdict
 
 # Default grader_error_band for SWE-bench Lite (Xia & Chen 2025, arxiv 2503.15223). Rides on every
 # SWE-bench Result so headline numbers can honestly report `resolved ± band × resolved`. Verified
@@ -428,8 +428,10 @@ class SwebenchRecordOracle:
 
         patch = model_patch_from_record(events)
         if not patch.strip():
+            # No patch on the record means the topology produced none — a definite FAIL,
+            # not a NO_VERDICT. The harness never ran because there was nothing to grade.
             return Result(
-                passed=False,
+                verdict=Verdict.FAIL,
                 score=0.0,
                 metric="resolved",
                 oracle_class=EXTERNAL_GRADER,
@@ -450,8 +452,10 @@ class SwebenchRecordOracle:
                 patch, drop_files=frozenset(graded_test_files(str(ground_truth["test_patch"])))
             )
             if not patch.strip():
+                # After the graded-test-file drop the patch is empty — same FAIL semantics
+                # as "no model_patch on the record" (nothing to grade).
                 return Result(
-                    passed=False,
+                    verdict=Verdict.FAIL,
                     score=0.0,
                     metric="resolved",
                     oracle_class=EXTERNAL_GRADER,
@@ -464,7 +468,7 @@ class SwebenchRecordOracle:
         do_grade = self._grade_override or self._default_grade
         resolved = do_grade(instance_id, patch)
         return Result(
-            passed=resolved,
+            verdict=Verdict.PASS if resolved else Verdict.FAIL,
             score=1.0 if resolved else 0.0,
             metric="resolved",
             oracle_class=EXTERNAL_GRADER,
@@ -538,8 +542,10 @@ class SwebenchExtractOnlyOracle:
 
         patch = model_patch_from_record(events)
         if not patch.strip():
+            # No patch on the record — definite FAIL, not NO_VERDICT (the harness never had
+            # anything to grade).
             return Result(
-                passed=False,
+                verdict=Verdict.FAIL,
                 score=0.0,
                 metric="resolved",
                 oracle_class=EXTERNAL_GRADER,
@@ -559,7 +565,7 @@ class SwebenchExtractOnlyOracle:
             )
             if not patch.strip():
                 return Result(
-                    passed=False,
+                    verdict=Verdict.FAIL,
                     score=0.0,
                     metric="resolved",
                     oracle_class=EXTERNAL_GRADER,
@@ -569,10 +575,12 @@ class SwebenchExtractOnlyOracle:
                     recall_at_k=recall,
                     full_recall_at_k=full_recall,
                 )
-        # Placeholder — the runner batch-grades after the sweep. detail carries the patch length
-        # so a reader without the batch pass can still tell the topology emitted something.
+        # Deferred placeholder — the runner batch-grades after the sweep. NO_VERDICT is the
+        # honest interim state; the batch grade overwrites it with the real verdict when the
+        # harness reports back. Detail carries patch length so a reader without the batch pass
+        # can still tell the topology emitted something.
         return Result(
-            passed=False,
+            verdict=Verdict.NO_VERDICT,
             score=0.0,
             metric="resolved",
             oracle_class=EXTERNAL_GRADER,

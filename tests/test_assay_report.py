@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from substrate.assay.oracle import EXTERNAL_GRADER, Result
+from substrate.assay.oracle import EXTERNAL_GRADER, Result, Verdict
 from substrate.assay.report import _repro_aggregate, build_report, exact_mcnemar_p
 from substrate.assay.run import CaseResult, UsageTotals
 from substrate.assay.suite import FULL, Arm, Case, Suite
@@ -29,7 +29,7 @@ def _cr(passed: bool, repro: str, arm: str = "solver", case_id: str = "c0") -> C
         case_id=case_id,
         trial=0,
         result=Result(
-            passed=passed,
+            verdict=Verdict.PASS if passed else Verdict.FAIL,
             score=1.0 if passed else 0.0,
             metric="resolved",
             oracle_class=EXTERNAL_GRADER,
@@ -388,7 +388,11 @@ def test_arm_report_resolve_per_call_efficiency_field():
         case_id="c0",
         trial=0,
         result=Result(
-            passed=True, score=1.0, metric="r", oracle_class=EXTERNAL_GRADER, replayable=False
+            verdict=Verdict.PASS,
+            score=1.0,
+            metric="r",
+            oracle_class=EXTERNAL_GRADER,
+            replayable=False,
         ),
         usage=UsageTotals(
             prompt_tokens=100,
@@ -406,7 +410,11 @@ def test_arm_report_resolve_per_call_efficiency_field():
         case_id="c0",
         trial=1,
         result=Result(
-            passed=True, score=1.0, metric="r", oracle_class=EXTERNAL_GRADER, replayable=False
+            verdict=Verdict.PASS,
+            score=1.0,
+            metric="r",
+            oracle_class=EXTERNAL_GRADER,
+            replayable=False,
         ),
         usage=UsageTotals(
             prompt_tokens=100,
@@ -468,7 +476,7 @@ def test_arm_report_mean_recall_and_full_recall_rate_aggregation():
             case_id=cid,
             trial=0,
             result=_R(
-                passed=True,
+                verdict=Verdict.PASS,
                 score=1.0,
                 metric="r",
                 oracle_class=EXTERNAL_GRADER,

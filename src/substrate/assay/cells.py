@@ -16,7 +16,7 @@ from typing import Any
 
 from .coding import coding_suite
 from .coding_problems import coding_problem_bank
-from .oracle import EXTERNAL_GRADER, LogProjectionOracle, Result
+from .oracle import EXTERNAL_GRADER, LogProjectionOracle, Result, Verdict
 from .report import Report, build_report
 from .run import CaseResult, UsageTotals
 from .suite import Arm, Case, Suite, Topology
@@ -55,7 +55,7 @@ def caseresult_from_row(r: dict[str, Any]) -> CaseResult:
         case_id=str(r["case_id"]),
         trial=int(r["trial"]),
         result=Result(
-            passed=p,
+            verdict=Verdict.PASS if p else Verdict.FAIL,
             score=1.0 if p else 0.0,
             metric="resolved-held-out",
             oracle_class=EXTERNAL_GRADER,

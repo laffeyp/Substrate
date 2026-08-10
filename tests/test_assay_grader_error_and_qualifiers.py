@@ -22,20 +22,24 @@ from substrate.assay import (
     build_report,
     run_suite,
 )
-from substrate.assay.oracle import LOG_PROJECTION
+from substrate.assay.oracle import LOG_PROJECTION, Verdict
 from substrate.reference._models import DeterministicResponder, ModelUsage, call_responder_metered
 
 
 def test_result_grader_error_band_defaults_none() -> None:
     r = Result(
-        passed=True, score=1.0, metric="resolved", oracle_class="external-grader", replayable=False
+        verdict=Verdict.PASS,
+        score=1.0,
+        metric="resolved",
+        oracle_class="external-grader",
+        replayable=False,
     )
     assert r.grader_error_band is None
 
 
 def test_result_grader_error_band_round_trips() -> None:
     r = Result(
-        passed=True,
+        verdict=Verdict.PASS,
         score=1.0,
         metric="resolved",
         oracle_class="external-grader",
@@ -47,7 +51,7 @@ def test_result_grader_error_band_round_trips() -> None:
 
 def test_result_frozen_after_new_field() -> None:
     r = Result(
-        passed=True,
+        verdict=Verdict.PASS,
         score=1.0,
         metric="m",
         oracle_class=LOG_PROJECTION,

@@ -13,6 +13,7 @@ from substrate.assay.oracle import (
     EXTERNAL_GRADER,
     LOG_PROJECTION,
     ExternalGraderOracle,
+    Verdict,
     LogProjectionOracle,
     Result,
 )
@@ -82,9 +83,12 @@ def test_log_projection_oracle_supports_a_custom_compare():
 
 def test_result_is_a_frozen_verdict():
     # the verdict is immutable data; the honesty flags ride on it, not in a comment.
-    r = Result(passed=True, score=1.0, metric="m", oracle_class=LOG_PROJECTION, replayable=True)
+    r = Result(
+        verdict=Verdict.PASS, score=1.0, metric="m", oracle_class=LOG_PROJECTION, replayable=True
+    )
+    assert r.passed is True  # H-2: passed is a derived property of verdict
     try:
-        setattr(r, "passed", False)
+        setattr(r, "verdict", Verdict.FAIL)
         raised = False
     except (AttributeError, TypeError):
         raised = True
