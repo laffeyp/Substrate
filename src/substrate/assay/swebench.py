@@ -497,6 +497,209 @@ def swebench_record_oracle(
     )
 
 
+# 2026-08-09 batch-grade path (review item 1). Pre-fix, every cell called `run_swebench` inline
+# → one fresh `run_evaluation` subprocess per cell → 1500 harness starts on pass 1 for zero
+# parallelism (`max_workers=1`). The swebench harness natively accepts a batch predictions file
+# and parallelises via `max_workers=N`. Deferring the grade to end-of-sweep and firing ONE
+# `run_swebench` per arm cuts grade wall from ~37h (1500 × 90s serial) to ~1-2h.
+#
+# The oracle is split into TWO phases:
+#   Phase 1 (during the sweep): `SwebenchExtractOnlyOracle.grade()` extracts the patch off the
+#     record and returns a placeholder Result (passed=False, detail="deferred: patch=<len>"). No
+#     docker.
+#   Phase 2 (after the sweep): `batch_grade_from_records(records_dir, instances, ...)` walks
+#     every record, builds a batch predictions file, calls `run_swebench` ONCE with
+#     `max_workers=N`, reads the per-instance reports, returns {instance_id -> resolved: bool}.
+#     The confirmatory runner then rewrites cells.jsonl replacing every deferred row's
+#     `passed` and `detail` fields with the real grade.
+class SwebenchExtractOnlyOracle:
+    """Deferred-grade sibling of `SwebenchRecordOracle` for the batch path. `.grade()` extracts
+    the patch off the record and returns a placeholder with `detail="deferred: patch=<len>"`.
+    Docker never fires here. The runner reconstitutes the real grade via
+    `batch_grade_from_records` after the sweep."""
+
+    def __init__(
+        self,
+        *,
+        grader_error_band: float | None = _LITE_GRADER_ERROR_BAND,
+    ) -> None:
+        self._grader_error_band = grader_error_band
+
+    def grade(self, record: Any, ground_truth: Any) -> Result:
+        events = list(record) if not isinstance(record, list) else record
+        instance_id = (
+            str(ground_truth["instance_id"])
+            if isinstance(ground_truth, Mapping)
+            else str(ground_truth)
+        )
+        suspects = suspect_files_from_record(events)
+        gold_patch = str(ground_truth.get("patch", "")) if isinstance(ground_truth, Mapping) else ""
+        recall, full_recall = _recall_metrics(suspects, gold_patch)
+
+        patch = model_patch_from_record(events)
+        if not patch.strip():
+            return Result(
+                passed=False,
+                score=0.0,
+                metric="resolved",
+                oracle_class=EXTERNAL_GRADER,
+                replayable=False,
+                detail=f"no model_patch on the record for {instance_id} (the Arm produced none)",
+                grader_error_band=self._grader_error_band,
+                recall_at_k=recall,
+                full_recall_at_k=full_recall,
+            )
+        # graded-test-file filter still applies at extract time so the batch grader sees the
+        # clean patch (same #72 NET 1 discipline as `SwebenchRecordOracle.grade`).
+        if isinstance(ground_truth, Mapping) and ground_truth.get("test_patch"):
+            from .swebench_workspace import filter_diff, graded_test_files
+
+            patch = filter_diff(
+                patch, drop_files=frozenset(graded_test_files(str(ground_truth["test_patch"])))
+            )
+            if not patch.strip():
+                return Result(
+                    passed=False,
+                    score=0.0,
+                    metric="resolved",
+                    oracle_class=EXTERNAL_GRADER,
+                    replayable=False,
+                    detail=f"patch empty after dropping graded-test edits for {instance_id}",
+                    grader_error_band=self._grader_error_band,
+                    recall_at_k=recall,
+                    full_recall_at_k=full_recall,
+                )
+        # Placeholder — the runner batch-grades after the sweep. detail carries the patch length
+        # so a reader without the batch pass can still tell the topology emitted something.
+        return Result(
+            passed=False,
+            score=0.0,
+            metric="resolved",
+            oracle_class=EXTERNAL_GRADER,
+            replayable=False,
+            detail=f"deferred: patch={len(patch)}b for {instance_id}",
+            grader_error_band=self._grader_error_band,
+            recall_at_k=recall,
+            full_recall_at_k=full_recall,
+        )
+
+
+def batch_grade_from_records(
+    records_dir: Path | str,
+    instances_by_case_id: Mapping[str, Mapping[str, Any]],
+    *,
+    report_dir: Path | str,
+    dataset_name: str,
+    model_name: str = DEFAULT_MODEL_NAME,
+    run_id: str,
+    max_workers: int = 8,
+    namespace: str = "swebench",
+    timeout: int = 1800,
+) -> dict[str, bool]:
+    """ENV-GATED (Docker). Batch grade every cell's patch in ONE `run_swebench` call. Walks
+    `records_dir/<arm>__<case>__t<trial>/`, extracts each cell's `SelectedPatch.model_patch`,
+    drops graded-test edits per `test_patch`, builds one predictions file keyed by a synthetic
+    per-cell instance_id (see below), fires the harness with `max_workers`, reads back the
+    per-cell `resolved` bool.
+
+    KEY: the harness keys reports by `instance_id`. Multiple cells for the same instance_id
+    (trials + arms) would collide. We disambiguate via the swebench `model_name_or_path` field —
+    each cell gets a unique `model_name_or_path = f"{model_name}--{cell_dir_name}"`, and the
+    report dir is per-cell too. That way reports don't stomp.
+
+    Returns `{cell_dir_name -> resolved}` for every cell that produced a non-empty patch.
+    Cells with no patch aren't invoked (the placeholder Result from
+    SwebenchExtractOnlyOracle already carries `passed=False` for those).
+    """
+    from ..api import read_record
+
+    records_dir = Path(records_dir)
+    report_dir = Path(report_dir)
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    predictions: list[Mapping[str, str]] = []
+    cell_to_instance: dict[str, str] = {}
+    for cell_dir in sorted(records_dir.iterdir()):
+        if not cell_dir.is_dir() or "__" not in cell_dir.name:
+            continue
+        # cell_dir.name = "{arm}__{case_id}__t{trial}"; case_id has "_1776_" in place of "__"
+        parts = cell_dir.name.split("__")
+        if len(parts) < 3:
+            continue
+        case_id = parts[1]
+        instance_meta = instances_by_case_id.get(case_id)
+        if not instance_meta:
+            continue
+        instance_id = str(instance_meta.get("instance_id", ""))
+        if not instance_id:
+            continue
+        try:
+            events = list(read_record(cell_dir))
+        except Exception:
+            continue
+        patch = model_patch_from_record(events)
+        if not patch.strip():
+            continue
+        # graded-test-file filter (same discipline as the sync oracle).
+        tp = instance_meta.get("test_patch", "")
+        if tp:
+            from .swebench_workspace import filter_diff, graded_test_files
+
+            patch = filter_diff(patch, drop_files=frozenset(graded_test_files(str(tp))))
+            if not patch.strip():
+                continue
+        # per-cell model_name_or_path disambiguates same-instance trial + arm collisions in the
+        # harness report layout.
+        cell_model = f"{model_name}--{cell_dir.name}"
+        predictions.append(
+            {
+                KEY_INSTANCE_ID: instance_id,
+                KEY_MODEL: cell_model,
+                KEY_PREDICTION: patch,
+            }
+        )
+        cell_to_instance[cell_dir.name] = instance_id
+
+    if not predictions:
+        return {}
+
+    verify_constants()
+    preds_path = write_predictions(predictions, report_dir / f"preds_{run_id}.jsonl")
+
+    from swebench.harness import run_evaluation  # lazy, env-gated
+
+    run_evaluation.main(
+        dataset_name=dataset_name,
+        split="test",
+        instance_ids=sorted({p[KEY_INSTANCE_ID] for p in predictions}),
+        predictions_path=str(preds_path),
+        max_workers=max_workers,
+        force_rebuild=False,
+        cache_level="env",
+        clean=False,
+        open_file_limit=4096,
+        run_id=run_id,
+        timeout=timeout,
+        namespace=namespace,
+        rewrite_reports=False,
+        modal=False,
+        report_dir=str(report_dir),
+    )
+
+    # Read per-cell resolved from the harness reports. The harness writes one report.json per
+    # `{model}/{instance_id}/report.json` — the per-cell model_name in each prediction row is
+    # what disambiguates trials + arms of the same instance_id.
+    out: dict[str, bool] = {}
+    for cell_name, instance_id in cell_to_instance.items():
+        cell_model = f"{model_name}--{cell_name}"
+        try:
+            resolved = read_resolved(report_dir, run_id, cell_model, instance_id)
+        except FileNotFoundError:
+            resolved = False
+        out[cell_name] = resolved
+    return out
+
+
 __all__ = [
     "KEY_INSTANCE_ID",
     "KEY_MODEL",
@@ -504,6 +707,8 @@ __all__ = [
     "DEFAULT_MODEL_NAME",
     "FirewallViolation",
     "SwebenchRecordOracle",
+    "SwebenchExtractOnlyOracle",
+    "batch_grade_from_records",
     "firewall_check",
     "make_prediction",
     "write_predictions",

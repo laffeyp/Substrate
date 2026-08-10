@@ -103,7 +103,12 @@ from substrate.assay.preregistration import (
 )
 from substrate.assay.run import UsageTotals, project_reproduction_for_selected
 from substrate.assay.suite import Arm, Case
-from substrate.assay.swebench import FirewallViolation
+from substrate.assay.swebench import (
+    DEFAULT_MODEL_NAME,
+    FirewallViolation,
+    SwebenchExtractOnlyOracle,
+    batch_grade_from_records,
+)
 from substrate.assay.swebench_matrix import (
     baseline_matched_compute_arm,
     n_drafts_no_correction_arm,
@@ -206,6 +211,11 @@ REPRO_K = int(os.environ.get("SWEBENCH_REPRO_K", "1"))
 SKIP_BASE_PYTEST = (
     os.environ.get("SWEBENCH_SKIP_BASE_PYTEST", "1" if "Verified" in DATASET else "0") == "1"
 )
+# 2026-08-09 wall-clock reshape (review item 1): batch the grader. When ON, cell rows are
+# written with `passed=False, detail="deferred:..."` during the sweep; ONE `run_swebench` call
+# grades every non-empty patch at the end via `batch_grade_from_records` with
+# `max_workers=CONCURRENCY`. Cuts grade wall from ~37h (1500 × 90s serial) to ~1-2h. Default ON.
+BATCH_GRADE = os.environ.get("SWEBENCH_BATCH_GRADE", "1") == "1"
 # 2026-08-09 wall-clock reshape: pre-pull every unique instance image before the prep sweep so
 # `docker pull` cost lands once per image on the registry rather than serialised inside per-cell
 # `docker run` invocations. Default ON; set to 0 to skip if images are already local.
@@ -236,6 +246,7 @@ def _config() -> dict[str, object]:
         # skip on cannot silently mix cells with a Verified run that computed passed_at_base
         # the long way. Both are honest; they are DIFFERENT filters at SELECT.
         "skip_base_pytest": SKIP_BASE_PYTEST,
+        "batch_grade": BATCH_GRADE,
         "assay_kind": "swebench",  # Sprint 152 dispatch
     }
 
@@ -491,7 +502,30 @@ async def _run() -> int:
     ds = list(load_dataset(DATASET, split=SPLIT))
     if LIMIT:
         ds = ds[:LIMIT]
-    print(f"loaded {len(ds)} instances from {DATASET}:{SPLIT}", flush=True)
+    # 2026-08-09 wall-clock reshape: interleave by repo so 8 concurrent workers pick 8 different
+    # repos rather than 8 astropy instances back-to-back. Deterministic (round-robin within each
+    # repo, sorted by (index_within_repo, repo_name)) — reproducible across runs, cross-repo
+    # signal arrives in the first 8 cells instead of after ~2h of one-repo grind. On a re-run
+    # (mother cache warm), the ordering is stable so partial-progress cells resume correctly.
+    from collections import defaultdict as _dd
+
+    by_repo: dict[str, list[dict[str, Any]]] = _dd(list)
+    for inst in ds:
+        by_repo[str(inst["repo"])].append(inst)
+    interleaved: list[dict[str, Any]] = []
+    per_repo_idx = {r: 0 for r in by_repo}
+    while any(per_repo_idx[r] < len(v) for r, v in by_repo.items()):
+        for repo in sorted(by_repo):
+            idx = per_repo_idx[repo]
+            if idx < len(by_repo[repo]):
+                interleaved.append(by_repo[repo][idx])
+                per_repo_idx[repo] = idx + 1
+    ds = interleaved
+    print(
+        f"loaded {len(ds)} instances from {DATASET}:{SPLIT}, "
+        f"interleaved across {len(by_repo)} repos",
+        flush=True,
+    )
 
     # The Adapter door — every instance goes through prepare_swebench_case; a firewall failure is
     # excluded and logged, never silently admitted. `prepare_swebench_case` runs one Docker call
@@ -573,6 +607,18 @@ async def _run() -> int:
         equivalence_margin=MARGIN,
         pass_k=1,
     )
+    # 2026-08-09 wall-clock reshape (review item 1): batch-grade path. Swap the sync
+    # SwebenchRecordOracle for the extract-only variant so the sweep skips 1500 fresh
+    # `run_swebench` subprocesses. Batch grade fires at end of sweep.
+    if BATCH_GRADE:
+        from dataclasses import replace as _dc_replace
+
+        suite = _dc_replace(suite, oracle=SwebenchExtractOnlyOracle())
+        print(
+            "BATCH_GRADE=1: oracle deferred; batch grade fires after sweep with "
+            f"max_workers={CONCURRENCY}",
+            flush=True,
+        )
 
     # Sprint 160-plan: the sweep fans over ARMS × cases × trials. Pre-160 (solver mode) this was
     # over one arm; matrix mode now grows the fanout by the arm count without any other structural
@@ -687,9 +733,48 @@ async def _run() -> int:
 
     elapsed = int(time.monotonic() - started)
     print(
-        f"\ndone: {progress['n']} new cells, {elapsed}s this session, config_fp={_CONFIG_FP}",
+        f"\nsweep done: {progress['n']} new cells, {elapsed}s this session, config_fp={_CONFIG_FP}",
         flush=True,
     )
+
+    # 2026-08-09 wall-clock reshape (review item 1): batch grade phase.
+    if BATCH_GRADE:
+        print("BATCH_GRADE: reading records for the whole sweep + firing one harness call...")
+        instances_by_case_id = {case.case_id: inst for case, inst in cases}
+        grade_start = time.monotonic()
+        resolved_by_cell = await asyncio.to_thread(
+            batch_grade_from_records,
+            SCRATCH,
+            instances_by_case_id,
+            report_dir=SCRATCH / "grade",
+            dataset_name=DATASET,
+            model_name=DEFAULT_MODEL_NAME,
+            run_id=f"batch-{_RUN_ID}",
+            max_workers=CONCURRENCY,
+            timeout=int(RUN_TIMEOUT),
+        )
+        grade_elapsed = int(time.monotonic() - grade_start)
+        print(
+            f"BATCH_GRADE: graded {len(resolved_by_cell)} cells "
+            f"({sum(resolved_by_cell.values())} resolved) in {grade_elapsed}s",
+            flush=True,
+        )
+        # Rewrite cells.jsonl in place: for every deferred row, look up its resolved bool by
+        # cell dir name (arm__case__tN) and update passed + detail.
+        updated_rows: list[dict[str, object]] = []
+        for line in CELLS.read_text().splitlines():
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            cell_name = f"{row['arm']}__{row['case_id']}__t{row['trial']}"
+            if cell_name in resolved_by_cell:
+                resolved = resolved_by_cell[cell_name]
+                row["passed"] = bool(resolved)
+                row["detail"] = f"swebench resolved={resolved} for {row['case_id']} (batch)"
+            updated_rows.append(row)
+        CELLS.write_text("\n".join(json.dumps(r) for r in updated_rows) + "\n")
+        print(f"cells rewritten with batch grades: {CELLS}", flush=True)
+
     print(f"cells: {CELLS}", flush=True)
     print(
         "run `uv run python scripts/assay_swebench_confirmatory.py report` for the aggregated Report",
