@@ -103,8 +103,14 @@ from substrate.assay.preregistration import (
 )
 from substrate.assay.run import UsageTotals, project_reproduction_for_selected
 from substrate.assay.suite import Arm, Case
+from substrate.assay.oracle import Verdict
 from substrate.assay.swebench import (
     DEFAULT_MODEL_NAME,
+    REASON_DOCKER_ERROR,
+    REASON_FIREWALL_VIOLATION,
+    REASON_GIT_ERROR,
+    REASON_HARNESS_ERROR,
+    REASON_TIMED_OUT,
     FirewallViolation,
     SwebenchExtractOnlyOracle,
     batch_grade_from_records,
@@ -137,45 +143,49 @@ from substrate.assay.swebench_suite import (
 # The taxonomy is deliberately small — the four buckets a runner can classify from an exception
 # alone. A cell that raises an UNKNOWN exception halts by default (the conservative posture the
 # review names: don't classify what you don't understand).
-_ERROR_CELL_TIMEOUT = "cell_timeout"  # asyncio.TimeoutError from wait_for(RUN_TIMEOUT)
-_ERROR_DOCKER = "docker_error"  # docker CLI failure / daemon hiccup / OOM
-_ERROR_GIT = "git_error"  # git clone / apply / checkout failure
-_ERROR_UNCLASSIFIED = "unclassified_error"  # anything else — halts by default
+# H-3 (ratified 2026-08-10): runner-side error reasons flow from the shared
+# _HARNESS_REASONS closed set at assay/swebench.py. `timed_out`, `docker_error`,
+# `git_error`, `firewall_violation` are shared with the oracle (any of these can
+# happen inside the harness call or before it reaches the harness). `unclassified_error`
+# is runner-only — it halts, so its wire form never survives to the report.
+_ERROR_UNCLASSIFIED = "unclassified_error"
+
+
+def _reason_from_detail(detail: str) -> str:
+    """Pull the reason string out of a Result.detail line that carries `reason=<name>`
+    (the shape `SwebenchRecordOracle.grade` writes when the harness returns NO_VERDICT).
+    Falls back to `REASON_HARNESS_ERROR` if no reason marker is present — a NO_VERDICT
+    with no reason is a bug the wire form still lands typed."""
+    marker = " reason="
+    if marker in detail:
+        return detail.rsplit(marker, 1)[1].strip()
+    return REASON_HARNESS_ERROR
 
 
 def _classify_cell_error(exc: BaseException) -> tuple[str, bool]:
     """Classify one cell's exception into (typed_reason, halt_bool). Halt=True re-raises out of
     cell() and gathers's return_exceptions=False propagation halts the sweep with the traceback;
     Halt=False writes a `source="error"` row and continues so a flake cannot throw away hours of
-    completed cells. See the module-level comment for the taxonomy.
+    completed cells.
 
-    - `FirewallViolation` from a Verified instance is a benchmark data bug (Verified was human-
-      curated to be firewall-clean); halt. Lite callers filter upstream — a violation reaching
-      this classifier is unexpected on any dataset.
-    - `TimeoutError` / `asyncio.TimeoutError` from `asyncio.wait_for` on `RUN_TIMEOUT`: cell
-      exhausted its budget. Flake — the next cell may finish. `source="error"` row records the
-      time-out cell so the report layer counts it as failed-with-detail, not silently missing.
-    - Docker CLI errors — `docker` in the exception message: daemon hiccup / OOM / pull failure /
-      container-start error. Flake; a re-run would likely clear it.
-    - `subprocess.CalledProcessError` from git operations: `git clone` bandwidth failure, `git
-      apply` conflict, `git checkout` on a missing base_commit. Flake for the network cases,
-      real bugs for the base_commit ones — treat as flake here (conservative on rigor, the
-      typed row lets a reader inspect).
-    - Anything else — halt. The conservative posture per review item 6."""
+    Design v3 (ratified 2026-08-10): reason strings route through the shared
+    `_HARNESS_REASONS` closed set — one lexicon, one translation table. `firewall_violation`,
+    `timed_out`, `docker_error`, `git_error` are the four flake modes a cell classifier can
+    tell apart from an exception alone; `unclassified_error` halts. `pass`/`fail` verdicts
+    can't happen at this layer (the oracle produced no Result if we're in this classifier)."""
     if isinstance(exc, FirewallViolation):
         # 2026-08-09 wall-clock reshape: on SWE-bench_Verified (human-curated) a firewall
         # violation is a PARSER bug in `_f2p_in_test_patch` at assay/swebench.py, not a real
         # grade leak — Princeton/OpenAI/Anthropic audited every instance. Downgraded from HALT
-        # to FLAKE so one mis-parsed django test id can't take down 1500 cells. The typed row
-        # records the reason so a reader can count parser mis-fires end-of-run.
-        return (f"firewall_violation:{exc.reason}", False)
+        # to FLAKE so one mis-parsed django test id can't take down 1500 cells.
+        return (f"{REASON_FIREWALL_VIOLATION}:{exc.reason}", False)
     if isinstance(exc, TimeoutError | asyncio.TimeoutError):
-        return (_ERROR_CELL_TIMEOUT, False)
+        return (REASON_TIMED_OUT, False)
     msg = repr(exc).lower()
     if "docker" in msg or "container" in msg:
-        return (_ERROR_DOCKER, False)
+        return (REASON_DOCKER_ERROR, False)
     if "git" in msg or isinstance(exc, subprocess.CalledProcessError):
-        return (_ERROR_GIT, False)
+        return (REASON_GIT_ERROR, False)
     return (_ERROR_UNCLASSIFIED, True)
 
 
@@ -216,11 +226,15 @@ REPRO_K = int(os.environ.get("SWEBENCH_REPRO_K", "1"))
 SKIP_BASE_PYTEST = (
     os.environ.get("SWEBENCH_SKIP_BASE_PYTEST", "1" if "Verified" in DATASET else "0") == "1"
 )
-# 2026-08-09 wall-clock reshape (review item 1): batch the grader. When ON, cell rows are
-# written with `passed=False, detail="deferred:..."` during the sweep; ONE `run_swebench` call
-# grades every non-empty patch at the end via `batch_grade_from_records` with
-# `max_workers=CONCURRENCY`. Cuts grade wall from ~37h (1500 × 90s serial) to ~1-2h. Default ON.
-BATCH_GRADE = os.environ.get("SWEBENCH_BATCH_GRADE", "1") == "1"
+# Design v3 (ratified 2026-08-10): batch grade is a knob, DEFAULT OFF. The confirmatory
+# runs `SwebenchRecordOracle` inline per cell — the light topology plus per-cell wall-clock
+# make the harness call bounded and reasonable. The 2026-08-09 default-ON shape produced the
+# 517-silent-fails failure mode the 2026-08-10 postmortem records: end-of-sweep batch grade
+# rolled harness silence into `resolved=false` and offered no reason. Opt in with
+# `SWEBENCH_BATCH_GRADE=1` when a caller genuinely wants two-phase grading; the batch path
+# is preserved for that follow-up but will be rewritten as a loop over `run_swebench_one`
+# so per-cell verdicts carry typed reasons (design §"The runner contract").
+BATCH_GRADE = os.environ.get("SWEBENCH_BATCH_GRADE", "0") == "1"
 # 2026-08-09 wall-clock reshape: pre-pull every unique instance image before the prep sweep so
 # `docker pull` cost lands once per image on the registry rather than serialised inside per-cell
 # `docker run` invocations. Default ON; set to 0 to skip if images are already local.
@@ -276,26 +290,33 @@ def _row(
     arm: Arm,
     case: Case,
     trial: int,
-    passed: bool,
+    verdict: Verdict,
     source: str,
     u: UsageTotals,
     elapsed: int,
     root: str,
     detail: str = "",
+    reason: str = "",
     reproduction: str = "",
     recall_at_k: float | None = None,
     full_recall_at_k: bool | None = None,
 ) -> dict[str, object]:
-    # measured=source=="run" gates null vs measured fields (bench_coding.py:101-131 shape):
-    # a salvage/fail cell made NO calls this run, so its compute fields are null (not measured 0).
-    # Only freshly-run, metered cells carry real tokens/calls/ms/estimated.
+    # measured=source=="run" gates null vs measured fields: a salvage/error cell made NO calls
+    # this run, so its compute fields are null (not measured 0). Only freshly-run, metered
+    # cells carry real tokens/calls/ms/estimated.
     measured = source == "run"
+    # Design v3 (ratified 2026-08-10): every cell row carries a typed verdict and reason.
+    # `passed` is derived (verdict == "pass") so old readers keep working; new readers read
+    # verdict+reason directly. reason is the empty string on pass/fail; on no_verdict it names
+    # WHY from the shared `_HARNESS_REASONS` closed set.
     return {
         "arm": arm.name,
         "role": arm.role,
         "case_id": case.case_id,
         "trial": trial,
-        "passed": passed,
+        "verdict": verdict.value,
+        "reason": reason,
+        "passed": verdict is Verdict.PASS,
         "source": source,
         "detail": detail,
         "elapsed_ms": elapsed if measured else None,
@@ -306,16 +327,8 @@ def _row(
         "completion_tokens": u.completion_tokens if measured else None,
         "inference_ms": u.inference_ms if measured else None,
         "model_calls": u.model_calls if measured else None,
-        "estimated": u.estimated,  # Gap 8: provider-truth vs word-count stand-in
-        # Sprint 158: reproduction verdict for the winning slot, projected off the record by
-        # run_arm_on_case via project_reproduction_for_selected. Enables report.py's 2x2 + κ
-        # aggregation to read the per-cell repro state from cells.jsonl without re-parsing the
-        # record. Empty for salvage/fail cells (no CaseResult was produced this run).
+        "estimated": u.estimated,
         "reproduction": reproduction,
-        # F2 fix (review 2026-08-08): localization recall from the oracle. Persists to cells.jsonl
-        # so `report_from_cells` reconstructs the ArmReport's mean_recall_at_k / full_recall_at_k_rate
-        # without re-reading the record. Null when the oracle didn't emit them (coding assays,
-        # SWE-bench runs without SuspectFiles).
         "recall_at_k": recall_at_k,
         "full_recall_at_k": full_recall_at_k,
     }
@@ -665,15 +678,16 @@ async def _run() -> int:
                     arm,
                     case,
                     trial,
-                    grade.passed,
+                    grade.verdict,
                     "salvage",
                     _ZERO,
                     0,
                     str(salv),
-                    grade.detail,
-                    project_reproduction_for_selected(events),
-                    grade.recall_at_k,
-                    grade.full_recall_at_k,
+                    detail=grade.detail,
+                    reason="" if grade.verdict is not Verdict.NO_VERDICT else REASON_HARNESS_ERROR,
+                    reproduction=project_reproduction_for_selected(events),
+                    recall_at_k=grade.recall_at_k,
+                    full_recall_at_k=grade.full_recall_at_k,
                 )
             else:
                 root = SCRATCH / f"{arm.name}__{case.case_id}__t{trial}"
@@ -690,19 +704,30 @@ async def _run() -> int:
                         timeout=RUN_TIMEOUT,
                     )
                 except BaseException as exc:
-                    reason, should_halt = _classify_cell_error(exc)
+                    err_reason, should_halt = _classify_cell_error(exc)
                     if should_halt:
                         raise
+                    # A cell that raised before or around the harness call has no verdict —
+                    # NO_VERDICT with the classifier's typed reason from the shared closed set.
+                    # `firewall_violation:<detail>` collapses to REASON_FIREWALL_VIOLATION at
+                    # the wire so the reason field stays inside the closed set; detail carries
+                    # the specifics.
+                    wire_reason = (
+                        REASON_FIREWALL_VIOLATION
+                        if err_reason.startswith(REASON_FIREWALL_VIOLATION)
+                        else err_reason
+                    )
                     row = _row(
                         arm,
                         case,
                         trial,
-                        False,
+                        Verdict.NO_VERDICT,
                         "error",
                         _ZERO,
                         0,
                         str(root),
-                        detail=f"{reason}: {type(exc).__name__}: {str(exc)[:280]}",
+                        detail=f"{err_reason}: {type(exc).__name__}: {str(exc)[:280]}",
+                        reason=wire_reason,
                         reproduction="",
                     )
                 else:
@@ -710,15 +735,21 @@ async def _run() -> int:
                         arm,
                         case,
                         trial,
-                        cr.result.passed,
+                        cr.result.verdict,
                         "run",
                         cr.usage,
                         cr.elapsed_ms,
                         cr.root,
-                        cr.result.detail,
-                        cr.reproduction,
-                        cr.result.recall_at_k,
-                        cr.result.full_recall_at_k,
+                        detail=cr.result.detail,
+                        # NO_VERDICT out of the run path means the oracle's harness call carried
+                        # a typed reason in Result.detail (design v3 §"The oracle contract");
+                        # we mirror the reason field explicitly for cheap counting downstream.
+                        reason=""
+                        if cr.result.verdict is not Verdict.NO_VERDICT
+                        else _reason_from_detail(cr.result.detail),
+                        reproduction=cr.reproduction,
+                        recall_at_k=cr.result.recall_at_k,
+                        full_recall_at_k=cr.result.full_recall_at_k,
                     )
             async with lock:
                 with CELLS.open("a") as fh:
@@ -765,7 +796,8 @@ async def _run() -> int:
             flush=True,
         )
         # Rewrite cells.jsonl in place: for every deferred row, look up its resolved bool by
-        # cell dir name (arm__case__tN) and update passed + detail.
+        # cell dir name (arm__case__tN) and update verdict + passed + detail. Rows not present
+        # in resolved_by_cell (empty patch, no record) keep their sweep-time NO_VERDICT.
         updated_rows: list[dict[str, object]] = []
         for line in CELLS.read_text().splitlines():
             if not line.strip():
@@ -774,7 +806,10 @@ async def _run() -> int:
             cell_name = f"{row['arm']}__{row['case_id']}__t{row['trial']}"
             if cell_name in resolved_by_cell:
                 resolved = resolved_by_cell[cell_name]
-                row["passed"] = bool(resolved)
+                v = Verdict.PASS if resolved else Verdict.FAIL
+                row["verdict"] = v.value
+                row["passed"] = resolved
+                row["reason"] = ""
                 row["detail"] = f"swebench resolved={resolved} for {row['case_id']} (batch)"
             updated_rows.append(row)
         CELLS.write_text("\n".join(json.dumps(r) for r in updated_rows) + "\n")

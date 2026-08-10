@@ -39,12 +39,17 @@ def read_rows(cells_path: Path) -> list[dict[str, Any]]:
 def caseresult_from_row(r: dict[str, Any]) -> CaseResult:
     """One JSONL row -> a CaseResult. Null compute (salvage/fail cells — no calls MADE) coerces to 0
     for the totals; the report's compute axis then reflects only what was measured. `reproduction`
-    (sprint 158) reads the optional column added by the confirmatory runner — empty for coding
-    rows and for SWE-bench rows that emitted no SelectedPatch / TestResults."""
-    p = bool(r["passed"])
-    # F2 fix (review 2026-08-08): read recall fields off the row when present so a report rebuilt
-    # from cells.jsonl carries the localization diagnostics. `None` when the column is missing
-    # (pre-F2 cells) or explicitly null (a coding row or a SWE-bench row without SuspectFiles).
+    (sprint 158) reads the optional column added by the confirmatory runner.
+
+    Design v3 (ratified 2026-08-10): rows carry a typed `verdict` field
+    (pass / fail / no_verdict). Rows without the field are pre-v3 and fall back to `passed`
+    (True -> PASS, False -> FAIL) — no old row carried NO_VERDICT because the pre-v3 shape
+    rolled harness silence into passed=False."""
+    verdict_raw = r.get("verdict")
+    if verdict_raw is not None:
+        verdict = Verdict(str(verdict_raw))
+    else:
+        verdict = Verdict.PASS if bool(r["passed"]) else Verdict.FAIL
     recall = r.get("recall_at_k")
     recall = float(recall) if recall is not None else None
     full_recall = r.get("full_recall_at_k")
@@ -55,8 +60,8 @@ def caseresult_from_row(r: dict[str, Any]) -> CaseResult:
         case_id=str(r["case_id"]),
         trial=int(r["trial"]),
         result=Result(
-            verdict=Verdict.PASS if p else Verdict.FAIL,
-            score=1.0 if p else 0.0,
+            verdict=verdict,
+            score=1.0 if verdict is Verdict.PASS else 0.0,
             metric="resolved-held-out",
             oracle_class=EXTERNAL_GRADER,
             replayable=False,

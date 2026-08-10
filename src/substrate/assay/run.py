@@ -16,6 +16,7 @@ overlap, so it must never be read as latency). Tokens and both times are measure
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -114,7 +115,11 @@ async def run_arm_on_case(
     await api.Runtime(root).run(topology)
     elapsed_ms = int((time.monotonic() - started) * 1000)
     record: list[Mapping[str, Any]] = list(api.read_record(root))
-    result = oracle.grade(record, case.ground_truth)
+    # oracle.grade may be a heavy sync call (SwebenchRecordOracle -> run_swebench_one shells
+    # out to Docker for up to `timeout_for_instance` seconds). asyncio.to_thread hands it to
+    # the default thread pool so the event loop stays free for sibling cells at CONCURRENCY>1.
+    # Trivial oracles (LogProjectionOracle) pay one thread hop, which is negligible.
+    result = await asyncio.to_thread(oracle.grade, record, case.ground_truth)
     return CaseResult(
         arm=arm.name,
         role=arm.role,
