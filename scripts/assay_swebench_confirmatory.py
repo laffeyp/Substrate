@@ -518,6 +518,10 @@ async def _run() -> int:
     )
 
     ds = list(load_dataset(DATASET, split=SPLIT))
+    instance_ids_env = os.environ.get("SWEBENCH_INSTANCE_IDS", "").strip()
+    if instance_ids_env:
+        wanted = {s.strip() for s in instance_ids_env.split(",") if s.strip()}
+        ds = [inst for inst in ds if str(inst["instance_id"]) in wanted]
     if LIMIT:
         ds = ds[:LIMIT]
     # 2026-08-09 wall-clock reshape: interleave by repo so 8 concurrent workers pick 8 different

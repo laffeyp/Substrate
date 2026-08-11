@@ -22,7 +22,8 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 
 from .conformance import PASS, ControlRanCheck, check_control_ran
 from .run import CaseResult
@@ -120,6 +121,24 @@ class ArmReport:
     # never carried the fields (a coding assay, an arm with no SuspectFiles emit).
     mean_recall_at_k: float | None = None
     full_recall_at_k_rate: float | None = None
+    # Design v3 §"The report contract" (ratified 2026-08-10): the three-number headline —
+    # N attempted, K resolved (`passes` above), M graded. Resolve rate is K/M; K/N gets a
+    # `(M/N graded)` qualifier so a reader sees the gap between attempted and graded before
+    # dividing. `n_attempted` is len(suite.cases) — every Case in the pre-registered set,
+    # trials collapsed to one cell. `n_no_verdict` counts cells where any trial carried
+    # NO_VERDICT (silence at the grader); those cells drop out of the resolve-rate
+    # denominator instead of into it. `graded_rate` is (n_attempted - n_no_verdict)/n_attempted.
+    n_attempted: int = 0
+    n_no_verdict: int = 0
+    graded_rate: float = 0.0
+    # verdict counts across CELLS (not trials): {"pass", "fail", "no_verdict"}. A cell that is
+    # not-yet-run (Arm didn't grade this case) counts under `not_run`. reason_counts is a
+    # map from every reason string that appeared on any cell to its count — the shared
+    # closed set at assay/swebench._HARNESS_REASONS names the wire form; a reader can count
+    # timed_out / container_crashed / harness_error / docker_error / git_error /
+    # firewall_violation directly from the report.
+    verdict_counts: dict[str, int] = field(default_factory=dict)
+    reason_counts: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -137,9 +156,16 @@ class Report:
 
 
 def _cell_passed(results: Sequence[CaseResult]) -> bool | None:
-    """pass^k reliability for one (Arm, Case) cell: passes iff every trial passed. None if the cell
-    has no results (the Arm did not run this Case)."""
+    """pass^k reliability for one (Arm, Case) cell: passes iff every trial passed. None if the
+    cell has no results (the Arm did not run this Case) OR if any trial carries a NO_VERDICT
+    verdict (design v3, ratified 2026-08-10: silence is not fail; a NO_VERDICT cell is
+    ungraded and drops out of the resolve-rate denominator, not into it). Old-shape rows read
+    off pre-v3 cells never carry NO_VERDICT, so this is a no-op there."""
+    from .oracle import Verdict
+
     if not results:
+        return None
+    if any(r.result.verdict is Verdict.NO_VERDICT for r in results):
         return None
     return all(r.result.passed for r in results)
 
@@ -170,10 +196,25 @@ class _Mid:
     repro_agreement_rate: float | None
     mean_recall_at_k: float | None
     full_recall_at_k_rate: float | None
+    n_attempted: int = 0
+    n_no_verdict: int = 0
+    graded_rate: float = 0.0
+    verdict_counts: dict[str, int] = field(default_factory=dict)
+    reason_counts: dict[str, int] = field(default_factory=dict)
 
 
 _REPRODUCED = "reproduced"
 _RESOLVED = "resolved"
+
+
+def _extract_reason(detail: str) -> str:
+    """Pull the trailing `reason=<name>` marker out of a Result.detail line (the shape
+    `SwebenchRecordOracle.grade` writes when the harness returned NO_VERDICT). Empty string
+    if no marker is present; the caller falls back to a safe default."""
+    marker = " reason="
+    if marker in detail:
+        return detail.rsplit(marker, 1)[1].strip()
+    return ""
 
 
 def _repro_aggregate(
@@ -346,6 +387,39 @@ def build_report(
         mean_recall = sum(recall_vals) / len(recall_vals) if recall_vals else None
         full_recall_rate = sum(1 for x in full_vals if x) / len(full_vals) if full_vals else None
 
+        # Design v3 §"The report contract": count verdicts + reasons across this arm's cells.
+        # A cell is (arm, case); its verdict is the collapse of its per-trial verdicts:
+        # PASS iff every trial PASSed; NO_VERDICT iff any trial is NO_VERDICT; else FAIL.
+        # not_run counts cases the arm never ran (topology never started, salvage-only mode).
+        from .oracle import Verdict as _V
+
+        cell_verdicts: list[str] = []
+        cell_reasons: list[str] = []
+        for cid in case_ids:
+            trials = [r for r in arm_results if r.case_id == cid]
+            if not trials:
+                cell_verdicts.append("not_run")
+                continue
+            if any(r.result.verdict is _V.NO_VERDICT for r in trials):
+                cell_verdicts.append(_V.NO_VERDICT.value)
+                # Reasons are per-trial; collect every NO_VERDICT trial's reason so the
+                # count reads the honest distribution (a cell with two trials, one timed_out
+                # one container_crashed, contributes to both reason counts).
+                for r in trials:
+                    if r.result.verdict is _V.NO_VERDICT:
+                        cell_reasons.append(_extract_reason(r.result.detail) or "harness_error")
+                continue
+            if all(r.result.passed for r in trials):
+                cell_verdicts.append(_V.PASS.value)
+            else:
+                cell_verdicts.append(_V.FAIL.value)
+        verdict_ct = dict(Counter(cell_verdicts))
+        reason_ct = dict(Counter(cell_reasons))
+        n_attempted_v = len(case_ids)
+        n_no_verdict_v = verdict_ct.get(_V.NO_VERDICT.value, 0)
+        graded_denom = max(1, n_attempted_v)
+        graded_rate_v = (n_attempted_v - n_no_verdict_v) / graded_denom
+
         mids.append(
             _Mid(
                 arm=arm.name,
@@ -372,6 +446,11 @@ def build_report(
                 repro_agreement_rate=agree,
                 mean_recall_at_k=mean_recall,
                 full_recall_at_k_rate=full_recall_rate,
+                n_attempted=n_attempted_v,
+                n_no_verdict=n_no_verdict_v,
+                graded_rate=graded_rate_v,
+                verdict_counts=verdict_ct,
+                reason_counts=reason_ct,
             )
         )
 
@@ -416,6 +495,11 @@ def build_report(
             resolve_per_call=(m.passes / m.calls) if m.calls > 0 else None,
             mean_recall_at_k=m.mean_recall_at_k,
             full_recall_at_k_rate=m.full_recall_at_k_rate,
+            n_attempted=m.n_attempted,
+            n_no_verdict=m.n_no_verdict,
+            graded_rate=m.graded_rate,
+            verdict_counts=m.verdict_counts,
+            reason_counts=m.reason_counts,
         )
         for i, m in enumerate(mids)
     )
