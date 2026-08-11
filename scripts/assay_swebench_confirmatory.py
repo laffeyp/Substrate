@@ -771,12 +771,16 @@ async def _run() -> int:
                         cr.elapsed_ms,
                         cr.root,
                         detail=cr.result.detail,
-                        # NO_VERDICT out of the run path means the oracle's harness call carried
-                        # a typed reason in Result.detail (design v3 §"The oracle contract");
-                        # we mirror the reason field explicitly for cheap counting downstream.
-                        reason=""
-                        if cr.result.verdict is not Verdict.NO_VERDICT
-                        else _reason_from_detail(cr.result.detail),
+                        # Reason lives as a first-class field on Result (fold-2026-08-10);
+                        # empty on pass/fail, closed-set string on NO_VERDICT. The
+                        # detail-string marker fallback stays for legacy oracle paths that
+                        # haven't migrated to the typed field.
+                        reason=cr.result.reason
+                        or (
+                            ""
+                            if cr.result.verdict is not Verdict.NO_VERDICT
+                            else _reason_from_detail(cr.result.detail)
+                        ),
                         reproduction=cr.reproduction,
                         recall_at_k=cr.result.recall_at_k,
                         full_recall_at_k=cr.result.full_recall_at_k,

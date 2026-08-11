@@ -83,6 +83,14 @@ class Result(Struct, frozen=True):
     replayable: bool
     verdict: Verdict = Verdict.NO_VERDICT
     detail: str = ""
+    # H-3 first-class (F8/F4-fold, holistic review 2026-08-10): when verdict is NO_VERDICT,
+    # `reason` names WHY from the shared closed set at `assay/swebench._HARNESS_REASONS`
+    # (timed_out, container_crashed, docker_error, harness_error, git_error,
+    # firewall_violation). Empty string on PASS/FAIL. Pre-fold shape encoded reason inside
+    # detail via a ` reason=<name>` marker so the row/report layer had to parse a string —
+    # a shape leak the N=300 Lite pass caught (harness_error mis-counted for 315
+    # firewall_violation rows). One field, one place; no parsing.
+    reason: str = ""
     grader_error_band: float | None = None
     # F2 fix (review 2026-08-08, sprint 160): per-instance localization recall for SWE-bench arms.
     # `recall_at_k` = |gold_files ∩ suspect_files| / |gold_files| ∈ [0, 1] — the fractional consensus

@@ -703,8 +703,8 @@ class SwebenchRecordOracle:
             metric="resolved",
             oracle_class=EXTERNAL_GRADER,
             replayable=False,
-            detail=f"{outcome.detail} ({len(patch)}b patch)"
-            + (f" reason={outcome.reason}" if outcome.reason else ""),
+            detail=f"{outcome.detail} ({len(patch)}b patch)",
+            reason=outcome.reason,
             grader_error_band=self._grader_error_band,
             recall_at_k=recall,
             full_recall_at_k=full_recall,
@@ -808,14 +808,15 @@ class SwebenchExtractOnlyOracle:
                 )
         # Deferred placeholder — the runner batch-grades after the sweep. NO_VERDICT is the
         # honest interim state; the batch grade overwrites it with the real verdict when the
-        # harness reports back. Detail carries patch length so a reader without the batch pass
-        # can still tell the topology emitted something.
+        # harness reports back. Reason `harness_error` names the deferred state honestly at
+        # the closed-set boundary (the batch overwrite replaces it with empty on pass/fail).
         return Result(
             verdict=Verdict.NO_VERDICT,
             score=0.0,
             metric="resolved",
             oracle_class=EXTERNAL_GRADER,
             replayable=False,
+            reason=REASON_HARNESS_ERROR,
             detail=f"deferred: patch={len(patch)}b for {instance_id}",
             grader_error_band=self._grader_error_band,
             recall_at_k=recall,

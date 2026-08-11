@@ -407,7 +407,11 @@ def build_report(
                 # one container_crashed, contributes to both reason counts).
                 for r in trials:
                     if r.result.verdict is _V.NO_VERDICT:
-                        cell_reasons.append(_extract_reason(r.result.detail) or "harness_error")
+                        # Reason lives as a first-class field on Result (fold-2026-08-10);
+                        # legacy rows without one fall back to the detail-string marker.
+                        cell_reasons.append(
+                            r.result.reason or _extract_reason(r.result.detail) or "harness_error"
+                        )
                 continue
             if all(r.result.passed for r in trials):
                 cell_verdicts.append(_V.PASS.value)

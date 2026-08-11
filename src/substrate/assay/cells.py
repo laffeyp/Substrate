@@ -66,6 +66,7 @@ def caseresult_from_row(r: dict[str, Any]) -> CaseResult:
             oracle_class=EXTERNAL_GRADER,
             replayable=False,
             detail=str(r.get("source", "")),
+            reason=str(r.get("reason", "") or ""),
             recall_at_k=recall,
             full_recall_at_k=full_recall,
         ),
