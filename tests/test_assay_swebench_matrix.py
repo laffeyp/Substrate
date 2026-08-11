@@ -180,6 +180,25 @@ def test_matrix_arms_dispatch_light_topology_producer_kinds_omit_select_exec():
         )
 
 
+def test_container_arm_dispatches_distinct_topology_shape():
+    # F8 (holistic review 2026-08-10): the matrix needs a structurally distinct topology
+    # arm, not another parameterization of swebench_repair_topology. `container_arm` wraps
+    # `solve_in_container` (a read/edit/bash agent loop) as a one-producer topology whose
+    # only producer kind is "solve" — no `localizer`, no `drafter`, no `select_exec`, none
+    # of the repair topology's producers. This test pins that shape so a well-meaning
+    # refactor cannot silently re-route container_arm through the repair machinery.
+    arm = container_arm("tool_loop_container", role="ablation", model="m", max_steps=8)
+    case = _case_for_test()
+    topo = arm.build(case)  # build is pure — Docker fires only when the topology RUNS
+    b = _RecordingBuilder()
+    topo(b)
+    assert b.producer_kinds == ["solve"], (
+        f"container_arm should declare exactly the 'solve' producer; got {b.producer_kinds}. "
+        "A leak of repair topology producers here means the matrix's structurally distinct arm "
+        "silently became another parameterized wrapper — F8 regressed."
+    )
+
+
 def test_include_test_selection_true_opts_into_heavy_topology():
     # The `include_test_selection=True` branch is the follow-up two-phase path — not what
     # any confirmatory arm takes. Verify it does dispatch a topology whose producer_kinds

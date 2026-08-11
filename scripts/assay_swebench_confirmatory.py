@@ -115,8 +115,10 @@ from substrate.assay.swebench import (
     SwebenchExtractOnlyOracle,
     batch_grade_from_records,
 )
+from substrate.assay.swebench_errors import SwebenchRunnerError
 from substrate.assay.swebench_matrix import (
     baseline_matched_compute_arm,
+    container_arm,
     n_drafts_no_correction_arm,
     n_drafts_repair_ensemble_arm,
     repair_arm,
@@ -168,19 +170,28 @@ def _classify_cell_error(exc: BaseException) -> tuple[str, bool]:
     Halt=False writes a `source="error"` row and continues so a flake cannot throw away hours of
     completed cells.
 
-    Design v3 (ratified 2026-08-10): reason strings route through the shared
-    `_HARNESS_REASONS` closed set — one lexicon, one translation table. `firewall_violation`,
-    `timed_out`, `docker_error`, `git_error` are the four flake modes a cell classifier can
-    tell apart from an exception alone; `unclassified_error` halts. `pass`/`fail` verdicts
-    can't happen at this layer (the oracle produced no Result if we're in this classifier)."""
+    Design v3 (ratified 2026-08-10) + F4 (holistic review 2026-08-10, ratified): typed
+    exceptions FIRST — `SwebenchRunnerError` subclasses carry `.reason` from the shared
+    `_HARNESS_REASONS` closed set, so classification is a `.reason` read, not a string match.
+    String-repr fallback catches the untyped-exception legacy path (subprocess.CalledProcessError,
+    generic OSError, third-party libraries that raise plain `RuntimeError`) so an unclassified
+    exception from a dependency doesn't halt the sweep for a docker/git flake. New code raising
+    typed exceptions replaces the fallback over time."""
+    if isinstance(exc, SwebenchRunnerError):
+        # Typed path: .reason is authoritative, no string match needed.
+        return (exc.reason, False)
     if isinstance(exc, FirewallViolation):
-        # 2026-08-09 wall-clock reshape: on SWE-bench_Verified (human-curated) a firewall
-        # violation is a PARSER bug in `_f2p_in_test_patch` at assay/swebench.py, not a real
-        # grade leak — Princeton/OpenAI/Anthropic audited every instance. Downgraded from HALT
-        # to FLAKE so one mis-parsed django test id can't take down 1500 cells.
+        # On Verified (human-curated) a firewall violation is a parser bug in `_f2p_in_test_patch`,
+        # not a real grade leak — Princeton/OpenAI/Anthropic audited every instance. FLAKE so one
+        # mis-parsed test id can't take down 1500 cells.
         return (f"{REASON_FIREWALL_VIOLATION}:{exc.reason}", False)
     if isinstance(exc, TimeoutError | asyncio.TimeoutError):
         return (REASON_TIMED_OUT, False)
+    # String-repr fallback: untyped exceptions from libraries we don't own. Kept narrow so a
+    # typed raise-site wins by shortcut above; the fallback is the safety net, not the primary
+    # path. `git`/`docker` matches on the exception's repr are known imprecise (a
+    # subprocess.CalledProcessError whose stderr mentions "docker" for a git error would
+    # mis-classify) — the fix is more typed raise-sites, not a smarter regex.
     msg = repr(exc).lower()
     if "docker" in msg or "container" in msg:
         return (REASON_DOCKER_ERROR, False)
@@ -426,6 +437,14 @@ def _build_arms_for_mode() -> tuple[list[Arm], dict[str, dict[str, object]], str
                 "SWEBENCH_ARMS=matrix requires SWEBENCH_K=<int from pass1 median> (or a "
                 "pre-reg carrying k_calls in its arm params; the runner reads K from env first)."
             )
+        # F8 (holistic review 2026-08-10, ratified): a structurally distinct arm.
+        # Every other matrix arm wraps `swebench_repair_topology` (localize + repair) at
+        # different (n, max_rounds); `tool_loop_container` runs a read/edit/bash agent loop
+        # inside the instance container with `solve_in_container`, then emits the workspace
+        # diff as a SelectedPatch. Same Adapter, same Oracle, structurally distinct topology
+        # — the comparator the North Star's mechanism claim needs. SWEBENCH_TOOL_STEPS caps
+        # the agent's step budget (default 8, matching container_arm's default).
+        tool_steps = int(os.environ.get("SWEBENCH_TOOL_STEPS", "8"))
         arms = [
             single_draft_baseline_arm("single_draft_baseline", model=strong, repro_k=REPRO_K),
             n_drafts_no_correction_arm(
@@ -440,6 +459,12 @@ def _build_arms_for_mode() -> tuple[list[Arm], dict[str, dict[str, object]], str
             baseline_matched_compute_arm(
                 "baseline_matched_compute", model=strong, k_calls=K_CALLS, repro_k=REPRO_K
             ),
+            container_arm(
+                "tool_loop_container",
+                role="ablation",
+                model=strong,
+                max_steps=tool_steps,
+            ),
         ]
         params: dict[str, dict[str, object]] = {
             "single_draft_baseline": {"models": [strong], "n": 1, "max_rounds": 1},
@@ -451,6 +476,7 @@ def _build_arms_for_mode() -> tuple[list[Arm], dict[str, dict[str, object]], str
                 "max_rounds": 2,
             },
             "baseline_matched_compute": {"models": [strong], "n": K_CALLS, "max_rounds": 1},
+            "tool_loop_container": {"models": [strong], "max_steps": tool_steps},
         }
         # The pre-registered control for the matrix is single_draft_baseline (the floor) —
         # every other arm's delta reads as "beats the floor by X." Overridable via SWEBENCH_CONTROL.
