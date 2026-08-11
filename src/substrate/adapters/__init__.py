@@ -23,6 +23,12 @@ from .models import (
     call_responder,
     call_responder_metered,
 )
+from .rate_limit import (
+    OllamaQuota,
+    ProviderQuota,
+    ProviderRateLimited,
+    RateLimitedResponder,
+)
 
 __all__ = [
     "Responder",
@@ -31,6 +37,10 @@ __all__ = [
     "CliResponder",
     "EnsembleResponder",
     "ModelUsage",
+    "OllamaQuota",
+    "ProviderQuota",
+    "ProviderRateLimited",
+    "RateLimitedResponder",
     "call_responder",
     "call_responder_metered",
 ]
