@@ -521,6 +521,46 @@ async def _run() -> int:
         flush=True,
     )
 
+    # Model-endpoint pre-flight (fold-2026-08-11): the 6-arm N=300 run at bojl1kk7z burned 25
+    # minutes and 1800 cells against qwen3-coder:480b-cloud, a model that had disappeared from
+    # Ollama cloud (HTTP 410 on every call). The topology tolerated the failure by emitting
+    # zero patches per case; the row said "no model_patch" — same wire as an honest topology
+    # try that failed. Halt at startup if any declared model doesn't respond, so the shape of
+    # the failure lands as a startup error, not as 1800 silent zero-patch rows.
+    _preflight_models: list[str] = list(MODELS) + [m for m in ENSEMBLE if m not in MODELS]
+    if _preflight_models and os.environ.get("SWEBENCH_SKIP_MODEL_PREFLIGHT", "0") != "1":
+        import httpx as _httpx
+
+        print(
+            f"model pre-flight: pinging {len(_preflight_models)} declared model(s)...", flush=True
+        )
+        dead: list[tuple[str, int | str]] = []
+        for m in _preflight_models:
+            try:
+                r = _httpx.post(
+                    "http://127.0.0.1:11434/api/chat",
+                    json={
+                        "model": m,
+                        "messages": [{"role": "user", "content": "ok"}],
+                        "stream": False,
+                    },
+                    timeout=30.0,
+                )
+                if r.status_code != 200:
+                    dead.append((m, r.status_code))
+                    print(f"  {m}: HTTP {r.status_code} — DEAD", flush=True)
+                else:
+                    print(f"  {m}: ok", flush=True)
+            except _httpx.HTTPError as exc:
+                dead.append((m, repr(exc)))
+                print(f"  {m}: {exc!r} — DEAD", flush=True)
+        if dead:
+            raise SystemExit(
+                f"model pre-flight FAILED: {len(dead)} dead model(s): {dead}. "
+                "A dead model produces silent zero-patch rows across every arm; refusing to fire. "
+                "Set SWEBENCH_SKIP_MODEL_PREFLIGHT=1 to override (not recommended)."
+            )
+
     _CONFIG_FP = _fingerprint(cfg)
     CELLS.parent.mkdir(parents=True, exist_ok=True)
     SCRATCH.mkdir(parents=True, exist_ok=True)
@@ -615,8 +655,13 @@ async def _run() -> int:
             return f"  {image}: rc={p.returncode}"
 
         pulls = await asyncio.gather(*(_pull(img) for img in unique_images), return_exceptions=True)
-        for r in pulls:
-            print(r if not isinstance(r, BaseException) else f"  pull error: {r!r}", flush=True)
+        for pull_result in pulls:
+            print(
+                pull_result
+                if not isinstance(pull_result, BaseException)
+                else f"  pull error: {pull_result!r}",
+                flush=True,
+            )
 
     print(
         f"preparing {len(ds)} cases at CONCURRENCY={CONCURRENCY} "
