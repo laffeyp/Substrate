@@ -89,7 +89,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import msgspec
 from datasets import load_dataset
@@ -119,12 +119,9 @@ from substrate.assay.swebench import (
 )
 from substrate.assay.swebench_errors import SwebenchRunnerError
 from substrate.assay.swebench_matrix import (
-    baseline_matched_compute_arm,
     container_arm,
-    n_drafts_no_correction_arm,
     n_drafts_repair_ensemble_arm,
-    repair_arm,
-    single_draft_baseline_arm,
+    swebench_repair_arm,
 )
 from substrate.assay.swebench_suite import (
     prepare_swebench_case,
@@ -445,47 +442,95 @@ def _build_arms_for_mode() -> tuple[list[Arm], dict[str, dict[str, object]], str
                 "SWEBENCH_ARMS=matrix requires SWEBENCH_K=<int from pass1 median> (or a "
                 "pre-reg carrying k_calls in its arm params; the runner reads K from env first)."
             )
-        # F8 (holistic review 2026-08-10, ratified): a structurally distinct arm.
-        # Every other matrix arm wraps `swebench_repair_topology` (localize + repair) at
-        # different (n, max_rounds); `tool_loop_container` runs a read/edit/bash agent loop
-        # inside the instance container with `solve_in_container`, then emits the workspace
-        # diff as a SelectedPatch. Same Adapter, same Oracle, structurally distinct topology
-        # — the comparator the North Star's mechanism claim needs. SWEBENCH_TOOL_STEPS caps
-        # the agent's step budget (default 8, matching container_arm's default).
         tool_steps = int(os.environ.get("SWEBENCH_TOOL_STEPS", "8"))
-        arms = [
-            single_draft_baseline_arm("single_draft_baseline", model=strong, repro_k=REPRO_K),
-            n_drafts_no_correction_arm(
-                "n_drafts_no_correction", model=strong, n=N, repro_k=REPRO_K
-            ),
-            repair_arm(
-                "n_drafts_repair", role="full", model=strong, n=N, max_rounds=2, repro_k=REPRO_K
-            ),
-            n_drafts_repair_ensemble_arm(
-                "n_drafts_repair_ensemble", models=ENSEMBLE, repro_k=REPRO_K
-            ),
-            baseline_matched_compute_arm(
-                "baseline_matched_compute", model=strong, k_calls=K_CALLS, repro_k=REPRO_K
-            ),
-            container_arm(
-                "tool_loop_container",
-                role="ablation",
-                model=strong,
-                max_steps=tool_steps,
-            ),
-        ]
-        params: dict[str, dict[str, object]] = {
-            "single_draft_baseline": {"models": [strong], "n": 1, "max_rounds": 1},
-            "n_drafts_no_correction": {"models": [strong], "n": N, "max_rounds": 1},
-            "n_drafts_repair": {"models": [strong], "n": N, "max_rounds": 2},
-            "n_drafts_repair_ensemble": {
-                "models": ENSEMBLE,
+
+        # Move 2 (re-review 2026-08-11, ratified): the Sprint 160 matrix reads as data.
+        # Every same-topology arm resolves through `swebench_repair_arm(models, n, max_rounds)`;
+        # the structurally distinct arm (`tool_loop_container` — read/edit/bash agent loop in
+        # the eval image) is one row with kind="container". Adding an arm of the same shape
+        # is a new row, not a new factory.
+        matrix_spec: list[dict[str, object]] = [
+            {
+                "name": "single_draft_baseline",
+                "role": "baseline",
+                "kind": "repair",
+                "models": [strong],
+                "n": 1,
+                "max_rounds": 1,
+            },
+            {
+                "name": "n_drafts_no_correction",
+                "role": "ablation",
+                "kind": "repair",
+                "models": [strong],
+                "n": N,
+                "max_rounds": 1,
+            },
+            {
+                "name": "n_drafts_repair",
+                "role": "full",
+                "kind": "repair",
+                "models": [strong],
+                "n": N,
+                "max_rounds": 2,
+            },
+            {
+                "name": "n_drafts_repair_ensemble",
+                "role": "full",
+                "kind": "repair",
+                "models": list(ENSEMBLE),
                 "n": len(ENSEMBLE),
                 "max_rounds": 2,
             },
-            "baseline_matched_compute": {"models": [strong], "n": K_CALLS, "max_rounds": 1},
-            "tool_loop_container": {"models": [strong], "max_steps": tool_steps},
-        }
+            {
+                "name": "baseline_matched_compute",
+                "role": "baseline",
+                "kind": "repair",
+                "models": [strong],
+                "n": K_CALLS,
+                "max_rounds": 1,
+            },
+            {
+                "name": "tool_loop_container",
+                "role": "ablation",
+                "kind": "container",
+                "models": [strong],
+                "max_steps": tool_steps,
+            },
+        ]
+
+        arms = []
+        params: dict[str, dict[str, object]] = {}
+        for row in matrix_spec:
+            if row["kind"] == "repair":
+                arm = swebench_repair_arm(
+                    str(row["name"]),
+                    models=cast("list[str]", row["models"]),
+                    n=int(cast(int, row["n"])),
+                    max_rounds=int(cast(int, row["max_rounds"])),
+                    role=str(row["role"]),
+                    repro_k=REPRO_K,
+                )
+                params[str(row["name"])] = {
+                    "models": row["models"],
+                    "n": row["n"],
+                    "max_rounds": row["max_rounds"],
+                }
+            elif row["kind"] == "container":
+                arm = container_arm(
+                    str(row["name"]),
+                    role=str(row["role"]),
+                    model=cast("list[str]", row["models"])[0],
+                    max_steps=int(cast(int, row["max_steps"])),
+                )
+                params[str(row["name"])] = {
+                    "models": row["models"],
+                    "max_steps": row["max_steps"],
+                }
+            else:
+                raise SystemExit(f"unknown arm kind {row['kind']!r} in matrix_spec")
+            arms.append(arm)
+
         # The pre-registered control for the matrix is single_draft_baseline (the floor) —
         # every other arm's delta reads as "beats the floor by X." Overridable via SWEBENCH_CONTROL.
         control = CONTROL if CONTROL != ARM_NAME else "single_draft_baseline"

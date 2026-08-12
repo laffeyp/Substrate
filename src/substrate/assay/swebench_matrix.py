@@ -184,26 +184,62 @@ def _build_solver_arm_from_payload(
     )
 
 
-def single_draft_baseline_arm(
-    name: str, role: str = "baseline", *, model: str, max_tokens: int = 2048, repro_k: int = 1
+def swebench_repair_arm(
+    name: str,
+    *,
+    models: Sequence[str],
+    n: int,
+    max_rounds: int,
+    role: str = "full",
+    max_tokens: int = 2048,
+    repro_k: int = 1,
+    include_test_selection: bool = False,
 ) -> Arm:
-    """Arm #1 of the sprint 159 five-arm matrix — one model, N=1, no correction (max_rounds=1).
-    The floor: what a single draft from a single model produces without any of the substrate's
-    machinery. Every gain over this is a substrate contribution. `repro_k` (F4 fix, review
-    2026-08-08): parallel reproduction samples run in ONE Docker per candidate."""
+    """The parametric SWE-bench arm factory (Move 2, holistic review 2026-08-10; ratified
+    2026-08-11). Every arm that wraps `swebench_repair_topology` at different (models, n,
+    max_rounds) is a call to this factory. Different-topology arms (`container_arm`,
+    `host_arm`) get their own factories because they build a structurally distinct topology.
+
+    Pre-collapse the module carried five near-identical factories (single_draft_baseline,
+    n_drafts_no_correction, n_drafts_repair, n_drafts_repair_ensemble, baseline_matched_compute)
+    that each closed over `_build_solver_arm_from_payload` with different constants; the runner
+    composed them by name into the Sprint 160 matrix. The factories now stand as thin wrappers
+    below for backward-compat; new arms of the same shape should call this factory directly
+    (or add a row to the confirmatory runner's ARMS table).
+
+    `n` must be >= 1 — a zero-slot arm has nothing to draft. `repro_k` is the parallel
+    reproduction-sample count per candidate (F4 fix, review 2026-08-08). `include_test_selection`
+    opts into the heavy `swebench_solver_topology_with_test_selection` (not what any Sprint 160
+    confirmatory arm takes; kept for a future two-phase runner)."""
+    if n < 1:
+        raise ValueError(f"n must be >= 1; got {n}")
 
     def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
         return _build_solver_arm_from_payload(
             case,
-            [model],
-            n=1,
-            max_rounds=1,
+            list(models),
+            n=n,
+            max_rounds=max_rounds,
             max_tokens=max_tokens,
             repro_k=repro_k,
-            include_test_selection=False,
+            include_test_selection=include_test_selection,
         )
 
     return Arm(name=name, role=role, build=build)
+
+
+# Backward-compat wrappers. Each of the five Sprint 160 matrix factories reduces to one call
+# through `swebench_repair_arm` with the arm's constants pinned. Tests that import these names
+# keep working; new arms of the same shape should build the parametric factory directly.
+
+
+def single_draft_baseline_arm(
+    name: str, role: str = "baseline", *, model: str, max_tokens: int = 2048, repro_k: int = 1
+) -> Arm:
+    """Arm #1 — one model, N=1, no correction. The floor for every mechanism claim."""
+    return swebench_repair_arm(
+        name, models=[model], n=1, max_rounds=1, role=role, max_tokens=max_tokens, repro_k=repro_k
+    )
 
 
 def n_drafts_no_correction_arm(
@@ -215,23 +251,10 @@ def n_drafts_no_correction_arm(
     max_tokens: int = 2048,
     repro_k: int = 1,
 ) -> Arm:
-    """Arm #2 — one model, N drafts, NO correction round. Isolates the value of drawing multiple
-    candidates from a single model (temperature diversity) from the value of the correction
-    loop. Delta vs. `single_draft_baseline_arm` = value of best-of-N; delta vs.
-    `n_drafts_repair_arm` = value of the correction round."""
-
-    def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
-        return _build_solver_arm_from_payload(
-            case,
-            [model],
-            n=n,
-            max_rounds=1,
-            max_tokens=max_tokens,
-            repro_k=repro_k,
-            include_test_selection=False,
-        )
-
-    return Arm(name=name, role=role, build=build)
+    """Arm #2 — one model, N drafts, no correction. Isolates best-of-N from the correction loop."""
+    return swebench_repair_arm(
+        name, models=[model], n=n, max_rounds=1, role=role, max_tokens=max_tokens, repro_k=repro_k
+    )
 
 
 def n_drafts_repair_ensemble_arm(
@@ -243,24 +266,18 @@ def n_drafts_repair_ensemble_arm(
     max_tokens: int = 2048,
     repro_k: int = 1,
 ) -> Arm:
-    """Arm #4 — N drafts (N = len(models)) from a HETEROGENEOUS ensemble, correction on. The
-    hypothesis: distinct models make distinct mistakes, so an ensemble's best-of-N samples a
-    wider hypothesis space than N temperature-samples from one model (per KIT_DIARY finding on
-    the R-19 thinking trio). Compared against `n_drafts_repair_arm` (one model at N=len(models))
-    to isolate the ensemble contribution — same N, same rounds, only the model set differs."""
-
-    def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
-        return _build_solver_arm_from_payload(
-            case,
-            list(models),
-            n=len(models),
-            max_rounds=max_rounds,
-            max_tokens=max_tokens,
-            repro_k=repro_k,
-            include_test_selection=False,
-        )
-
-    return Arm(name=name, role=role, build=build)
+    """Arm #4 — N drafts (N = len(models)) from a HETEROGENEOUS ensemble, correction on.
+    Distinct models make distinct mistakes; the ensemble's best-of-N samples a wider hypothesis
+    space than N temperature-samples from one model."""
+    return swebench_repair_arm(
+        name,
+        models=list(models),
+        n=len(models),
+        max_rounds=max_rounds,
+        role=role,
+        max_tokens=max_tokens,
+        repro_k=repro_k,
+    )
 
 
 def baseline_matched_compute_arm(
@@ -272,33 +289,18 @@ def baseline_matched_compute_arm(
     max_tokens: int = 2048,
     repro_k: int = 1,
 ) -> Arm:
-    """Arm #5 — the compute-matched baseline (per Kapoor & Narayanan 2024 "AI Agents That
-    Matter"). Runs a SINGLE STRONG MODEL at K attempts where K is chosen so total model_calls
-    roughly matches the ensemble arm's median. If the ensemble arm beats the single-model
-    baseline while consuming the same compute, that's a mechanism win; if the compute-matched
-    baseline catches up, the ensemble's advantage was compute-purchased, not mechanism-driven.
-
-    Operationalisation: N=K single-model best-of-N with no correction — K attempts, first
-    applyable wins, same SELECT pipeline as every other arm. NOT literally "oracle picks best of
-    K" (which would require an oracle-in-arm pattern the current Suite contract doesn't
-    support); Sprint 160's writeup names the operational choice alongside the number. `k_calls`
-    is passed in — the confirmatory runner derives it from the ensemble arm's median model_calls
-    per case, so it's a data-driven pre-reg parameter (Sprint 160 freezes it)."""
-    if k_calls < 1:
-        raise ValueError(f"k_calls must be >= 1; got {k_calls}")
-
-    def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
-        return _build_solver_arm_from_payload(
-            case,
-            [model],
-            n=k_calls,
-            max_rounds=1,
-            max_tokens=max_tokens,
-            repro_k=repro_k,
-            include_test_selection=False,
-        )
-
-    return Arm(name=name, role=role, build=build)
+    """Arm #5 — SINGLE STRONG MODEL at K attempts where K is the ensemble's median model_calls.
+    If the ensemble beats matched-compute, mechanism win; if matched-compute catches up, the
+    ensemble's edge was compute-purchased, not mechanism-driven (Kapoor & Narayanan 2024)."""
+    return swebench_repair_arm(
+        name,
+        models=[model],
+        n=k_calls,
+        max_rounds=1,
+        role=role,
+        max_tokens=max_tokens,
+        repro_k=repro_k,
+    )
 
 
 def repair_arm(
@@ -311,27 +313,17 @@ def repair_arm(
     max_tokens: int = 2048,
     repro_k: int = 1,
 ) -> Arm:
-    """A substrate coding topology as an Arm — one model, N slots, correction on. Design v3
-    (ratified 2026-08-10): routes through `_build_solver_arm_from_payload` which now builds
-    the LIGHT `swebench_repair_topology` (localize + best-of-N repair + emit the first patch
-    that applied); the harness grades. The heavy in-topology reranking (`select_exec` + the
-    test-execution SELECT apparatus) is opt-in via `include_test_selection=True` at the
-    matrix helper — not what any sprint-159 confirmatory arm takes.
-
-    Sprint 148: firewall check at build time — parity with the other matrix arms."""
-
-    def build(case: Case) -> Callable[[api.TopologyBuilder], None]:
-        return _build_solver_arm_from_payload(
-            case,
-            [model],
-            n=n,
-            max_rounds=max_rounds,
-            max_tokens=max_tokens,
-            repro_k=repro_k,
-            include_test_selection=False,
-        )
-
-    return Arm(name=name, role=role, build=build)
+    """Backward-compat: one model, N slots, correction on. `swebench_repair_arm` is the
+    canonical factory; this wrapper stays for callers pinned to the old name."""
+    return swebench_repair_arm(
+        name,
+        models=[model],
+        n=n,
+        max_rounds=max_rounds,
+        role=role,
+        max_tokens=max_tokens,
+        repro_k=repro_k,
+    )
 
 
 def swebench_matrix_suite(
@@ -380,4 +372,5 @@ __all__ = [
     "repair_arm",
     "single_draft_baseline_arm",
     "swebench_matrix_suite",
+    "swebench_repair_arm",
 ]

@@ -69,8 +69,11 @@ def test_sprint_159_matrix_names_and_roles():
 
 
 def test_baseline_matched_compute_rejects_zero_k():
-    # K < 1 is nonsense — a compute-matched baseline needs at least one attempt.
-    with pytest.raises(ValueError, match="k_calls must be >= 1"):
+    # K < 1 is nonsense — a compute-matched baseline needs at least one attempt. Post-Move-2
+    # (2026-08-11) the wrapper delegates to swebench_repair_arm which raises on n < 1; the
+    # error text now names `n`, not `k_calls`, because the check lives on the parametric
+    # factory.
+    with pytest.raises(ValueError, match="n must be >= 1"):
         baseline_matched_compute_arm("matched", model="m", k_calls=0)
 
 
