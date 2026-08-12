@@ -274,7 +274,7 @@ def swebench_repair_topology(
     ALWAYS emits a terminal `RepairSummary` (the enumerated outcome + stage counts) and terminates on it.
 
     Sprint 149 — `firewall_instance`, when passed, runs `firewall_check` at build. `swebench_solver_arm`
-    (swebench_suite.py) already goes through `prepare_swebench_case` which firewalls; `repair_arm`
+    (swebench_suite.py) already goes through `prepare_swebench_case` which firewalls; `swebench_repair_arm`
     (swebench_matrix.py) firewalls at its build (sprint 148). The optional kwarg here is the belt-and-braces
     guard for any future caller that stitches a topology by hand: pass the raw instance and the topology
     refuses to build on a leak. Not required (existing callers pass nothing and are firewall-guarded

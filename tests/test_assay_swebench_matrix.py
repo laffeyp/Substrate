@@ -4,13 +4,10 @@ import pytest
 
 from substrate.assay.suite import BASELINE, FULL
 from substrate.assay.swebench_matrix import (
-    baseline_matched_compute_arm,
     container_arm,
     host_arm,
-    n_drafts_no_correction_arm,
-    n_drafts_repair_ensemble_arm,
-    single_draft_baseline_arm,
     swebench_matrix_suite,
+    swebench_repair_arm,
 )
 
 
@@ -54,60 +51,29 @@ def test_arm_build_returns_a_topology_without_io(tmp_path):
 
 
 def test_sprint_159_matrix_names_and_roles():
-    # The five arms of the sprint 159 confirmatory matrix. Names and default roles pin the
-    # matrix shape a caller composes into `swebench_matrix_suite` — a rename or role change
-    # here trips this test AND would fail the pre-registration gate's arms_hash check.
+    # The five arms of the Sprint 160 confirmatory matrix, expressed as rows against the
+    # parametric factory `swebench_repair_arm`. Rename or role change trips this test AND
+    # would fail the pre-registration gate's arms_hash check.
     arms = [
-        single_draft_baseline_arm("single", model="m"),
-        n_drafts_no_correction_arm("no_correction", model="m", n=3),
-        # repair_arm exists already (pre-159); kept for backward compat.
-        n_drafts_repair_ensemble_arm("ensemble", models=("m1", "m2", "m3")),
-        baseline_matched_compute_arm("matched", model="m_strong", k_calls=9),
+        swebench_repair_arm("single", models=["m"], n=1, max_rounds=1, role="baseline"),
+        swebench_repair_arm("no_correction", models=["m"], n=3, max_rounds=1, role="ablation"),
+        swebench_repair_arm("ensemble", models=["m1", "m2", "m3"], n=3, max_rounds=2, role="full"),
+        swebench_repair_arm("matched", models=["m_strong"], n=9, max_rounds=1, role="baseline"),
     ]
     assert [a.name for a in arms] == ["single", "no_correction", "ensemble", "matched"]
     assert [a.role for a in arms] == ["baseline", "ablation", "full", "baseline"]
 
 
-def test_baseline_matched_compute_rejects_zero_k():
-    # K < 1 is nonsense — a compute-matched baseline needs at least one attempt. Post-Move-2
-    # (2026-08-11) the wrapper delegates to swebench_repair_arm which raises on n < 1; the
-    # error text now names `n`, not `k_calls`, because the check lives on the parametric
-    # factory.
+def test_swebench_repair_arm_rejects_zero_n():
+    # n < 1 is nonsense — an arm needs at least one drafter slot. The check lives on the
+    # parametric factory; every caller inherits it.
     with pytest.raises(ValueError, match="n must be >= 1"):
-        baseline_matched_compute_arm("matched", model="m", k_calls=0)
+        swebench_repair_arm("bad", models=["m"], n=0, max_rounds=1)
 
 
-def test_ensemble_arm_n_matches_models_length():
-    # The ensemble arm's N is INTRINSICALLY len(models) — the whole point is one distinct model
-    # per slot. Verify build wires that many responders (structural check via the topology
-    # builder's declared kinds; no network / no clone).
-    arm = n_drafts_repair_ensemble_arm("ens", models=("a", "b", "c"))
-    # Attempting build would clone github.com — skip that; just verify the arm carries the
-    # ensemble shape by inspecting the wrapped build closure indirectly through the arm name.
-    assert arm.name == "ens"
-    assert arm.role == "full"  # default when caller omits role
-    # A single-model spelling degrades to a 1-slot arm — flag if anyone slipped `models=("x",)`
-    # into a call site that meant to be an ensemble.
-    single = n_drafts_repair_ensemble_arm("solo", models=("x",))
-    assert single.name == "solo"  # legal but degenerate ensemble; test-only pin
-
-
-def test_single_draft_baseline_default_role_is_baseline():
-    arm = single_draft_baseline_arm("single", model="m")
-    assert arm.role == "baseline"
-
-
-def test_n_drafts_no_correction_default_role_is_ablation():
-    # This arm's whole purpose is ablating the correction round from the full pipeline.
-    arm = n_drafts_no_correction_arm("nc", model="m")
-    assert arm.role == "ablation"
-
-
-def test_baseline_matched_compute_default_role_is_baseline():
-    # Compute-matched IS a baseline — same currency (model calls) as the ensemble, different
-    # mechanism (one strong model vs. three at N=1 each).
-    arm = baseline_matched_compute_arm("matched", model="m", k_calls=9)
-    assert arm.role == "baseline"
+def test_swebench_repair_arm_default_role_is_full():
+    arm = swebench_repair_arm("x", models=["m"], n=1, max_rounds=1)
+    assert arm.role == "full"
 
 
 class _RecordingBuilder:
@@ -168,10 +134,10 @@ def test_matrix_arms_dispatch_light_topology_producer_kinds_omit_select_exec():
     # never include `select_exec`. A regression here fails BEFORE the confirmatory fires.
     case = _case_for_test()
     arms = [
-        single_draft_baseline_arm("single", model="m"),
-        n_drafts_no_correction_arm("no_correction", model="m", n=3),
-        n_drafts_repair_ensemble_arm("ensemble", models=("m1", "m2", "m3")),
-        baseline_matched_compute_arm("matched", model="m_strong", k_calls=9),
+        swebench_repair_arm("single", models=["m"], n=1, max_rounds=1, role="baseline"),
+        swebench_repair_arm("no_correction", models=["m"], n=3, max_rounds=1, role="ablation"),
+        swebench_repair_arm("ensemble", models=["m1", "m2", "m3"], n=3, max_rounds=2, role="full"),
+        swebench_repair_arm("matched", models=["m_strong"], n=9, max_rounds=1, role="baseline"),
     ]
     for arm in arms:
         topo = arm.build(case)

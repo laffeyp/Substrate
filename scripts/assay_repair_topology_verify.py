@@ -15,7 +15,7 @@ from datasets import load_dataset
 from substrate.assay.run import run_arm_on_case
 from substrate.assay.suite import FULL, Case
 from substrate.assay.swebench import swebench_record_oracle
-from substrate.assay.swebench_matrix import repair_arm
+from substrate.assay.swebench_matrix import swebench_repair_arm
 from substrate.assay.swebench_suite import safe_case_id
 
 MODEL = sys.argv[1] if len(sys.argv) > 1 else "qwen3-coder:480b-cloud"
@@ -26,7 +26,7 @@ IIDS = sys.argv[3:] or ["astropy__astropy-12907", "django__django-10914"]
 def main() -> None:
     ds = list(load_dataset("princeton-nlp/SWE-bench_Lite", split="test"))
     by_id = {x["instance_id"]: x for x in ds}
-    arm = repair_arm("repair", FULL, model=MODEL, n=N, max_rounds=2)
+    arm = swebench_repair_arm("repair", models=[MODEL], n=N, max_rounds=2, role=FULL)
     oracle = swebench_record_oracle(
         report_root="process/assay_repair", dataset_name="princeton-nlp/SWE-bench_Lite"
     )

@@ -12,8 +12,9 @@ can instead write
     ... ensemble ...  # one object, cycles per call
 
 and get the same heterogeneous-ensemble behaviour without the caller managing per-slot indexing.
-The roadmap card scopes this alongside `n_drafts_repair_ensemble_arm` (already shipped in Sprint
-159): that arm still uses the per-slot list today, but new topologies (delegate flows, tool-loop
+The roadmap card scopes this alongside the ensemble-arm shape in the SWE-bench confirmatory
+matrix (`swebench_repair_arm` with a heterogeneous `models` list): that path still uses the
+per-slot list today, but new topologies (delegate flows, tool-loop
 agents) can drop the modulo bookkeeping and hold one Responder.
 
 Cycling is deterministic (round-robin from index 0), not random — a caller who wants

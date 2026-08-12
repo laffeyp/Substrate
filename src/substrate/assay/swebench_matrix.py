@@ -228,104 +228,6 @@ def swebench_repair_arm(
     return Arm(name=name, role=role, build=build)
 
 
-# Backward-compat wrappers. Each of the five Sprint 160 matrix factories reduces to one call
-# through `swebench_repair_arm` with the arm's constants pinned. Tests that import these names
-# keep working; new arms of the same shape should build the parametric factory directly.
-
-
-def single_draft_baseline_arm(
-    name: str, role: str = "baseline", *, model: str, max_tokens: int = 2048, repro_k: int = 1
-) -> Arm:
-    """Arm #1 — one model, N=1, no correction. The floor for every mechanism claim."""
-    return swebench_repair_arm(
-        name, models=[model], n=1, max_rounds=1, role=role, max_tokens=max_tokens, repro_k=repro_k
-    )
-
-
-def n_drafts_no_correction_arm(
-    name: str,
-    role: str = "ablation",
-    *,
-    model: str,
-    n: int = 3,
-    max_tokens: int = 2048,
-    repro_k: int = 1,
-) -> Arm:
-    """Arm #2 — one model, N drafts, no correction. Isolates best-of-N from the correction loop."""
-    return swebench_repair_arm(
-        name, models=[model], n=n, max_rounds=1, role=role, max_tokens=max_tokens, repro_k=repro_k
-    )
-
-
-def n_drafts_repair_ensemble_arm(
-    name: str,
-    role: str = "full",
-    *,
-    models: Sequence[str],
-    max_rounds: int = 2,
-    max_tokens: int = 2048,
-    repro_k: int = 1,
-) -> Arm:
-    """Arm #4 — N drafts (N = len(models)) from a HETEROGENEOUS ensemble, correction on.
-    Distinct models make distinct mistakes; the ensemble's best-of-N samples a wider hypothesis
-    space than N temperature-samples from one model."""
-    return swebench_repair_arm(
-        name,
-        models=list(models),
-        n=len(models),
-        max_rounds=max_rounds,
-        role=role,
-        max_tokens=max_tokens,
-        repro_k=repro_k,
-    )
-
-
-def baseline_matched_compute_arm(
-    name: str,
-    role: str = "baseline",
-    *,
-    model: str,
-    k_calls: int,
-    max_tokens: int = 2048,
-    repro_k: int = 1,
-) -> Arm:
-    """Arm #5 — SINGLE STRONG MODEL at K attempts where K is the ensemble's median model_calls.
-    If the ensemble beats matched-compute, mechanism win; if matched-compute catches up, the
-    ensemble's edge was compute-purchased, not mechanism-driven (Kapoor & Narayanan 2024)."""
-    return swebench_repair_arm(
-        name,
-        models=[model],
-        n=k_calls,
-        max_rounds=1,
-        role=role,
-        max_tokens=max_tokens,
-        repro_k=repro_k,
-    )
-
-
-def repair_arm(
-    name: str,
-    role: str,
-    *,
-    model: str,
-    n: int = 3,
-    max_rounds: int = 2,
-    max_tokens: int = 2048,
-    repro_k: int = 1,
-) -> Arm:
-    """Backward-compat: one model, N slots, correction on. `swebench_repair_arm` is the
-    canonical factory; this wrapper stays for callers pinned to the old name."""
-    return swebench_repair_arm(
-        name,
-        models=[model],
-        n=n,
-        max_rounds=max_rounds,
-        role=role,
-        max_tokens=max_tokens,
-        repro_k=repro_k,
-    )
-
-
 def swebench_matrix_suite(
     instances: Sequence[dict[str, Any]],
     arms: Sequence[Arm],
@@ -364,13 +266,8 @@ def swebench_matrix_suite(
 
 
 __all__ = [
-    "baseline_matched_compute_arm",
     "container_arm",
     "host_arm",
-    "n_drafts_no_correction_arm",
-    "n_drafts_repair_ensemble_arm",
-    "repair_arm",
-    "single_draft_baseline_arm",
     "swebench_matrix_suite",
     "swebench_repair_arm",
 ]

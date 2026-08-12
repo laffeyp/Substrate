@@ -120,7 +120,6 @@ from substrate.assay.swebench import (
 from substrate.assay.swebench_errors import SwebenchRunnerError
 from substrate.assay.swebench_matrix import (
     container_arm,
-    n_drafts_repair_ensemble_arm,
     swebench_repair_arm,
 )
 from substrate.assay.swebench_suite import (
@@ -427,7 +426,13 @@ def _build_arms_for_mode() -> tuple[list[Arm], dict[str, dict[str, object]], str
                 "SWEBENCH_ARMS=pass1 requires SWEBENCH_ENSEMBLE=<comma-sep models> — the arm "
                 "under measurement is the ensemble, and observing K needs its real model_calls."
             )
-        ens = n_drafts_repair_ensemble_arm("n_drafts_repair_ensemble", models=ENSEMBLE)
+        ens = swebench_repair_arm(
+            "n_drafts_repair_ensemble",
+            models=ENSEMBLE,
+            n=len(ENSEMBLE),
+            max_rounds=2,
+            role="full",
+        )
         return (
             [ens],
             {"n_drafts_repair_ensemble": {"models": ENSEMBLE, "n": len(ENSEMBLE), "max_rounds": 2}},
