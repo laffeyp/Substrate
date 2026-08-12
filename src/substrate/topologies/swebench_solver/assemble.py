@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import warnings
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
@@ -469,7 +470,24 @@ def swebench_solver_topology_with_test_selection(
 
     Sprint 149 — see `swebench_repair_topology` for the `firewall_instance` contract. Same optional guard,
     same reason: production callers firewall upstream through the Adapter (`prepare_swebench_case` via
-    `swebench_solver_arm`); a hand-stitched caller passing the instance here gets the third defense layer."""
+    `swebench_solver_arm`); a hand-stitched caller passing the instance here gets the third defense layer.
+
+    RETIRED 2026-08-11 (holistic re-review, Move 4): every SWE-bench matrix arm now uses
+    `swebench_repair_topology` (localize + best-of-N repair + emit the first patch that applied);
+    the official harness grades. The in-topology `select_exec` apparatus this function wires
+    duplicated the grader's work, doubled per-cell Docker minutes, and produced the 517-silent-
+    fails shape the 2026-08-10 postmortem records (RC1). Kept in-tree behind a DeprecationWarning
+    for callers that opt in via `_build_solver_arm_from_payload(..., include_test_selection=True)`
+    or the standalone scripts. Any future revival needs a study plan naming the delta over
+    harness-only grading, per `src/substrate/topologies/swebench_solver/_deprecated/README.md`."""
+    warnings.warn(
+        "swebench_solver_topology_with_test_selection is deprecated as of 2026-08-11 "
+        "(KIT_DIARY 38, Move 4). Every SWE-bench matrix arm uses swebench_repair_topology; "
+        "the harness grades. See src/substrate/topologies/swebench_solver/_deprecated/README.md "
+        "for the retirement reason and revival path.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if firewall_instance is not None:
         from ...assay.swebench import FirewallViolation, firewall_check
 

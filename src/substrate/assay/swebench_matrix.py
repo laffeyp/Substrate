@@ -165,8 +165,20 @@ def _build_solver_arm_from_payload(
         _wrap_ollama(models[i % len(models)], quota, max_tokens) for i in range(n)
     ]
     if include_test_selection:
-        # Heavy path: kept behind an explicit opt-in for a future two-phase runner. The
-        # confirmatory never takes this branch.
+        # Heavy path (retired 2026-08-11, Move 4 — see
+        # `src/substrate/topologies/swebench_solver/_deprecated/README.md`): kept behind an
+        # explicit opt-in for a future study caller. The confirmatory never takes this
+        # branch. The DeprecationWarning fires at the topology's build; test suites that
+        # elevate DeprecationWarning to error will fail loudly on any new consumer.
+        import warnings
+
+        warnings.warn(
+            "include_test_selection=True routes through the retired heavy topology "
+            "swebench_solver_topology_with_test_selection (KIT_DIARY 38, Move 4). "
+            "Every SWE-bench matrix arm uses swebench_repair_topology; the harness grades.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         from .swebench_suite import solver_topology_from_payload
 
         return solver_topology_from_payload(
