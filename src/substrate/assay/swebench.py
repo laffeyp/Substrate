@@ -65,6 +65,13 @@ REASON_DOCKER_ERROR = "docker_error"
 REASON_HARNESS_ERROR = "harness_error"
 REASON_GIT_ERROR = "git_error"
 REASON_FIREWALL_VIOLATION = "firewall_violation"
+# Design DESIGN-2026-08-11-responder-rate-limit-shim.md §"Closed-set additions":
+# a provider (Ollama Cloud tier, OpenAI RPM, Anthropic TPM, ...) rate-limited the
+# request. Different from `harness_error` (a harness exception) and from
+# `timed_out` (wall-clock exceeded); a rate-limit is a "capacity denied at the
+# provider's gate" state. The 2026-08-10 N=300 Lite v2 run had 3337 rows that
+# should have carried this reason but landed as no_verdict/harness_error.
+REASON_RATE_LIMITED = "rate_limited"
 
 _HARNESS_REASONS: frozenset[str] = frozenset(
     {
@@ -74,6 +81,7 @@ _HARNESS_REASONS: frozenset[str] = frozenset(
         REASON_HARNESS_ERROR,
         REASON_GIT_ERROR,
         REASON_FIREWALL_VIOLATION,
+        REASON_RATE_LIMITED,
     }
 )
 
@@ -952,6 +960,7 @@ __all__ = [
     "REASON_FIREWALL_VIOLATION",
     "REASON_GIT_ERROR",
     "REASON_HARNESS_ERROR",
+    "REASON_RATE_LIMITED",
     "REASON_TIMED_OUT",
     "SwebenchRecordOracle",
     "SwebenchExtractOnlyOracle",

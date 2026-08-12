@@ -104,12 +104,14 @@ from substrate.assay.preregistration import (
 from substrate.assay.run import UsageTotals, project_reproduction_for_selected
 from substrate.assay.suite import Arm, Case
 from substrate.assay.oracle import Verdict
+from substrate.adapters.rate_limit import ProviderRateLimited
 from substrate.assay.swebench import (
     DEFAULT_MODEL_NAME,
     REASON_DOCKER_ERROR,
     REASON_FIREWALL_VIOLATION,
     REASON_GIT_ERROR,
     REASON_HARNESS_ERROR,
+    REASON_RATE_LIMITED,
     REASON_TIMED_OUT,
     FirewallViolation,
     SwebenchExtractOnlyOracle,
@@ -180,6 +182,12 @@ def _classify_cell_error(exc: BaseException) -> tuple[str, bool]:
     if isinstance(exc, SwebenchRunnerError):
         # Typed path: .reason is authoritative, no string match needed.
         return (exc.reason, False)
+    if isinstance(exc, ProviderRateLimited):
+        # Provider-agnostic rate-limit shim exhausted its budget (design
+        # DESIGN-2026-08-11-responder-rate-limit-shim.md). Distinct from harness_error;
+        # the row's reason field carries REASON_RATE_LIMITED so the report's reason_counts
+        # separates capacity-denied cells from harness-crashed cells.
+        return (REASON_RATE_LIMITED, False)
     if isinstance(exc, FirewallViolation):
         # On Verified (human-curated) a firewall violation is a parser bug in `_f2p_in_test_patch`,
         # not a real grade leak — Princeton/OpenAI/Anthropic audited every instance. FLAKE so one

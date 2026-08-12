@@ -19,7 +19,10 @@ from collections.abc import AsyncIterator, Callable, Sequence
 from typing import Any, cast
 
 from .. import api
-from ..adapters import OllamaResponder, Responder
+import os
+
+from ..adapters import OllamaResponder, ProviderQuota, RateLimitedResponder, Responder
+from ..adapters.rate_limit import OllamaQuota
 from ..topologies.swebench_solver.records import SelectedPatch
 from .suite import Arm, Case, Suite
 from .swebench import FirewallViolation, firewall_check, swebench_record_oracle
@@ -29,6 +32,35 @@ from ..topologies.swebench_solver.assemble import swebench_repair_topology
 from .swebench_suite import PreparedPayload, safe_case_id
 
 _Factory = Callable[[], Any]
+
+
+def _ollama_quota_from_env() -> ProviderQuota:
+    """Read SWEBENCH_OLLAMA_TIER and return the matching ProviderQuota. Default `local`
+    (16 concurrent per model) because unset env means "no cloud tier declared, we're
+    running locally." Cloud fires MUST set SWEBENCH_OLLAMA_TIER=pro|max explicitly so
+    the shim caps concurrency at the paid tier's actual limit. Design step 4."""
+    tier = os.environ.get("SWEBENCH_OLLAMA_TIER", "local").lower()
+    if tier == "free":
+        return OllamaQuota.free()
+    if tier == "pro":
+        return OllamaQuota.pro()
+    if tier == "max":
+        return OllamaQuota.max_tier()
+    if tier == "local":
+        return OllamaQuota.local()
+    raise SystemExit(
+        f"SWEBENCH_OLLAMA_TIER={tier!r} unknown — must be one of free | pro | max | local."
+    )
+
+
+def _wrap_ollama(model: str, quota: ProviderQuota, max_tokens: int) -> Responder:
+    """Return an OllamaResponder wrapped in RateLimitedResponder so the per-(provider,
+    model) semaphore caps concurrent in-flight requests at the tier's declared limit.
+    Every arm's construction routes through here so wrappers for the same model share
+    one gate — design DESIGN-2026-08-11-responder-rate-limit-shim.md §"Two things the
+    shim must do"."""
+    inner = OllamaResponder(model, max_tokens=max_tokens)
+    return RateLimitedResponder(inner, key=f"ollama:{model}", quota=quota)
 
 
 def _solve_factory(solve: Callable[[], str]) -> _Factory:
@@ -128,8 +160,9 @@ def _build_solver_arm_from_payload(
             "sprint-159 matrix arm must go through `prepare_swebench_case` upstream so the "
             "PreparedPayload is populated (image, spec, regression_files, passed_at_base, ...)."
         )
+    quota = _ollama_quota_from_env()
     responders: list[Responder] = [
-        OllamaResponder(models[i % len(models)], max_tokens=max_tokens) for i in range(n)
+        _wrap_ollama(models[i % len(models)], quota, max_tokens) for i in range(n)
     ]
     if include_test_selection:
         # Heavy path: kept behind an explicit opt-in for a future two-phase runner. The

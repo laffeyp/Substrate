@@ -22,6 +22,7 @@ from substrate.assay.swebench import (
     REASON_FIREWALL_VIOLATION,
     REASON_GIT_ERROR,
     REASON_HARNESS_ERROR,
+    REASON_RATE_LIMITED,
     REASON_TIMED_OUT,
     HarnessOutcome,
     _HARNESS_REASONS,
@@ -303,10 +304,12 @@ def test_swebench_record_oracle_stamps_recall_even_when_patch_empty():
     assert result.full_recall_at_k is False
 
 
-def test_harness_reasons_closed_set_names_the_six_documented_states():
-    # H-3 (ratified 2026-08-10): the closed set of reason strings for NO_VERDICT rows.
-    # Named constants + the frozenset must stay in sync; a new failure mode extends BOTH
-    # (design v3 §"The runner contract").
+def test_harness_reasons_closed_set_names_every_documented_state():
+    # H-3 (ratified 2026-08-10) + rate-limit fold (2026-08-11): the closed set of reason
+    # strings for NO_VERDICT rows. Named constants + the frozenset must stay in sync;
+    # a new failure mode extends BOTH. rate_limited joined the set to distinguish
+    # provider-capacity denial from harness_error (design
+    # DESIGN-2026-08-11-responder-rate-limit-shim.md).
     assert _HARNESS_REASONS == frozenset(
         {
             REASON_TIMED_OUT,
@@ -315,11 +318,13 @@ def test_harness_reasons_closed_set_names_the_six_documented_states():
             REASON_HARNESS_ERROR,
             REASON_GIT_ERROR,
             REASON_FIREWALL_VIOLATION,
+            REASON_RATE_LIMITED,
         }
     )
     # The strings are the exact wire form the writeup + runner rows quote.
     assert REASON_TIMED_OUT == "timed_out"
     assert REASON_CONTAINER_CRASHED == "container_crashed"
+    assert REASON_RATE_LIMITED == "rate_limited"
 
 
 def test_harness_outcome_carries_typed_verdict_and_reason():

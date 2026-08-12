@@ -24,7 +24,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict, cast
 
-from ..adapters import OllamaResponder
 from ..topologies.swebench_solver.assemble import swebench_solver_topology_with_test_selection
 from ..topologies.swebench_solver.select_docker import (
     DockerTestRunner,
@@ -273,8 +272,13 @@ def swebench_solver_arm(
     slots = n if n is not None else len(models)
 
     def build(case: Case) -> Topology:
+        # Rate-limit shim wraps every responder so concurrent in-flight calls to the same
+        # model share one semaphore capped at the tier limit (design DESIGN-2026-08-11).
+        from .swebench_matrix import _ollama_quota_from_env, _wrap_ollama
+
+        quota = _ollama_quota_from_env()
         responders = [
-            OllamaResponder(models[i % len(models)], max_tokens=max_tokens) for i in range(slots)
+            _wrap_ollama(models[i % len(models)], quota, max_tokens) for i in range(slots)
         ]
         # The cast is the Adapter's promise: this Case was built by `prepare_swebench_case`, so its
         # payload matches PreparedPayload. Any callsite that constructs a Case without going through
