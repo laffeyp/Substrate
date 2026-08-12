@@ -9,6 +9,7 @@ types reconstruct their own suite when they exist."""
 
 from __future__ import annotations
 
+import enum
 import hashlib
 import json
 from pathlib import Path
@@ -23,6 +24,25 @@ from .suite import Arm, Case, Suite, Topology
 
 CODING_ASSAY_KIND = "coding"
 SWEBENCH_ASSAY_KIND = "swebench"
+
+
+class CellSource(str, enum.Enum):
+    """SDD Gap 6 (2026-08-09 conformance review, closed 2026-08-11): the runner's cell-row
+    `source` field is a closed lexicon — one of three values naming HOW the cell landed
+    on disk. Pre-fold every write site typed `"run"` / `"salvage"` / `"error"` as a bare
+    string; a typo passed strict mypy and drifted at run-time only in the aggregate report
+    where the wrong-string cell silently fell out of the counts. Str-subclass so the wire
+    form on cells.jsonl stays `"run"` / `"salvage"` / `"error"` — reader compatibility with
+    every existing row is exact.
+
+    - RUN — the topology built + ran, oracle graded; usage/timing measured.
+    - SALVAGE — a prior run's record was regraded without new model calls; usage null.
+    - ERROR — the cell raised before/around the grade; classifier wrote a typed reason on
+      the row. Usage null."""
+
+    RUN = "run"
+    SALVAGE = "salvage"
+    ERROR = "error"
 
 
 def read_meta(cells_path: Path) -> dict[str, Any]:

@@ -96,7 +96,7 @@ from datasets import load_dataset
 
 from substrate import api
 from substrate.assay import run_arm_on_case
-from substrate.assay.cells import report_from_cells
+from substrate.assay.cells import CellSource, report_from_cells
 from substrate.assay.preregistration import (
     fingerprint as _fingerprint_shared,
     guard as preregistration_guard,
@@ -306,7 +306,7 @@ def _row(
     case: Case,
     trial: int,
     verdict: Verdict,
-    source: str,
+    source: CellSource,
     u: UsageTotals,
     elapsed: int,
     root: str,
@@ -316,10 +316,12 @@ def _row(
     recall_at_k: float | None = None,
     full_recall_at_k: bool | None = None,
 ) -> dict[str, object]:
-    # measured=source=="run" gates null vs measured fields: a salvage/error cell made NO calls
-    # this run, so its compute fields are null (not measured 0). Only freshly-run, metered
-    # cells carry real tokens/calls/ms/estimated.
-    measured = source == "run"
+    # measured = CellSource.RUN gates null vs measured fields: a salvage/error cell made NO
+    # calls this run, so its compute fields are null (not measured 0). Only freshly-run,
+    # metered cells carry real tokens/calls/ms/estimated. Post-Gap-6 (2026-08-11): source
+    # is a typed enum whose .value stays "run"/"salvage"/"error" on the wire — every existing
+    # row reads unchanged; new writes cannot mistype the string.
+    measured = source is CellSource.RUN
     # Design v3 (ratified 2026-08-10): every cell row carries a typed verdict and reason.
     # `passed` is derived (verdict == "pass") so old readers keep working; new readers read
     # verdict+reason directly. reason is the empty string on pass/fail; on no_verdict it names
@@ -332,7 +334,7 @@ def _row(
         "verdict": verdict.value,
         "reason": reason,
         "passed": verdict is Verdict.PASS,
-        "source": source,
+        "source": source.value,
         "detail": detail,
         "elapsed_ms": elapsed if measured else None,
         "root": root,
@@ -812,7 +814,7 @@ async def _run() -> int:
                     case,
                     trial,
                     grade.verdict,
-                    "salvage",
+                    CellSource.SALVAGE,
                     _ZERO,
                     0,
                     str(salv),
@@ -855,7 +857,7 @@ async def _run() -> int:
                         case,
                         trial,
                         Verdict.NO_VERDICT,
-                        "error",
+                        CellSource.ERROR,
                         _ZERO,
                         0,
                         str(root),
@@ -869,7 +871,7 @@ async def _run() -> int:
                         case,
                         trial,
                         cr.result.verdict,
-                        "run",
+                        CellSource.RUN,
                         cr.usage,
                         cr.elapsed_ms,
                         cr.root,
