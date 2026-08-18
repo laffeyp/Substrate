@@ -168,21 +168,24 @@ def test_container_arm_dispatches_distinct_topology_shape():
     )
 
 
-def test_include_test_selection_true_opts_into_heavy_topology():
-    # The `include_test_selection=True` branch is the follow-up two-phase path — not what
-    # any confirmatory arm takes. Verify it does dispatch a topology whose producer_kinds
-    # DO include `select_exec`, so the escape hatch is real and not accidentally dead.
-    from substrate.assay.swebench_matrix import _build_solver_arm_from_payload
+def test_include_test_selection_parameter_retired():
+    """Sprint 199b (roadmap v2 S7b): the `include_test_selection` opt-in that routed to
+    the heavy `swebench_solver_topology_with_test_selection` was retired. The parameter
+    no longer appears on `_build_solver_arm_from_payload` OR `swebench_repair_arm`.
+    Regression: adding it back would let the heavy path re-enter matrix-arm code paths."""
+    import inspect
 
-    case = _case_for_test()
-    topo = _build_solver_arm_from_payload(
-        case,
-        ["m"],
-        n=1,
-        max_rounds=1,
-        max_tokens=2048,
-        include_test_selection=True,
+    from substrate.assay.swebench_matrix import (
+        _build_solver_arm_from_payload,
+        swebench_repair_arm,
     )
-    b = _RecordingBuilder()
-    topo(b)
-    assert "select_exec" in b.producer_kinds
+
+    sig_build = inspect.signature(_build_solver_arm_from_payload)
+    sig_arm = inspect.signature(swebench_repair_arm)
+    assert "include_test_selection" not in sig_build.parameters, (
+        "_build_solver_arm_from_payload must not carry the retired include_test_selection "
+        "parameter. See Sprint 199b (S7b) and _deprecated/README.md."
+    )
+    assert "include_test_selection" not in sig_arm.parameters, (
+        "swebench_repair_arm must not carry the retired include_test_selection parameter."
+    )

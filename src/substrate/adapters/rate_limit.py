@@ -1,4 +1,4 @@
-"""Provider-agnostic rate-limit shim for Responders (design DESIGN-2026-08-11).
+"""Provider-agnostic rate-limit wrapper for Responders (design DESIGN-2026-08-11).
 
 Every LLM provider has capacity limits — Ollama Cloud caps concurrent MODELS per
 tier (Free 1, Pro 3, Max 10), OpenAI + Anthropic cap requests-per-minute and
@@ -37,14 +37,14 @@ class ProviderQuota:
     """One provider tier's capacity descriptors. Static; construct once per (provider, tier).
 
     `max_concurrent_per_model` is the hard cap on in-flight requests to any single model
-    from this provider at this tier. The shim's per-model semaphore uses this counter.
+    from this provider at this tier. The per-model semaphore uses this counter.
 
     `max_rpm` and `max_tpm` are optional — Ollama Cloud publishes concurrent-model caps
     but not RPM/TPM; OpenAI + Anthropic publish RPM + TPM. When populated, a future
-    extension of the shim can add a token-bucket layer; today only the concurrent cap
+    extension of the wrapper can add a token-bucket layer; today only the concurrent cap
     is enforced.
 
-    `max_retries` is the shim's cap on 429/503 retry count before raising
+    `max_retries` is the wrapper's cap on 429/503 retry count before raising
     `ProviderRateLimited`. Ten is enough to weather a normal rate-limit burst
     (10 × ~5s retry-after ≈ 50s total wait) without pinning a worker forever."""
 
@@ -121,7 +121,7 @@ def _reset_semaphores_for_tests() -> None:
 class RateLimitedResponder:
     """Wraps ANY Responder with per-(provider, model) concurrency capping + Retry-After
     honour on 429/503. Implements the `Responder` protocol so callers use it identically
-    to any other Responder; the shim is invisible to the topology.
+    to any other Responder; the wrapper is invisible to the topology.
 
     Only the async path (`arespond`, `arespond_metered`) is capped by the semaphore —
     the runner's I/O path is async, and the sync `respond` is left as a passthrough for
@@ -153,40 +153,50 @@ class RateLimitedResponder:
     async def arespond(self, prompt: str) -> str:
         """Cancellable async call, capped by the (provider, model) semaphore, retries
         429/503 honestly by reading Retry-After. Raises `ProviderRateLimited` if
-        `max_retries` attempts all rate-limit."""
-        sem = _semaphore_for(self._key, self._quota.max_concurrent_per_model)
-        async with sem:
-            return await self._arespond_with_retry(prompt)
+        `max_retries` attempts all rate-limit.
 
-    async def _arespond_with_retry(self, prompt: str) -> str:
+        Sprint 168 (F1 fix): the semaphore is held ONLY around each in-flight inner call
+        and released during the retry sleep. Before Sprint 168, `async with sem:` wrapped
+        the entire retry loop, so a 429 sleep pinned the slot while nothing was in flight;
+        the 2026-08-10 N=300 Pro run collapsed to 82% throttled because three workers
+        sleeping on 429 pinned all three Pro-tier slots simultaneously. Releasing during
+        the sleep lets a healthier peer take the slot and progress; only the workers
+        currently making an inner call hold semaphore capacity.
+        """
         import httpx
 
+        sem = _semaphore_for(self._key, self._quota.max_concurrent_per_model)
         last_detail = ""
         for attempt in range(self._quota.max_retries):
-            try:
-                arespond = getattr(self._inner, "arespond", None)
-                if arespond is None:
-                    # Fallback: run sync respond in a thread so the wrapper still works
-                    # against Responders without an async path.
-                    return await asyncio.to_thread(self._inner.respond, prompt)
-                result: str = await arespond(prompt)
-                return result
-            except httpx.HTTPStatusError as exc:
-                if exc.response.status_code not in (429, 503):
-                    raise
-                retry_after = _parse_retry_after(exc.response.headers.get("Retry-After"))
-                delay = retry_after if retry_after is not None else min(60.0, 2.0**attempt)
-                last_detail = f"HTTP {exc.response.status_code} attempt {attempt + 1}"
-                await asyncio.sleep(delay)
-            except RuntimeError as exc:
-                # OllamaResponder wraps httpx errors in RuntimeError with the status
-                # code in the message. Fallback parse for that shape.
-                msg = str(exc).lower()
-                if "429" not in msg and "503" not in msg:
-                    raise
-                delay = min(60.0, 2.0**attempt)
-                last_detail = f"RuntimeError attempt {attempt + 1}: {str(exc)[:120]}"
-                await asyncio.sleep(delay)
+            # Hold the slot ONLY around the actual in-flight call. Retry sleep happens
+            # outside the semaphore scope so a sleeping worker does not pin a slot.
+            async with sem:
+                try:
+                    arespond = getattr(self._inner, "arespond", None)
+                    if arespond is None:
+                        # Fallback: run sync respond in a thread so the wrapper still
+                        # works against Responders without an async path.
+                        return await asyncio.to_thread(self._inner.respond, prompt)
+                    result: str = await arespond(prompt)
+                    return result
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code not in (429, 503):
+                        raise
+                    retry_after = _parse_retry_after(exc.response.headers.get("Retry-After"))
+                    delay = retry_after if retry_after is not None else min(60.0, 2.0**attempt)
+                    last_detail = f"HTTP {exc.response.status_code} attempt {attempt + 1}"
+                except RuntimeError as exc:
+                    # OllamaResponder wraps httpx errors in RuntimeError with the status
+                    # code in the message. Fallback parse for that shape.
+                    msg = str(exc).lower()
+                    if "429" not in msg and "503" not in msg:
+                        raise
+                    delay = min(60.0, 2.0**attempt)
+                    last_detail = f"RuntimeError attempt {attempt + 1}: {str(exc)[:120]}"
+            # Sleep outside the semaphore scope — critical for tier-capacity health under
+            # sustained 429 pressure. The next iteration re-acquires the slot before its
+            # in-flight call.
+            await asyncio.sleep(delay)
         raise ProviderRateLimited(self._key, self._quota.max_retries, last_detail)
 
 

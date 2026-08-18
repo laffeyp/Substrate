@@ -105,6 +105,56 @@ Superseded drafts under `docs/specs/product_spec/`, `docs/specs/technical_spec/`
 
 ---
 
+## SWE-bench external substrates (boundary-as-producer mapping)
+
+*Added 2026-08-12 by Sprint 162 per the 2026-08-12 halt at `BLACKBOARD ## Surfaced for review` (ratified) and roadmap v2 at `docs/review/ROADMAP-2026-08-12-swebench-rebuild-sprint-chain-v2.md`. Six external non-deterministic substrates sit under the SWE-bench assay. Each has a scheduled producer sprint (S5.1 through S5.6, plus S6 for the topology-level grade). This table is the contract: any new SWE-bench code that touches a boundary listed here goes through the corresponding producer once the producer lands; a boundary interaction from anywhere else halts with `bridge_mapping_required` at the runtime. Producer events land on the record; failures become typed events, not exception-handler strings.*
+
+| # | Boundary | Non-determinism | Current defense | Producer (roadmap v2) | Reason string in `_HARNESS_REASONS` on failure |
+|---|---|---|---|---|---|
+| B1 | LLM via provider (Ollama Cloud) | model latency, model output | `OllamaResponder` + `ModelUsage` event | S5.1 VERIFIED (Sprint 189): every SWE-bench producer that calls a model uses `call_responder_metered` (`repair.py:74`, `localize.py:74`, `localize_elements.py:130`, `reproduction.py:110`) which returns `(text, ModelUsage)` and emits the `ModelUsage` event onto the cell's record. Every rate-limit failure surfaces as a typed exception (`ProviderRateLimited`) the runner catches and maps to `REASON_RATE_LIMITED` on the cell row. `swebench_repair_topology` declares `ModelUsage` in the localizer producer's schema list at `assemble.py:293`; the shared best-of-N drafter declares it via `best_of_n/__init__.py`. Nothing more to do here. | `harness_error` (adapter exception surfaces as `HarnessError`) |
+| B2 | Provider rate limits (Ollama tier, OpenAI RPM, ...) | 429/503 throttling, per-model concurrency caps | `RateLimitedResponder` shim at `adapters/rate_limit.py` | S5.2 — `RateLimitProducer` emitting `RateLimitAttempted` / `Granted` / `Denied` / `Retried` | `rate_limited` |
+| B3 | Docker daemon | container start, OOM eviction, kill, exec | `run_swebench_one` subprocess + `docker kill` | S5.3 — `ContainerProducer` emitting `ContainerRequested` / `Started` / `Exited` / `Killed` | `container_crashed`, `docker_error` |
+| B4 | Docker image registry | image pull, image 404, digest resolution | `verify_constants` at boundary | S5.4 — `ImageProducer` emitting `ImageRequested` / `Pulled` / `Missing` | `harness_error` (image 404) |
+| B5 | GitHub for repo clones | bandwidth throttling, parallel-clone contention | mother-clone cache at `swebench_suite.py:_mother_clone` | S5.5 — `RepoCloneProducer` wrapping the cache with typed events | `git_error` |
+| B6 | swebench harness subprocess | pytest execution, report parsing, harness raise | `run_swebench_one` wrapping + wall-clock timeout | S5.6 — `HarnessProducer` emitting `HarnessCallFired` / `Completed` / `Timeout` / `Error` (embeds `ContainerProducer`) | `timed_out`, `harness_error`, `container_crashed` |
+
+### Producer-authorship rules
+
+- Every producer declares a `Budget` (from the S1 kernel change; shipped registration-only at Sprint 164, `Cap` struct amendment at Sprint 166). Two axes: `wall_seconds: Cap | None` (max wall-clock from `ProducerStarted` to any terminal, seconds) and `event_counts: dict[str, Cap] | None` (per-emit cap per event kind, keyed by the event's Struct class name). Each `Cap` carries `limit: int | float` and `reason: str`. Concrete patterns: `ContainerProducer` caps `event_counts={"ContainerRequested": Cap(limit=1, reason="one grade container per instance")}`; `HarnessProducer` caps `wall_seconds=Cap(limit=<per-repo-timeout>, reason="per-instance grade budget")` from `assay/swebench_timeouts.json`; `RateLimitProducer` caps `event_counts={"RateLimitAttempted": Cap(limit=<max_retries>, reason="tier's max retry budget")}`. Runtime enforcement lands in the follow-on kernel sprint (roadmap v2 S1b); overrun emits `substrate.BudgetExceeded` and terminates the factory.
+- Every producer's typed events carry payload shapes ratified in `signals/swebench-solver-vocabulary.md` § G (v0.3 additions, S0.75).
+- Every producer's failure path raises exactly one typed exception carrying a class-level `reason` attribute from `_HARNESS_REASONS`. Callers catch by type; no string-matching on `repr(exc)`.
+- Every producer is testable in isolation against a mocked substrate seam (mock-Docker, mock-Responder, mock-git); the tests survive replay via `assert_replayable` on the recorded events.
+
+### Cross-cutting invariants
+
+- No new SWE-bench code catches `BaseException` around a boundary call; every catch handles a typed exception a producer raises.
+- No boundary event fires outside its producer once the producer ships. A boundary interaction from anywhere else halts with `bridge_mapping_required` at the runtime.
+- The runner (post-S7) contains zero boundary-specific code; it wires the topology, calls `run_suite`, and reads the record.
+- Every producer added here is Substrate-level (`src/substrate/adapters/`), not SWE-bench-specific. Future assays that touch Docker, provider rate limits, subprocess-based graders, or GitHub inherit these producers directly.
+
+---
+
+## Primitive-plus-consumer discipline (Sprint 183, external round-2 R7)
+
+*Round-2 review R7 named a pattern: three sprints in a row (164 Budget, 170 RunUnpublishable, 172 Budget UserWarning) landed substrate primitives whose production paths had zero consumers at close time. Each sprint closed clean because the primitive's tests passed; each left the tree with a primitive that exists and does nothing. Under the pre-Sprint-183 dual-contract shape, "primitive lands; consumer follows in a separate sprint the next day" is permitted; the pattern accumulates dead surface area whose consumer sometimes never dispatches (Sprint 170 shipped and its runner-wire waited five sprints for Sprint 177).*
+
+*Sprint 183 tightens the dual-contract at the sprint-card level: every sprint that lands a substrate primitive (a new public class, a new module under `src/substrate/`, a new API-surface field, a new event kind) must EITHER wire a live production consumer in the same sprint OR name the sprint that will, with a card number filed alongside the primitive's own card.*
+
+**The rule.** A sprint whose `artifact contract → files created` adds a new public type / module / function / event kind must name in `notes` one of:
+
+1. **In-sprint consumer.** The same sprint contains a modification to a non-test source file that consumes the primitive in a production path. The card asserts the consumer exists.
+2. **Named next-sprint consumer.** The card names the sprint id + slug that will wire the consumer. That sprint card exists on disk (status: `pending` at minimum) before this primitive-adding sprint closes. The consumer sprint dispatches within one working session of the primitive sprint's close.
+
+**What counts as a consumer.** A production code path (a file under `src/substrate/`, `scripts/`, or elsewhere on the runtime graph) that invokes the primitive under normal operation. Tests do not count. Documentation does not count. A `notes:` mention with no code binding does not count.
+
+**Why the rule.** A primitive without a consumer is unrefuted design. The tree grows surface area whose only proof of correctness is unit tests against invented inputs. When the consumer finally dispatches (if it does), it may reveal the primitive's shape was subtly wrong for the real path; each intervening sprint that touches the primitive under the "tests pass, ship it" discipline accretes error the consumer sprint has to unwind. The primitive-plus-consumer rule catches the mismatch at the earliest possible sprint boundary.
+
+**Grace clause.** A kernel primitive that requires runtime enforcement (Sprint 164's `Budget` needing Sprint 165 runtime enforcement) may split across two sprints when the split is honestly at the ≤2-file boundary AND the enforcement sprint is named on the primitive sprint's card. Sprint 172's UserWarning was the right shape for the interim — the interim carries a build-time observable that names the missing consumer. Any interim exceeding one working session escalates to a halt.
+
+**What Sprint 183 does not change.** Every existing primitive sprint stays closed under its original discipline. The rule applies to sprints dispatching after Sprint 183's ratification.
+
+---
+
 ## Vocabulary discipline overrides
 
 - **Validator-extras posture:** **strict.** Payload fields not declared in the schema raise at emit time (emission becomes `substrate.ProducerEmittedInvalidEvent` with reason `non_canonical_value`/`schema_violation`). Rationale: matches the substrate's own product principle 4 — bus-boundary validation is *mandatory and non-configurable*; a documentation-only posture would contradict the product the project ships.

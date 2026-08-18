@@ -29,6 +29,7 @@ from .conformance import PASS, ControlRanCheck, check_control_ran
 from .run import CaseResult
 from .stats import DeltaCI, benjamini_hochberg, bootstrap_delta_pass_k
 from .suite import Suite
+from .swebench import REASON_HARNESS_ERROR
 
 
 def exact_mcnemar_p(b: int, c: int) -> float:
@@ -142,17 +143,49 @@ class ArmReport:
 
 
 @dataclass(frozen=True)
+class RunUnpublishable:
+    """One arm's below-floor entry in `Report.unpublishable` (Sprint 170, F3 fold; design v3
+    § "The report contract"). A confirmatory run whose graded rate on any arm falls below the
+    pre-registered floor refuses to publish the delta; this entry names WHICH arm and WHY,
+    so a reader sees the completion gap on the report's face instead of inferring it from
+    `reason_counts={rate_limited: N}` or similar.
+
+    `arm` — the arm name whose graded rate fell short.
+    `graded_rate` — the observed fraction of attempted cells that produced a definitive
+        (PASS or FAIL) verdict. Matches `ArmReport.graded_rate`.
+    `threshold` — the pre-registered floor the run declared it would meet. From
+        `Preregistration.graded_rate_floor` (default 1.0 when no pre-reg is passed, matching
+        the pre-Sprint-170 arm-completeness gate).
+    `reason` — human-readable naming the gap: e.g. "graded 210 of 300 attempted cells (0.70)
+        below pre-registered floor 0.80 — 90 cells carried NO_VERDICT; run is not confirmatory."
+    """
+
+    arm: str
+    graded_rate: float
+    threshold: float
+    reason: str
+
+
+@dataclass(frozen=True)
 class Report:
     """The whole comparison. `control_check` is the three-state guard; if it is not `pass`, every
-    Arm's delta is None — there is no delta number without a control that ran."""
+    Arm's delta is None — there is no delta number without a control that ran.
+
+    `unpublishable` (Sprint 170, F3 fold): non-empty when any arm's graded rate fell below the
+    pre-registered floor. Every entry names an arm + the gap; the corresponding `ArmReport`'s
+    delta / CI / equivalence / fdr fields collapse to None so a downstream reader cannot
+    accidentally cite a below-threshold delta as a confirmatory number. A pass-through when
+    every arm meets the floor (empty tuple).
+    """
 
     suite: str
     version: str
     primary_metric: str
-    control_arm: str
     null_rule: str
     control_check: ControlRanCheck
     arms: tuple[ArmReport, ...]
+    control_arm: str | None = None
+    unpublishable: tuple[RunUnpublishable, ...] = ()
 
 
 def _cell_passed(results: Sequence[CaseResult]) -> bool | None:
@@ -299,10 +332,19 @@ def build_report(
     *,
     model_ensemble_id: str = "",
     split_id: str = "",
+    graded_rate_floor: float | None = None,
 ) -> Report:
     """Build the paired comparison Report. `model_ensemble_id` and `split_id` (sprint 154) are stamped
     on every ArmReport so a reader can qualify the delta by (topology, model, split). Empty strings
-    are the honest default — coding assays without a formal ensemble/split id still print."""
+    are the honest default — coding assays without a formal ensemble/split id still print.
+
+    `graded_rate_floor` (Sprint 170, F3 fold; design v3 § "The report contract"): the minimum
+    per-arm graded rate for the report to publish a delta. When set, every arm whose
+    `graded_rate < floor` produces a `RunUnpublishable` entry in `Report.unpublishable` AND
+    has its delta / CI / equivalence / fdr fields collapsed to None. Default `None` preserves
+    the pre-Sprint-170 arm-completeness gate exactly (an arm graded on every case is required
+    for a delta; anything short → None). Callers with a pre-registration pass the pre-reg's
+    `graded_rate_floor` here so the report enforces the pre-declared discipline."""
     check = check_control_ran(results, suite)
     case_ids = [c.case_id for c in suite.cases]
 
@@ -312,15 +354,27 @@ def build_report(
             for cid in case_ids
         }
 
-    control_map = cell_map(suite.control_arm) if check.state == PASS else {}
-    control_bools = (
-        _arm_trial_bools(results, suite.control_arm, case_ids) if check.state == PASS else {}
-    )
-    # ARM-COMPLETENESS gate (review): a verdict needs every Case graded in BOTH the arm AND the control
+    # Sprint 201: a solo-arm suite (control_arm is None) skips paired-delta framing entirely.
+    _has_control = check.state == PASS and suite.control_arm is not None
+    control_map = cell_map(suite.control_arm) if _has_control else {}
+    control_bools = _arm_trial_bools(results, suite.control_arm, case_ids) if _has_control else {}
+    # ARM-COMPLETENESS gate: a verdict needs every Case graded in BOTH the arm AND the control
     # — a half-finished run (the live sweep) must not yield a confirmatory delta/CI/verdict.
-    control_complete = check.state == PASS and all(
-        control_map.get(cid) is not None for cid in case_ids
-    )
+    # Sprint 170 (F3): the caller may relax "every Case" to "graded_rate >= floor" by passing
+    # `graded_rate_floor`. Default `None` preserves the strict gate (floor = 1.0). The
+    # `_meets_floor` helper below encodes both regimes in one predicate.
+    effective_floor = 1.0 if graded_rate_floor is None else float(graded_rate_floor)
+    n_cases_total = len(case_ids)
+
+    def _meets_floor(cells: dict[str, bool | None]) -> bool:
+        """True iff the fraction of graded (PASS or FAIL) cells across `case_ids` meets or
+        exceeds `effective_floor`. Empty suite trivially meets any floor."""
+        if n_cases_total == 0:
+            return True
+        n_graded = sum(1 for cid in case_ids if cells.get(cid) is not None)
+        return (n_graded / n_cases_total) >= effective_floor
+
+    control_meets_floor = _has_control and _meets_floor(control_map)
 
     mids: list[_Mid] = []
     for arm in suite.arms:
@@ -329,6 +383,11 @@ def build_report(
         passes = sum(1 for cid in graded if cells[cid])
         n = len(graded)
         arm_complete = n == len(case_ids)  # this arm graded every Case in the suite
+        # Sprint 170 (F3): arm meets the pre-registered floor (or 1.0 by default). This
+        # generalizes the pre-Sprint-170 arm_complete gate — at floor=1.0 the two are
+        # equivalent; at any looser floor, arm_meets_floor admits arms with some NO_VERDICT
+        # cells while still refusing to publish a delta below the pre-declared discipline.
+        arm_meets_floor = _meets_floor(cells)
         arm_results = [r for r in results if r.arm == arm.name]
 
         delta_vs_control: float | None = None
@@ -337,13 +396,14 @@ def build_report(
         p_val: float | None = None
         dci: DeltaCI | None = None
         # GATE: a delta/verdict exists only if the control ran on every Case (check PASS), this is not
-        # the control, AND both this arm and the control graded every Case (completeness — no verdict
-        # off a partial run).
+        # the control, AND both this arm and the control meet the pre-registered graded-rate floor
+        # (default 1.0 = every Case graded, matching the pre-Sprint-170 completeness gate). Any arm
+        # below the floor lands in Report.unpublishable and its delta stays None.
         if (
-            check.state == PASS
+            _has_control
             and arm.name != suite.control_arm
-            and arm_complete
-            and control_complete
+            and arm_meets_floor
+            and control_meets_floor
         ):
             # McNemar on the pass^k-collapsed cells — PAIRED over the Cases both arms graded.
             b = c = control_passes = arm_passes = paired = 0
@@ -409,8 +469,12 @@ def build_report(
                     if r.result.verdict is _V.NO_VERDICT:
                         # Reason lives as a first-class field on Result (fold-2026-08-10);
                         # legacy rows without one fall back to the detail-string marker.
+                        # Sprint 171 (F4): the final fallback is REASON_HARNESS_ERROR, the
+                        # named constant from the shared closed set — never the raw literal.
                         cell_reasons.append(
-                            r.result.reason or _extract_reason(r.result.detail) or "harness_error"
+                            r.result.reason
+                            or _extract_reason(r.result.detail)
+                            or REASON_HARNESS_ERROR
                         )
                 continue
             if all(r.result.passed for r in trials):
@@ -508,6 +572,34 @@ def build_report(
         for i, m in enumerate(mids)
     )
 
+    # Sprint 170 (F3): build the RunUnpublishable tuple naming every arm below the
+    # graded_rate_floor. Only fires when the caller explicitly passed a floor — the default
+    # (None → floor=1.0) matches the historical arm-completeness gate exactly, and callers
+    # that don't opt into the publish-refusal branch see an empty tuple like before.
+    unpublishable_entries: tuple[RunUnpublishable, ...] = ()
+    if graded_rate_floor is not None:
+        entries: list[RunUnpublishable] = []
+        floor = float(graded_rate_floor)
+        for m in mids:
+            if m.graded_rate < floor:
+                n_missing = m.n_attempted - (m.n_attempted - m.n_no_verdict)
+                # n_missing == m.n_no_verdict; naming both keeps the arithmetic legible in the
+                # reason string for a reader without the ArmReport in front of them.
+                entries.append(
+                    RunUnpublishable(
+                        arm=m.arm,
+                        graded_rate=m.graded_rate,
+                        threshold=floor,
+                        reason=(
+                            f"graded {m.n_attempted - n_missing} of {m.n_attempted} attempted "
+                            f"cells ({m.graded_rate:.3f}) below pre-registered floor "
+                            f"{floor:.3f} — {n_missing} cells carried NO_VERDICT; run is not "
+                            "confirmatory."
+                        ),
+                    )
+                )
+        unpublishable_entries = tuple(entries)
+
     return Report(
         suite=suite.name,
         version=suite.version,
@@ -516,4 +608,5 @@ def build_report(
         null_rule=suite.null_rule,
         control_check=check,
         arms=arm_reports,
+        unpublishable=unpublishable_entries,
     )

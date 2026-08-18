@@ -26,6 +26,7 @@ from .prisoners_dilemma import prisoners_dilemma_topology
 from .pair_coding import pair_coding_topology
 from .game_of_life import game_of_life_topology, glider
 from .recursive_decomposition import recursive_decomposition_topology
+from .swebench_solver.bundled import swebench_repair_ci
 from .tool_loop import tool_loop_topology
 
 _Topo = Callable[[api.TopologyBuilder], None]
@@ -78,6 +79,10 @@ BUNDLED: dict[str, Callable[[], _Topo]] = {
     # an asymmetric, MOVING glider (vs the symmetric blinker) — the fixture that lets the pixel-decode
     # harness catch a pure mirror render bug the mirror-symmetric blinker cannot show.
     "game_of_life_glider": lambda: game_of_life_topology(initial=glider(), generations=4),
+    # Sprint 188 (roadmap v2 S2 part 2 of 2): swebench_repair joins the bundled registry.
+    # Uses a deterministic on-disk fixture repo under ~/.substrate/ci-fixtures/swebench_repair/
+    # (override via SUBSTRATE_CI_FIXTURE_ROOT) so the record is byte-stable across regenerations.
+    "swebench_repair": swebench_repair_ci,
 }
 
 _registered = False

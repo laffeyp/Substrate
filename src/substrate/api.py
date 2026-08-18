@@ -70,7 +70,14 @@ from .projections.replay import HashMismatch, ReplayError, ReplayResult, assert_
 from .kernel.runtime import Runtime, RunResult
 from .record.sidecar import read_sidecar
 from .testing import assert_event, assert_no_event, assert_sequence
-from .kernel.topology import RegistrationError, TopologyBuilder, get_topology, register_topology
+from .kernel.topology import (
+    Budget,
+    Cap,
+    RegistrationError,
+    TopologyBuilder,
+    get_topology,
+    register_topology,
+)
 from .kernel.triggers import Logical, Once, PerEvent, PerKey, WallClock, WhileTrue
 from .types import BlobRef, Event, ProducerRef, Subscription
 from .kernel.views import BufferView, KindBuffer, KindCount, PerKindLatest, StartedCompletedCounts
@@ -111,6 +118,8 @@ __all__ = [
     "TopologyBuilder",
     "register_topology",
     "get_topology",
+    "Budget",
+    "Cap",
     "Runtime",
     "RunResult",
     # records

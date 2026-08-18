@@ -1,4 +1,4 @@
-"""Back-compat shim — the model-adapter seam moved to `substrate.adapters` (a peer of `api`).
+"""Back-compat re-exports — the model-adapter seam moved to `substrate.adapters` (a peer of `api`).
 
 The concrete Responders (`DeterministicResponder` / `OllamaResponder`), the `ModelUsage` event, and
 the `call_responder` helpers now live in `substrate.adapters` (see its docstring for why the seam

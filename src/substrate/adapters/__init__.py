@@ -8,7 +8,7 @@ model ones instead of accreting under `reference/` or `cli.py`. The `Responder` 
 lives in `substrate.protocols` and is public as `substrate.api.Responder`.
 
 Back-compat: `substrate.reference` still re-exports these (the public surface substrate-ui consumes),
-via a thin shim at `reference/_models.py`. New code should import from `substrate.adapters`.
+via a back-compat re-export at `reference/_models.py`. New code should import from `substrate.adapters`.
 """
 
 from __future__ import annotations

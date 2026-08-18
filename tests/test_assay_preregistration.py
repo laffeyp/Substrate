@@ -314,3 +314,45 @@ def test_arm_param_keys_constant_names_the_reroll_surface():
     # params a reroll can differ on without hardcoding the list. Any addition to this tuple is a
     # deliberate widening of the reroll-detection surface, not an accidental omission.
     assert ARM_PARAM_KEYS == ("models", "n", "max_rounds")
+
+
+# ── Sprint 170 (F3 fold): graded_rate_floor parsing on Preregistration ───────────────────
+
+
+def test_graded_rate_floor_defaults_to_one_when_absent(tmp_path):
+    """Pre-reg without a `graded_rate_floor` field defaults to 1.0 — strict, matches the
+    pre-Sprint-170 arm-completeness gate. Backward-compatible with every pre-Sprint-170
+    pre-reg file already on disk."""
+    p = _write_preg(tmp_path)  # no graded_rate_floor
+    pre = load_preregistration(p)
+    assert pre.graded_rate_floor == 1.0
+
+
+def test_graded_rate_floor_parses_from_json(tmp_path):
+    """When the field is present, `load_preregistration` parses it into the Preregistration
+    dataclass. `build_report(..., graded_rate_floor=pre.graded_rate_floor)` then reads it."""
+    p = _write_preg(tmp_path, extra={"graded_rate_floor": 0.8})
+    pre = load_preregistration(p)
+    assert pre.graded_rate_floor == 0.8
+
+
+def test_graded_rate_floor_out_of_range_raises(tmp_path):
+    """A pre-reg declaring an out-of-range floor (>1 or <0) raises PreregistrationViolation
+    with `reason == "malformed_graded_rate_floor"`. Bounds match the fraction the field
+    represents."""
+    for bad_value in (-0.1, 1.1, 2.0):
+        p = _write_preg(tmp_path, extra={"graded_rate_floor": bad_value})
+        with pytest.raises(PreregistrationViolation) as excinfo:
+            load_preregistration(p)
+        assert excinfo.value.reason == "malformed_graded_rate_floor", (
+            f"expected malformed_graded_rate_floor for value {bad_value}, "
+            f"got {excinfo.value.reason}"
+        )
+
+
+def test_graded_rate_floor_non_number_raises(tmp_path):
+    """Non-numeric graded_rate_floor also raises malformed_graded_rate_floor."""
+    p = _write_preg(tmp_path, extra={"graded_rate_floor": "80%"})
+    with pytest.raises(PreregistrationViolation) as excinfo:
+        load_preregistration(p)
+    assert excinfo.value.reason == "malformed_graded_rate_floor"

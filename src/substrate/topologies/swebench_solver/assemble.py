@@ -20,13 +20,14 @@ from typing import Any
 
 from ... import api
 from ...adapters import ModelUsage, Responder
-from ..best_of_n import seeder_factory, select_first_judge_factory
+from ..best_of_n import best_of_n_correction, seeder_factory, select_first_judge_factory
 from ..best_of_n.contracts import Candidate, Draft, Exhausted, Solved, Verdict
 from .localize import localizer_factory
 from .localize_elements import element_localizer_factory
 from .records import (
     AppliedPatch,
     EditLocations,
+    GradeResult,
     RepairOutcome,
     RepairSummary,
     Reproduction,
@@ -257,7 +258,7 @@ def _outcome_input(ctx: api.TriggerContext, *, is_selected: bool) -> dict[str, A
 
 def swebench_repair_topology(
     *,
-    responders: list[Responder],
+    responders: list[Responder] | None = None,
     base_checkout: str,
     issue: str,
     repo_skeleton: str,
@@ -274,12 +275,24 @@ def swebench_repair_topology(
     SEARCH/REPLACE edits; the validator clones `base_checkout` per candidate, applies, and emits the diff.
     ALWAYS emits a terminal `RepairSummary` (the enumerated outcome + stage counts) and terminates on it.
 
+    Sprint 187 (roadmap v2 S2 dual-mode): `responders=None` defaults to
+    `[DeterministicResponder(seed=i) for i in range(n)]` for CI. Matches the dual-mode pattern
+    every other bundled topology uses per `docs/adding-a-topology.md` § "Make it dual-mode"
+    (code_review, pair_coding, recursive_decomposition). A test / demo / bundled invocation
+    that supplies base_checkout + issue + repo_skeleton + known_files but no responders gets a
+    byte-stable deterministic run; every existing caller passing an explicit responders list
+    behaves identically.
+
     Sprint 149 — `firewall_instance`, when passed, runs `firewall_check` at build. `swebench_solver_arm`
     (swebench_suite.py) already goes through `prepare_swebench_case` which firewalls; `swebench_repair_arm`
     (swebench_matrix.py) firewalls at its build (sprint 148). The optional kwarg here is the belt-and-braces
     guard for any future caller that stitches a topology by hand: pass the raw instance and the topology
     refuses to build on a leak. Not required (existing callers pass nothing and are firewall-guarded
     upstream); when present, must pass. `Any` because the shape is the swebench instance dict."""
+    if responders is None:
+        from ...adapters import DeterministicResponder
+
+        responders = [DeterministicResponder(seed=i) for i in range(n)]
     if firewall_instance is not None:
         from ...assay.swebench import FirewallViolation, firewall_check
 
@@ -299,38 +312,40 @@ def swebench_repair_topology(
         )
         b.initial("localizer", input=None)
         b.view("edit_locations", api.KindBuffer("EditLocations"))
-        b.view("verdicts", api.KindBuffer("Verdict"))
         b.view("applied", api.KindBuffer("AppliedPatch"))
         b.view("solved", api.KindBuffer("Solved"))
 
-        b.producer_kind(
-            "seeder",
-            schemas=[Draft],
-            schema_version=1,
-            factory=seeder_factory(n),
-            deterministic=True,  # sprint 145: pure — emits N Drafts from `n` alone, no I/O
-        )
-        b.producer_kind(
-            "drafter",
-            schemas=[Candidate, ModelUsage],
-            schema_version=1,
-            factory=repair_drafter_factory(responders, spec=issue),
+        # Sprint 191 (roadmap v2 S3): the seeder / drafter / validator / judge loop is the shared
+        # best-of-N + correction sub-topology at `topologies/best_of_n`. `seed_on="EditLocations"`
+        # gates the seeder on the localizer's output (vs the coding_flow shape where seeder is
+        # `initial`); `draft_input_extra` merges `edit_context` (built from the EditLocations
+        # view) into each drafter invocation. The loop's `verdicts` view + all three of its
+        # triggers land via `best_of_n_correction`; swebench_repair_topology keeps selector +
+        # outcome + termination as its post-loop phase.
+        best_of_n_correction(
+            b,
+            n=n,
+            max_rounds=max_rounds,
+            draft_factory=repair_drafter_factory(responders, spec=issue),
+            validate_factory=repair_validate_factory(base_checkout),
+            validator_schemas=[Verdict, AppliedPatch],
             deterministic=False,
+            seed_on="EditLocations",
+            draft_input_extra=lambda ctx: {
+                "edit_context": _build_edit_context(
+                    base_checkout,
+                    tuple(ctx.views[_VIEW_EDIT_LOCATIONS].value()[-1]["targets"])
+                    if ctx.views[_VIEW_EDIT_LOCATIONS].value()
+                    else (),
+                ),
+            },
+            # Consumer runs post-loop phases (selector + outcome); the run's terminal is
+            # RepairSummary, not the loop's Solved/Exhausted. Pass a placeholder termination
+            # that never fires — the topology's own b.termination(...) below owns the run's
+            # terminal, matching the pre-Sprint-191 wire.
+            termination=api.quiescence_with_watchdog(seconds=watchdog_seconds * 10),
         )
-        b.producer_kind(
-            "validator",
-            schemas=[Verdict, AppliedPatch],
-            schema_version=1,
-            factory=repair_validate_factory(base_checkout),
-            deterministic=False,  # clones base_checkout, runs `git apply` — I/O, stays False
-        )
-        b.producer_kind(
-            "judge",
-            schemas=[Solved, Draft, Exhausted],
-            schema_version=1,
-            factory=select_first_judge_factory(n, max_rounds),
-            deterministic=True,  # sprint 145: pure — reads verdicts input, emits typed decision
-        )
+
         b.producer_kind(
             "selector",
             schemas=[SelectedPatch],
@@ -344,56 +359,6 @@ def swebench_repair_topology(
             schema_version=1,
             factory=_outcome_factory(),
             deterministic=True,  # sprint 145: pure — reads state, emits typed summary, no I/O
-        )
-
-        b.trigger(
-            "seed",
-            subscription=api.Subscription(kinds=frozenset({"EditLocations"})),
-            predicate=lambda ctx: True,
-            starts="seeder",
-            input_builder=lambda ctx: None,
-            policy=api.PerEvent(),
-        )
-        b.trigger(
-            "draft",
-            subscription=api.Subscription(kinds=frozenset({"Draft"})),
-            predicate=lambda ctx: True,
-            starts="drafter",
-            input_builder=lambda ctx: {
-                "round": int(ctx.event.payload["round"]),
-                "slot": int(ctx.event.payload["slot"]),
-                "context": ctx.event.payload["context"],
-                "edit_context": _build_edit_context(
-                    base_checkout,
-                    tuple(ctx.views[_VIEW_EDIT_LOCATIONS].value()[-1]["targets"])
-                    if ctx.views[_VIEW_EDIT_LOCATIONS].value()
-                    else (),
-                ),
-            },
-            policy=api.PerEvent(),
-        )
-        b.trigger(
-            "validate",
-            subscription=api.Subscription(kinds=frozenset({"Candidate"})),
-            predicate=lambda ctx: True,
-            starts="validator",
-            input_builder=lambda ctx: {
-                "round": int(ctx.event.payload["round"]),
-                "slot": int(ctx.event.payload["slot"]),
-                "response": ctx.event.payload["response"],
-            },
-            policy=api.PerEvent(),
-        )
-        b.trigger(
-            "judge",
-            subscription=api.Subscription(kinds=frozenset({"Verdict"})),
-            predicate=lambda ctx: len(_round_verdicts(ctx, int(ctx.event.payload["round"]))) >= n,
-            starts="judge",
-            input_builder=lambda ctx: {
-                "round": int(ctx.event.payload["round"]),
-                "verdicts": _round_verdicts(ctx, int(ctx.event.payload["round"])),
-            },
-            policy=api.PerEvent(),
         )
         # SELECT (simple): the first applyable patch — on Solved, emit the AppliedPatch at the solved slot.
         b.trigger(
@@ -430,6 +395,106 @@ def swebench_repair_topology(
             api.any_of(
                 api.threshold_count("RepairSummary", 1),
                 api.quiescence_with_watchdog(seconds=watchdog_seconds),
+            )
+        )
+
+    return topo
+
+
+def swebench_solve_and_grade_topology(
+    *,
+    responders: list[Responder] | None = None,
+    base_checkout: str,
+    issue: str,
+    repo_skeleton: str,
+    known_files: set[str],
+    instance_id: str,
+    dataset_name: str,
+    model_name: str,
+    run_id: str,
+    report_dir: Any,
+    grade_timeout_seconds: int,
+    split: str = "test",
+    namespace: str = "swebench",
+    n: int = 3,
+    max_rounds: int = 2,
+    top_k: int = 5,
+    watchdog_seconds: float = 60.0,
+    firewall_instance: Any = None,
+) -> Callable[[api.TopologyBuilder], None]:
+    """Sprint 196 (roadmap v2 S6, part 2 of 2): the solve-and-grade topology. Wraps
+    `swebench_repair_topology` (which emits `SelectedPatch` after the best-of-N + correction
+    loop) and adds a grade producer triggered on `SelectedPatch`. The producer calls
+    `run_swebench_one` via `grade_producer_factory` and emits `GradeResult` — the topology
+    terminates on `GradeResult` (not `RepairSummary`), so the cell's record carries the
+    full solve-through-grade path with one terminal event the oracle projects off.
+
+    The `SwebenchLogProjectionOracle` at `assay/swebench.py::swebench_log_projection_oracle`
+    reads the `GradeResult` and returns a `Result` with `replayable=True` for the audit —
+    the AUDIT of the grade re-derives from the record deterministically. The GRADE ITSELF
+    (pytest inside Docker) remains non-deterministic per the roadmap v2 § "Consequences"
+    audit-vs-grade distinction (Sprint 181 correction).
+
+    Every existing arm helper that wires `swebench_repair_topology` remains unchanged; this
+    is a new topology consumers opt into. Sprint 196 also lands `swebench_log_projection_oracle`
+    in `assay/swebench.py` — the oracle side of the projection.
+    """
+    from .grader import grade_producer_factory
+
+    # Build the repair topology's contents onto the same builder; then add the grade producer +
+    # trigger + new termination. The nested-call shape (`build_repair(b)`) reuses every producer
+    # kind + view + trigger the repair topology declares, keeping the wire form identical.
+    build_repair = swebench_repair_topology(
+        responders=responders,
+        base_checkout=base_checkout,
+        issue=issue,
+        repo_skeleton=repo_skeleton,
+        known_files=known_files,
+        n=n,
+        max_rounds=max_rounds,
+        top_k=top_k,
+        watchdog_seconds=watchdog_seconds,
+        firewall_instance=firewall_instance,
+    )
+
+    def topo(b: api.TopologyBuilder) -> None:
+        build_repair(b)
+        b.producer_kind(
+            "grader",
+            schemas=[GradeResult],
+            schema_version=1,
+            factory=grade_producer_factory(
+                instance_id=instance_id,
+                dataset_name=dataset_name,
+                model_name=model_name,
+                run_id=run_id,
+                report_dir=report_dir,
+                timeout_seconds=grade_timeout_seconds,
+                split=split,
+                namespace=namespace,
+            ),
+            deterministic=False,  # subprocess to Docker + swebench harness; run-and-observe
+        )
+        b.trigger(
+            "grade",
+            subscription=api.Subscription(kinds=frozenset({"SelectedPatch"})),
+            predicate=lambda ctx: True,
+            starts="grader",
+            input_builder=lambda ctx: {"model_patch": ctx.event.payload["model_patch"]},
+            policy=api.Once(),  # one grade per cell — every future SelectedPatch (there is one) grades once
+        )
+        # Override the repair topology's `RepairSummary | quiescence` termination with a shape
+        # that leaves room for the grader to fire after SelectedPatch. RepairSummary lands
+        # BEFORE the grader completes (outcome-ok fires on SelectedPatch, same event that
+        # triggers the grader — so RepairSummary races the grade). A pure
+        # `threshold_count("RepairSummary", 1)` terminal would race-cancel the grader.
+        # Solve_and_grade uses `GradeResult` as the post-solve terminal AND falls back to
+        # `quiescence_with_watchdog` when no SelectedPatch was ever emitted (Exhausted path —
+        # RepairSummary emits but no grade runs; quiescence wins because the topology is idle).
+        b.termination(
+            api.any_of(
+                api.threshold_count("GradeResult", 1),
+                api.quiescence_with_watchdog(seconds=watchdog_seconds + grade_timeout_seconds),
             )
         )
 
@@ -477,9 +542,12 @@ def swebench_solver_topology_with_test_selection(
     the official harness grades. The in-topology `select_exec` apparatus this function wires
     duplicated the grader's work, doubled per-cell Docker minutes, and produced the 517-silent-
     fails shape the 2026-08-10 postmortem records (RC1). Kept in-tree behind a DeprecationWarning
-    for callers that opt in via `_build_solver_arm_from_payload(..., include_test_selection=True)`
-    or the standalone scripts. Any future revival needs a study plan naming the delta over
-    harness-only grading, per `src/substrate/topologies/swebench_solver/_deprecated/README.md`."""
+    for `swebench_solver_arm` (the pre-Sprint-197 arm that still routes through
+    `solver_topology_from_payload`) and the standalone scripts. Sprint 199b (roadmap v2 S7b)
+    retired the `_build_solver_arm_from_payload(..., include_test_selection=True)` opt-in;
+    matrix-arm code paths never reach the heavy topology. Any future revival needs a study
+    plan naming the delta over harness-only grading, per
+    `src/substrate/topologies/swebench_solver/_deprecated/README.md`."""
     warnings.warn(
         "swebench_solver_topology_with_test_selection is deprecated as of 2026-08-11 "
         "(KIT_DIARY 38, Move 4). Every SWE-bench matrix arm uses swebench_repair_topology; "

@@ -98,6 +98,8 @@ def best_of_n_correction(
     termination: Any | None = None,
     deterministic: bool = False,
     watchdog_seconds: float = 30.0,
+    seed_on: str | None = None,
+    draft_input_extra: Any | None = None,
 ) -> None:
     """Wire the shared seeder / drafter / validator / judge loop onto `b`.
 
@@ -106,7 +108,16 @@ def best_of_n_correction(
     AppliedPatch — declare them in `validator_schemas`]). Optionally override `judge_factory` (the
     terminal policy; default selects the first passing candidate), `judge_schemas`, and `termination`
     (default: Solved | Exhausted | watchdog — a consumer that runs phases AFTER the loop, like swebench
-    SELECT, passes its own termination so the loop's Solved is an internal hand-off, not the run terminal)."""
+    SELECT, passes its own termination so the loop's Solved is an internal hand-off, not the run terminal).
+
+    Sprint 191 (roadmap v2 S3): two additive kwargs for consumers with pre-loop phases (swebench's
+    LOCALIZE gates the drafter on `EditLocations`). Both default to the coding_flow shape.
+    - `seed_on=None`: seeder is registered as `initial` and fires at run start (coding_flow).
+      `seed_on="<kind>"`: seeder becomes a triggered producer that fires on the named kind
+      (swebench_repair: `seed_on="EditLocations"` waits for the localizer's output).
+    - `draft_input_extra=None`: draft trigger's input_builder returns `{round, slot, context}` only.
+      When set, must be a callable `(TriggerContext) -> dict` whose result merges into the draft input
+      (swebench_repair passes `edit_context` from the localizer's EditLocations view)."""
     b.producer_kind(
         "seeder",
         schemas=[Draft],
@@ -136,18 +147,35 @@ def best_of_n_correction(
         deterministic=deterministic,
     )
     b.view("verdicts", api.KindBuffer("Verdict"))
-    b.initial("seeder", input=None)
+    if seed_on is None:
+        b.initial("seeder", input=None)
+    else:
+        b.trigger(
+            "seed",
+            subscription=api.Subscription(kinds=frozenset({seed_on})),
+            predicate=lambda ctx: True,
+            starts="seeder",
+            input_builder=lambda ctx: None,
+            policy=api.PerEvent(),
+        )
+
+    def _draft_input(ctx: api.TriggerContext) -> dict[str, Any]:
+        base: dict[str, Any] = {
+            "round": int(ctx.event.payload["round"]),
+            "slot": int(ctx.event.payload["slot"]),
+            "context": ctx.event.payload["context"],
+        }
+        if draft_input_extra is not None:
+            base.update(draft_input_extra(ctx))
+        return base
+
     # one Trigger drafts a candidate per Draft (seed OR correction) — the recursive best-of-N loop.
     b.trigger(
         "draft",
         subscription=api.Subscription(kinds=frozenset({"Draft"})),
         predicate=lambda ctx: True,
         starts="drafter",
-        input_builder=lambda ctx: {
-            "round": int(ctx.event.payload["round"]),
-            "slot": int(ctx.event.payload["slot"]),
-            "context": ctx.event.payload["context"],
-        },
+        input_builder=_draft_input,
         policy=api.PerEvent(),
     )
     b.trigger(

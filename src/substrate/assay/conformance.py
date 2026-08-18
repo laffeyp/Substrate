@@ -44,6 +44,11 @@ class ControlRanCheck:
 
 
 def check_control_ran(results: Sequence[CaseResult], suite: Suite) -> ControlRanCheck:
+    if suite.control_arm is None:
+        # Sprint 201 (best-practice fold): a Suite may omit `control_arm` (solo-arm run,
+        # topology-attachment test-drive). No paired-delta framing applies; return PASS with
+        # a note so downstream code treats every arm as its own free-standing measurement.
+        return ControlRanCheck(PASS, "no control_arm declared — solo-arm suite")
     control = [r for r in results if r.arm == suite.control_arm]
     if not control:
         return ControlRanCheck(

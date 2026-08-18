@@ -24,6 +24,8 @@ summary=()
 for py in "${versions[@]}"; do
   echo "=== gates (local, py${py}) ==="
   fail=""
+  # Sprint 175 (F13): the _deprecated/-preservation guard is a bash script, not a
+  # `uv run` gate — invoke it once outside the version loop below.
   for gate in "ruff check" "ruff format --check" "mypy" "python -m pytest" "lint-imports" "substrate conformance --no-perf"; do
     echo "--- ${gate}"
     if ! uv run --isolated --python "${py}" --extra dev ${gate}; then
@@ -37,6 +39,14 @@ for py in "${versions[@]}"; do
     summary+=("py${py}: FAIL ${fail}")
   fi
 done
+echo
+echo "=== _deprecated/ preservation guard (Sprint 175, hard rule 12) ==="
+if ! bash scripts/check_deprecated_preserved.sh; then
+  overall=1
+  summary+=("deprecated-guard: FAIL")
+else
+  summary+=("deprecated-guard: PASS")
+fi
 echo
 echo "=== local CI matrix summary ($(uname -s) $(uname -m)) ==="
 printf '%s\n' "${summary[@]}"

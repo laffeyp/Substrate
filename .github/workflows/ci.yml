@@ -46,3 +46,12 @@ jobs:
       # verified separately on controlled hardware (SUBSTRATE_PERF_GATE=1; see CONTRIBUTING.md).
       - name: Conformance (no perf floor)
         run: uv run substrate conformance --no-perf
+
+      # Sprint 175 (F13): fail CI on any commit that deletes a file under `_deprecated/`.
+      # AGENTS.md hard rule 12 says restructures land as new files and the audit trail is the
+      # work; retired-in-place artifacts under `_deprecated/` are the concrete pattern. The
+      # guard reads git diff; needs full history so the base ref is resolvable.
+      - name: Fetch base ref for _deprecated/ guard
+        run: git fetch --no-tags --depth=1 origin main
+      - name: _deprecated/ preservation guard
+        run: bash scripts/check_deprecated_preserved.sh

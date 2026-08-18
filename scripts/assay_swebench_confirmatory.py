@@ -1,83 +1,51 @@
-"""The confirmatory SWE-bench runner — parity with `scripts/bench_coding.py`.
+"""The confirmatory SWE-bench runner.
 
-Sprint 144 replaced `scripts/assay_full_run.py` (deleted); Sprint 144a brings this runner to
-`bench_coding.py` parity so the confirmatory path is actually usable for the arm matrix + trials
-Sprint 159 will drive. Every solve goes through `run_arm_on_case`; every cell lands as one JSONL
-row alongside a self-describing `.meta.json` + `.cases.json` sidecar.
+Sprint 199b (roadmap v2 S7b) rewrites the runner around `assay.run.run_suite_with_salvage`
+(Sprint 199) — the generic per-cell orchestrator. The pre-Sprint-199b runner reimplemented
+concurrency, salvage, per-cell wall-clock, classifier dispatch, and row-write serialization
+inline; that inline loop is gone. The runner now owns the SWE-bench-specific pieces
+(dataset load, prep + firewall + image pull, cases sidecar, meta.json, resume with
+foreign-config guard, model preflight, classifier taxonomy, JSONL row shape, BATCH_GRADE
+opt-in) and hands the cell loop to `run_suite_with_salvage(...)`.
 
-Eight parity gaps closed against `bench_coding.py`:
+Env (all optional; defaults are a smoke slice — the real confirmatory run sets
+`SWEBENCH_MODELS`, `SWEBENCH_LIMIT=300`, and `SWEBENCH_TRIALS=3`):
 
-    (1) Async concurrency  — `asyncio.Semaphore(CONCURRENCY)` + `asyncio.gather` across cells.
-    (2) Per-cell timeout    — `asyncio.wait_for(..., timeout=RUN_TIMEOUT)`; a wedged Docker cannot
-                              stall the sweep.
-    (3) Salvage mode        — `SWEBENCH_SALVAGE=<dir>` regrades finished records without model
-                              calls; a re-run only spends models on cells never reached.
-    (4) Refuse mixed configs — on resume, the JSONL is rejected if any prior row's `config_fp`
-                              differs from the current — no silent mixing of configs in one file.
-    (5) Flat meta.json shape — `{"config_fp": ..., "run_id": ..., **cfg}` at top level (NOT
-                              nested under "config"), so `provenance_status` at cells.py:79-105
-                              recomputes the fingerprint from the right dict and returns
-                              `verified`, not `tampered`.
-    (6) `msgspec.to_builtins(report)` — the report is a frozen `@dataclass`; `.__dict__` does
-                              not recurse into the tuple of `ArmReport`. Use the proper serializer.
-    (7) `.cases.json` sidecar — an array of `{case_id, instance_id, repo, base_commit, image,
-                              regression_files, exclude, passed_at_base}` written next to the cells
-                              file, so Sprint 152's `report_from_cells` SWE-bench branch can
-                              reconstruct a `swebench_suite` without re-cloning every case. Written
-                              BEFORE the sweep so a mid-run abort still leaves it on disk.
-    (8) `UsageTotals.estimated` aggregated — `_sum_usage` (run.py:48-58) already sums it; the
-                              cell row carries it so the stats layer can distinguish provider-truth
-                              from word-count stand-ins.
-
-Env (all optional; defaults are a smoke slice — the real confirmatory run sets non-default
-`SWEBENCH_MODELS`, `SWEBENCH_LIMIT=300`, and `SWEBENCH_TRIALS=3` per Sprint 160):
-
-    SWEBENCH_MODELS       comma-sep model ids (default: "llama3.2:1b" — Sprint 160 will require
-                          this to be explicitly set; the 1B default reports near-zero on Lite and
-                          is misleading as a confirmatory headline)
+    SWEBENCH_MODELS       comma-sep model ids (default: "llama3.2:1b" — Sprint 160 requires
+                          this to be explicitly set; the 1B default reports near-zero on Lite)
     SWEBENCH_N            best-of-N drafters per case (default: 3)
-    SWEBENCH_LIMIT        cap instance count (default: 3 — smoke slice; use 0 for the full split)
-    SWEBENCH_TRIALS       trials per (arm, case) (default: 1 — real trials land in Sprint 159)
-    SWEBENCH_CONCURRENCY  concurrent cells (default: 8 after the 2026-08-09 reshape; ~half of
-                          per-cell wall is Ollama Cloud network I/O, so on a 10-core M-series
-                          with 32GB+ the ceiling is closer to 12; 8 is the safe midpoint)
+    SWEBENCH_LIMIT        cap instance count (default: 3 — smoke slice; 0 for the full split)
+    SWEBENCH_TRIALS       trials per (arm, case) (default: 1)
+    SWEBENCH_CONCURRENCY  concurrent cells (default: 8)
     SWEBENCH_ROLE         arm role: baseline | ablation | full (default: "full")
     SWEBENCH_ARM_NAME     arm name written to cells (default: "swebench_solver")
     SWEBENCH_CELLS        cells JSONL path (default: "process/assay_smoke/swebench_cells.jsonl")
     SWEBENCH_SCRATCH      per-cell record roots (default: "process/assay_smoke/records/")
-    SWEBENCH_DATASET      HuggingFace dataset (default: "princeton-nlp/SWE-bench_Lite")
+    SWEBENCH_DATASET      HuggingFace dataset (default: "princeton-nlp/SWE-bench_Verified")
     SWEBENCH_SPLIT        dataset split (default: "test")
-    SWEBENCH_MARGIN       pre-registered equivalence margin (default: 0.10; frozen in Sprint 160)
-    SWEBENCH_CONTROL      control arm name for delta framing (default: same as SWEBENCH_ARM_NAME)
-    SWEBENCH_RUN_TIMEOUT  per-cell wall-clock timeout in seconds (default: 1800)
+    SWEBENCH_MARGIN       pre-registered equivalence margin (default: 0.10)
+    SWEBENCH_CONTROL      control arm name for delta framing
+    SWEBENCH_RUN_TIMEOUT  per-cell wall-clock ceiling in seconds (default: 1800). Sprint 198
+                          derives the ACTUAL cell timeout as `min(RUN_TIMEOUT,
+                          timeout_for_instance(instance_id))` — sympy cells get 90 min,
+                          small repos get 10.
     SWEBENCH_SALVAGE      salvage directory — regrade finished records without model calls
-    SWEBENCH_ARMS         which arm set to build (default: "solver" — one arm, pre-160 behaviour;
-                          "pass1" — ensemble only, used to observe K for matched compute;
-                          "matrix" — all 5 arms of the Sprint 160 confirmatory matrix)
-    SWEBENCH_ENSEMBLE     comma-sep model ids for the ensemble arm (default: empty — required by
-                          "pass1" and "matrix"; single_draft/no_correction/repair/matched arms
-                          use SWEBENCH_MODELS[0] as the single strong model)
-    SWEBENCH_K            K value for baseline_matched_compute (default: read from .preg.json
-                          under the matrix mode; required for "matrix" without a pre-reg)
+    SWEBENCH_ARMS         "solver" (single arm) | "pass1" (ensemble) | "matrix" (5 arms) |
+                          "solve_and_grade" (Sprint 197's log-projection path; the 4 repair
+                          arms, container_arm excluded)
+    SWEBENCH_ENSEMBLE     comma-sep model ids for the ensemble arm
+    SWEBENCH_K            K value for baseline_matched_compute
     SWEBENCH_SKIP_BASE_PYTEST  skip the base-repo pytest step in prepare_swebench_case
-                          (default: on for any dataset containing "Verified" in its name — the
-                          human-curated split doesn't carry the flask-class pre-existing-base-
-                          failures that `passed_at_base` guards against). Cuts prep from ~day
-                          to ~15 min at Verified scale; SELECT falls back to the whole-run
-                          regression_passed bool. The choice is stamped in the config
-                          fingerprint so the meta rejects cross-config splices.
-    SWEBENCH_PREPULL_IMAGES  pre-pull every unique instance image before the prep sweep so
-                          docker daemon pulls land once per image on registry bandwidth, not
-                          per-cell inside DockerTestRunner. Default: 1. Set to 0 when images
-                          are already local (a re-run of the same DATASET).
+                          (default: on for any dataset name containing "Verified")
+    SWEBENCH_PREPULL_IMAGES  pre-pull every unique instance image before prep (default: 1)
 
 Usage:
 
     uv run python scripts/assay_swebench_confirmatory.py            # run/continue
     uv run python scripts/assay_swebench_confirmatory.py report     # rebuild from cells
 
-Env-gated: needs git + Docker + the swebench eval images pullable; a real Ollama endpoint for the
-listed models (or a deterministic responder for smoke).
+Env-gated: needs git + Docker + swebench eval images pullable + Ollama live for the listed
+models (or a deterministic responder for smoke).
 """
 
 from __future__ import annotations
@@ -94,68 +62,56 @@ from typing import Any, cast
 import msgspec
 from datasets import load_dataset
 
-from substrate import api
-from substrate.assay import run_arm_on_case
-from substrate.assay.cells import CellSource, report_from_cells
+from substrate.adapters.rate_limit import ProviderRateLimited
+from substrate.assay.cells import report_from_cells
+from substrate.assay.oracle import Verdict
 from substrate.assay.preregistration import (
     fingerprint as _fingerprint_shared,
     guard as preregistration_guard,
 )
-from substrate.assay.run import UsageTotals, project_reproduction_for_selected
-from substrate.assay.suite import Arm, Case
-from substrate.assay.oracle import Verdict
-from substrate.adapters.rate_limit import ProviderRateLimited
+from substrate.assay.run import (
+    CellOutcome,
+    CellSource,
+    PerCellBudget,
+    UsageTotals,
+    run_suite_with_salvage,
+)
+from substrate.assay.suite import Arm, Case, Suite
 from substrate.assay.swebench import (
     DEFAULT_MODEL_NAME,
-    REASON_DOCKER_ERROR,
     REASON_FIREWALL_VIOLATION,
-    REASON_GIT_ERROR,
     REASON_HARNESS_ERROR,
     REASON_RATE_LIMITED,
     REASON_TIMED_OUT,
     FirewallViolation,
     SwebenchExtractOnlyOracle,
     batch_grade_from_records,
+    classify_reason_string,
+    timeout_for_instance,
 )
 from substrate.assay.swebench_errors import SwebenchRunnerError
 from substrate.assay.swebench_matrix import (
     container_arm,
+    container_solve_and_grade_arm,
     swebench_repair_arm,
 )
 from substrate.assay.swebench_suite import (
     prepare_swebench_case,
+    swebench_solve_and_grade_arm,
+    swebench_solve_and_grade_suite,
     swebench_solver_arm,
     swebench_suite,
 )
 
-
-# 2026-08-09 wall-clock reshape: typed per-cell error taxonomy.
-#
-# The pre-2026-08-09 posture was halt-on-any-raise inside `cell()`, so `asyncio.gather` cancelled
-# every sibling on one exception. Correct signal on a real bug; a fragility ratchet at 4,500-cell
-# scale — a Docker daemon hiccup at hour 90 threw away 90 hours. The review at
-# `docs/review/REVIEW-2026-08-09-swebench-runner-shape-and-walltime.md` item 6 named the middle
-# ground: classify per-cell failures into a small typed vocabulary, halt only on the CRITICAL
-# class (a benchmark data bug the record must not silently paper over), continue past FLAKY (a
-# Docker/network/timeout hiccup that a re-run would clear, written as `source="error"` with a
-# typed detail so the report layer can distinguish it from a real fail).
-#
-# The taxonomy is deliberately small — the four buckets a runner can classify from an exception
-# alone. A cell that raises an UNKNOWN exception halts by default (the conservative posture the
-# review names: don't classify what you don't understand).
+# ── SWE-bench cell-error taxonomy ─────────────────────────────────────────────
 # H-3 (ratified 2026-08-10): runner-side error reasons flow from the shared
-# _HARNESS_REASONS closed set at assay/swebench.py. `timed_out`, `docker_error`,
-# `git_error`, `firewall_violation` are shared with the oracle (any of these can
-# happen inside the harness call or before it reaches the harness). `unclassified_error`
-# is runner-only — it halts, so its wire form never survives to the report.
+# _HARNESS_REASONS closed set at assay/swebench.py. Typed exceptions carry .reason
+# directly; the string-repr fallback covers untyped library exceptions.
 _ERROR_UNCLASSIFIED = "unclassified_error"
 
 
 def _reason_from_detail(detail: str) -> str:
-    """Pull the reason string out of a Result.detail line that carries `reason=<name>`
-    (the shape `SwebenchRecordOracle.grade` writes when the harness returns NO_VERDICT).
-    Falls back to `REASON_HARNESS_ERROR` if no reason marker is present — a NO_VERDICT
-    with no reason is a bug the wire form still lands typed."""
+    """Pull `reason=<name>` out of a Result.detail line (legacy oracle path)."""
     marker = " reason="
     if marker in detail:
         return detail.rsplit(marker, 1)[1].strip()
@@ -163,55 +119,49 @@ def _reason_from_detail(detail: str) -> str:
 
 
 def _classify_cell_error(exc: BaseException) -> tuple[str, bool]:
-    """Classify one cell's exception into (typed_reason, halt_bool). Halt=True re-raises out of
-    cell() and gathers's return_exceptions=False propagation halts the sweep with the traceback;
-    Halt=False writes a `source="error"` row and continues so a flake cannot throw away hours of
-    completed cells.
+    """Classify one cell's exception into (typed_reason, halt_bool). Halt=True halts the
+    sweep with the traceback; Halt=False writes an ERROR outcome and continues.
 
-    Design v3 (ratified 2026-08-10) + F4 (holistic review 2026-08-10, ratified): typed
-    exceptions FIRST — `SwebenchRunnerError` subclasses carry `.reason` from the shared
-    `_HARNESS_REASONS` closed set, so classification is a `.reason` read, not a string match.
-    String-repr fallback catches the untyped-exception legacy path (subprocess.CalledProcessError,
-    generic OSError, third-party libraries that raise plain `RuntimeError`) so an unclassified
-    exception from a dependency doesn't halt the sweep for a docker/git flake. New code raising
-    typed exceptions replaces the fallback over time."""
+    Design v3 (ratified 2026-08-10) + F4: typed exceptions FIRST — `SwebenchRunnerError`
+    subclasses carry `.reason` from the shared `_HARNESS_REASONS` closed set. String-repr
+    fallback catches the untyped-exception legacy path (subprocess.CalledProcessError,
+    generic OSError, third-party libraries raising RuntimeError)."""
     if isinstance(exc, SwebenchRunnerError):
-        # Typed path: .reason is authoritative, no string match needed.
         return (exc.reason, False)
     if isinstance(exc, ProviderRateLimited):
-        # Provider-agnostic rate-limit shim exhausted its budget (design
-        # DESIGN-2026-08-11-responder-rate-limit-shim.md). Distinct from harness_error;
-        # the row's reason field carries REASON_RATE_LIMITED so the report's reason_counts
-        # separates capacity-denied cells from harness-crashed cells.
         return (REASON_RATE_LIMITED, False)
     if isinstance(exc, FirewallViolation):
-        # On Verified (human-curated) a firewall violation is a parser bug in `_f2p_in_test_patch`,
-        # not a real grade leak — Princeton/OpenAI/Anthropic audited every instance. FLAKE so one
-        # mis-parsed test id can't take down 1500 cells.
         return (f"{REASON_FIREWALL_VIOLATION}:{exc.reason}", False)
     if isinstance(exc, TimeoutError | asyncio.TimeoutError):
         return (REASON_TIMED_OUT, False)
-    # String-repr fallback: untyped exceptions from libraries we don't own. Kept narrow so a
-    # typed raise-site wins by shortcut above; the fallback is the safety net, not the primary
-    # path. `git`/`docker` matches on the exception's repr are known imprecise (a
-    # subprocess.CalledProcessError whose stderr mentions "docker" for a git error would
-    # mis-classify) — the fix is more typed raise-sites, not a smarter regex.
+    # Sprint 200a: route the string-repr fallback through `classify_reason_string` at
+    # `assay/swebench.py` — one source of truth shared with `SwebenchLogProjectionOracle`.
+    # `classify_reason_string` returns a `_HARNESS_REASONS` value for docker/git/rate-limit
+    # substrings; anything else falls through to REASON_HARNESS_ERROR at the string level.
+    # Runner-side we UPGRADE the harness_error fallback to unclassified_error (halt) so an
+    # unexpected exception class doesn't get silently absorbed as a flake. subprocess.CalledProcessError
+    # (git subprocess errors) always routes as git_error even if its repr doesn't say "git".
     msg = repr(exc).lower()
-    if "docker" in msg or "container" in msg:
-        return (REASON_DOCKER_ERROR, False)
-    if "git" in msg or isinstance(exc, subprocess.CalledProcessError):
-        return (REASON_GIT_ERROR, False)
-    return (_ERROR_UNCLASSIFIED, True)
+    if isinstance(exc, subprocess.CalledProcessError):
+        # subprocess errors always classify (docker/git present in argv), don't halt.
+        return (classify_reason_string(msg), False)
+    reason = classify_reason_string(msg)
+    if (
+        reason == REASON_HARNESS_ERROR
+        and "docker" not in msg
+        and "container" not in msg
+        and "git" not in msg
+    ):
+        # Genuine unknown — halt so an unfamiliar exception class doesn't get papered over.
+        return (_ERROR_UNCLASSIFIED, True)
+    return (reason, False)
 
 
+# ── env parsing ───────────────────────────────────────────────────────────────
 MODELS = os.environ.get("SWEBENCH_MODELS", "llama3.2:1b").split(",")
 N = int(os.environ.get("SWEBENCH_N", "3"))
 LIMIT = int(os.environ.get("SWEBENCH_LIMIT", "3"))
 TRIALS = int(os.environ.get("SWEBENCH_TRIALS", "1"))
-# 2026-08-09 wall-clock reshape: default was 4 (Docker as the shared bottleneck). Prep + solve are
-# both I/O bound on the Ollama Cloud network + Docker daemon; on a 10-core M-series with 32GB+ the
-# ceiling is closer to 12. 8 is the safe midpoint that halves throughput on a full-500 Verified
-# run without pushing the Docker daemon into eviction under image-pull contention.
 CONCURRENCY = int(os.environ.get("SWEBENCH_CONCURRENCY", "8"))
 ROLE = os.environ.get("SWEBENCH_ROLE", "full")
 ARM_NAME = os.environ.get("SWEBENCH_ARM_NAME", "swebench_solver")
@@ -223,46 +173,24 @@ MARGIN = float(os.environ.get("SWEBENCH_MARGIN", "0.10"))
 CONTROL = os.environ.get("SWEBENCH_CONTROL", ARM_NAME)
 RUN_TIMEOUT = float(os.environ.get("SWEBENCH_RUN_TIMEOUT", "1800"))
 SALVAGE = os.environ.get("SWEBENCH_SALVAGE", "")
-PREG = os.environ.get("SWEBENCH_PREG", "")  # sprint 151: pre-registration gate (path to .preg.json)
-ARMS_MODE = os.environ.get("SWEBENCH_ARMS", "solver")  # sprint 160-plan: solver | pass1 | matrix
+PREG = os.environ.get("SWEBENCH_PREG", "")
+ARMS_MODE = os.environ.get("SWEBENCH_ARMS", "solver")
 ENSEMBLE = [m.strip() for m in os.environ.get("SWEBENCH_ENSEMBLE", "").split(",") if m.strip()]
-K_CALLS = int(os.environ.get("SWEBENCH_K", "0"))  # 0 = read from .preg.json when in matrix mode
-# F4 fix (review 2026-08-08): K parallel reproduction samples per instance. 1 = pre-F4 behaviour
-# (one repro per candidate); >1 = combine K runner scripts into one Docker invocation, majority-
-# vote at the marker level. Sprint 160-pass2 should set this to 3.
+K_CALLS = int(os.environ.get("SWEBENCH_K", "0"))
 REPRO_K = int(os.environ.get("SWEBENCH_REPRO_K", "1"))
-# 2026-08-09 wall-clock reshape: skip the base-repo pytest step in prep — the dominant prep
-# bottleneck (astropy/django/sympy: 15-40 min each in Docker; 500 instances at CONCURRENCY=8 is
-# still ~30h of prep before the first solve fires). The `passed_at_base` filter it computes
-# exists to guard flask-class pre-existing base failures (select_exec.py:66-69) — a class
-# Princeton/OpenAI/Anthropic curated OUT of SWE-bench_Verified. SELECT then falls back to the
-# whole-run `regression_passed` bool. Default: ON for any Verified dataset name, OFF otherwise.
-# The choice is hashed into `_CONFIG_FP` so the record self-describes the trade.
 SKIP_BASE_PYTEST = (
     os.environ.get("SWEBENCH_SKIP_BASE_PYTEST", "1" if "Verified" in DATASET else "0") == "1"
 )
-# Design v3 (ratified 2026-08-10): batch grade is a knob, DEFAULT OFF. The confirmatory
-# runs `SwebenchRecordOracle` inline per cell — the light topology plus per-cell wall-clock
-# make the harness call bounded and reasonable. The 2026-08-09 default-ON shape produced the
-# 517-silent-fails failure mode the 2026-08-10 postmortem records: end-of-sweep batch grade
-# rolled harness silence into `resolved=false` and offered no reason. Opt in with
-# `SWEBENCH_BATCH_GRADE=1` when a caller genuinely wants two-phase grading; the batch path
-# is preserved for that follow-up but will be rewritten as a loop over `run_swebench_one`
-# so per-cell verdicts carry typed reasons (design §"The runner contract").
 BATCH_GRADE = os.environ.get("SWEBENCH_BATCH_GRADE", "0") == "1"
-# 2026-08-09 wall-clock reshape: pre-pull every unique instance image before the prep sweep so
-# `docker pull` cost lands once per image on the registry rather than serialised inside per-cell
-# `docker run` invocations. Default ON; set to 0 to skip if images are already local.
 PREPULL_IMAGES = os.environ.get("SWEBENCH_PREPULL_IMAGES", "1") == "1"
 
 _ZERO = UsageTotals(0, 0, 0, 0, False)
-_RUN_ID = ""  # set in main(); stamped on every cell for provenance
-_CONFIG_FP = ""  # config fingerprint; the resume guard refuses to mix configs in one file
+_RUN_ID = ""
+_CONFIG_FP = ""
+_fingerprint = _fingerprint_shared
 
 
 def _config() -> dict[str, object]:
-    """The full parameterization behind this run so the cells JSONL is self-describing.
-    `assay_kind` is the dispatch key Sprint 152's `suite_from_meta` reads."""
     return {
         "models": MODELS,
         "n": N,
@@ -275,20 +203,10 @@ def _config() -> dict[str, object]:
         "margin": MARGIN,
         "control_arm": CONTROL,
         "run_timeout": RUN_TIMEOUT,
-        # 2026-08-09 wall-clock reshape: bake into the config fingerprint so the meta rejects
-        # cross-config splices when the base-pytest choice differs — a Verified run with the
-        # skip on cannot silently mix cells with a Verified run that computed passed_at_base
-        # the long way. Both are honest; they are DIFFERENT filters at SELECT.
         "skip_base_pytest": SKIP_BASE_PYTEST,
         "batch_grade": BATCH_GRADE,
-        "assay_kind": "swebench",  # Sprint 152 dispatch
+        "assay_kind": "swebench",
     }
-
-
-# sprint 151 review fold (finding 151-#2): consolidated onto substrate.assay.preregistration.fingerprint
-# so this script's config fingerprint and the pre-reg gate hash the same bytes. Prior local
-# implementation was byte-identical but two copies is where the divergence risk lived.
-_fingerprint = _fingerprint_shared
 
 
 def _load_rows() -> dict[tuple[str, str, int], dict[str, object]]:
@@ -302,8 +220,9 @@ def _load_rows() -> dict[tuple[str, str, int], dict[str, object]]:
 
 
 def _row(
-    arm: Arm,
-    case: Case,
+    arm_name: str,
+    role: str,
+    case_id: str,
     trial: int,
     verdict: Verdict,
     source: CellSource,
@@ -316,20 +235,11 @@ def _row(
     recall_at_k: float | None = None,
     full_recall_at_k: bool | None = None,
 ) -> dict[str, object]:
-    # measured = CellSource.RUN gates null vs measured fields: a salvage/error cell made NO
-    # calls this run, so its compute fields are null (not measured 0). Only freshly-run,
-    # metered cells carry real tokens/calls/ms/estimated. Post-Gap-6 (2026-08-11): source
-    # is a typed enum whose .value stays "run"/"salvage"/"error" on the wire — every existing
-    # row reads unchanged; new writes cannot mistype the string.
     measured = source is CellSource.RUN
-    # Design v3 (ratified 2026-08-10): every cell row carries a typed verdict and reason.
-    # `passed` is derived (verdict == "pass") so old readers keep working; new readers read
-    # verdict+reason directly. reason is the empty string on pass/fail; on no_verdict it names
-    # WHY from the shared `_HARNESS_REASONS` closed set.
     return {
-        "arm": arm.name,
-        "role": arm.role,
-        "case_id": case.case_id,
+        "arm": arm_name,
+        "role": role,
+        "case_id": case_id,
         "trial": trial,
         "verdict": verdict.value,
         "reason": reason,
@@ -351,15 +261,64 @@ def _row(
     }
 
 
-def _write_cases_sidecar(cases: list[tuple[Case, dict[str, object]]]) -> None:
-    """Gap 7 — write `.cases.json` next to the cells JSONL, so Sprint 152's SWE-bench branch of
-    `report_from_cells` can reconstruct a `swebench_suite` without re-cloning every case.
+def _shape_row(outcome: CellOutcome) -> dict[str, object]:
+    """Translate a CellOutcome into the SWE-bench cells-JSONL row shape. Sprint 199b
+    replaces the pre-fold inline row-write inside `cell()`."""
+    arm_name = outcome.arm.name
+    role = outcome.arm.role
+    case_id = outcome.case.case_id
+    trial = outcome.trial
+    if outcome.source is CellSource.ERROR:
+        # `firewall_violation:<detail>` collapses to REASON_FIREWALL_VIOLATION on the wire;
+        # detail carries the specifics.
+        exc = outcome.exception
+        assert exc is not None
+        raw_reason = outcome.exception_reason
+        wire_reason = (
+            REASON_FIREWALL_VIOLATION
+            if raw_reason.startswith(REASON_FIREWALL_VIOLATION)
+            else raw_reason
+        )
+        return _row(
+            arm_name,
+            role,
+            case_id,
+            trial,
+            Verdict.NO_VERDICT,
+            CellSource.ERROR,
+            _ZERO,
+            0,
+            outcome.root,
+            detail=f"{raw_reason}: {type(exc).__name__}: {str(exc)[:280]}",
+            reason=wire_reason,
+            reproduction="",
+        )
+    assert outcome.result is not None
+    reason = outcome.result.reason or (
+        ""
+        if outcome.result.verdict is not Verdict.NO_VERDICT
+        else _reason_from_detail(outcome.result.detail)
+    )
+    usage = outcome.usage or _ZERO
+    return _row(
+        arm_name,
+        role,
+        case_id,
+        trial,
+        outcome.result.verdict,
+        outcome.source,
+        usage,
+        outcome.elapsed_ms,
+        outcome.root,
+        detail=outcome.result.detail,
+        reason=reason,
+        reproduction=outcome.reproduction,
+        recall_at_k=outcome.result.recall_at_k,
+        full_recall_at_k=outcome.result.full_recall_at_k,
+    )
 
-    Written BEFORE the sweep so an aborted mid-run still leaves the sidecar on disk. The subset
-    below is what Sprint 152 needs: `case_id` + `instance_id` to reconstruct Case objects for the
-    Suite, plus the `PreparedPayload` fields that let a re-run reconstruct the runner + planner
-    without re-doing the base clone.
-    """
+
+def _write_cases_sidecar(cases: list[tuple[Case, dict[str, object]]]) -> None:
     path = CELLS.parent / f"{CELLS.stem}.cases.json"
     payload = [
         {
@@ -368,9 +327,6 @@ def _write_cases_sidecar(cases: list[tuple[Case, dict[str, object]]]) -> None:
             "repo": inst.get("repo"),
             "base_commit": inst.get("base_commit"),
             "version": inst.get("version"),
-            # PreparedPayload subset — spec is coming from swebench.MAP_REPO_VERSION_TO_SPECS at
-            # arm-build time (so a re-run doesn't need it inline); regression_files + exclude +
-            # passed_at_base + image are the load-bearing pieces the planner reconstructs from.
             "image": case.payload["image"],
             "regression_files": case.payload["regression_files"],
             "exclude": case.payload["exclude"],
@@ -382,18 +338,10 @@ def _write_cases_sidecar(cases: list[tuple[Case, dict[str, object]]]) -> None:
 
 
 def _print_report() -> int:
-    """Rebuild a Report from the cells JSONL — no model calls, just the aggregator.
-
-    NOTE: today `report_from_cells` at `assay/cells.py:65-76` is coding-only (hardcodes
-    `coding_problem_bank()` + `coding_suite()`). It WILL crash on a SWE-bench cells file until
-    Sprint 152's `assay_kind` dispatch lands. This function is here so it's ready when 152 does.
-    """
     if not CELLS.exists():
         print(f"no cells at {CELLS}", flush=True)
         return 64
     report, meta = report_from_cells(CELLS)
-    # Gap 6: proper serialization for a frozen @dataclass Report with nested ArmReport tuples;
-    # `.__dict__` does NOT recurse. msgspec.to_builtins handles the whole tree.
     print(
         json.dumps(
             {"report": msgspec.to_builtins(report), "meta": meta},
@@ -407,27 +355,22 @@ def _print_report() -> int:
 
 
 def _build_arms_for_mode() -> tuple[list[Arm], dict[str, dict[str, object]], str]:
-    """Sprint 160-plan: dispatch on SWEBENCH_ARMS to build the arm set + the per-arm params dict
-    the pre-reg gate compares against. Returns (arms, params_by_arm, control_arm_name).
+    """Build the arm set + per-arm params (fed into pre-reg gate) + control arm name.
 
-    - "solver" (default, pre-160): one arm via `swebench_solver_arm` — backward compat for any
-      caller that used the runner before the matrix wiring.
-    - "pass1" (Sprint 160-pass1): the ensemble arm only. Used to observe K = median model_calls
-      per case before the confirmatory matrix run.
-    - "matrix" (Sprint 160-pass2): all five arms. Requires SWEBENCH_ENSEMBLE for the ensemble
-      arm and either SWEBENCH_K or a .preg.json carrying `k_calls` for the matched-compute arm.
+    Modes: `solver` (single arm), `pass1` (ensemble only), `matrix` (5 arms via
+    swebench_repair_arm + container_arm), `solve_and_grade` (Sprint 197's log-projection
+    path — the 4 repair arms only; container_arm excluded because it needs a grade-producer
+    fold that hasn't landed).
     """
-    strong = MODELS[0]  # single strong model for the non-ensemble arms
+    strong = MODELS[0]
+
     if ARMS_MODE == "solver":
         arm = swebench_solver_arm(name=ARM_NAME, role=ROLE, models=MODELS, n=N)
         return [arm], {ARM_NAME: {"models": MODELS, "n": N, "max_rounds": 2}}, CONTROL
 
     if ARMS_MODE == "pass1":
         if not ENSEMBLE:
-            raise SystemExit(
-                "SWEBENCH_ARMS=pass1 requires SWEBENCH_ENSEMBLE=<comma-sep models> — the arm "
-                "under measurement is the ensemble, and observing K needs its real model_calls."
-            )
+            raise SystemExit("SWEBENCH_ARMS=pass1 requires SWEBENCH_ENSEMBLE=<comma-sep models>.")
         ens = swebench_repair_arm(
             "n_drafts_repair_ensemble",
             models=ENSEMBLE,
@@ -441,21 +384,13 @@ def _build_arms_for_mode() -> tuple[list[Arm], dict[str, dict[str, object]], str
             "n_drafts_repair_ensemble",
         )
 
-    if ARMS_MODE == "matrix":
+    if ARMS_MODE in ("matrix", "solve_and_grade"):
         if not ENSEMBLE:
-            raise SystemExit("SWEBENCH_ARMS=matrix requires SWEBENCH_ENSEMBLE=<comma-sep models>.")
+            raise SystemExit(f"SWEBENCH_ARMS={ARMS_MODE} requires SWEBENCH_ENSEMBLE=...")
         if K_CALLS <= 0:
-            raise SystemExit(
-                "SWEBENCH_ARMS=matrix requires SWEBENCH_K=<int from pass1 median> (or a "
-                "pre-reg carrying k_calls in its arm params; the runner reads K from env first)."
-            )
+            raise SystemExit(f"SWEBENCH_ARMS={ARMS_MODE} requires SWEBENCH_K=<int>.")
         tool_steps = int(os.environ.get("SWEBENCH_TOOL_STEPS", "8"))
 
-        # Move 2 (re-review 2026-08-11, ratified): the Sprint 160 matrix reads as data.
-        # Every same-topology arm resolves through `swebench_repair_arm(models, n, max_rounds)`;
-        # the structurally distinct arm (`tool_loop_container` — read/edit/bash agent loop in
-        # the eval image) is one row with kind="container". Adding an arm of the same shape
-        # is a new row, not a new factory.
         matrix_spec: list[dict[str, object]] = [
             {
                 "name": "single_draft_baseline",
@@ -497,70 +432,186 @@ def _build_arms_for_mode() -> tuple[list[Arm], dict[str, dict[str, object]], str
                 "n": K_CALLS,
                 "max_rounds": 1,
             },
+        ]
+        # Sprint 199d: `container_solve_and_grade_arm` lets the container arm join
+        # `solve_and_grade` mode under the log-projection oracle. Pre-Sprint-199d only the
+        # record-oracle `matrix` mode carried it.
+        matrix_spec.append(
             {
                 "name": "tool_loop_container",
                 "role": "ablation",
                 "kind": "container",
                 "models": [strong],
                 "max_steps": tool_steps,
-            },
-        ]
+            }
+        )
 
-        arms = []
+        arms: list[Arm] = []
         params: dict[str, dict[str, object]] = {}
-        for row in matrix_spec:
-            if row["kind"] == "repair":
-                arm = swebench_repair_arm(
-                    str(row["name"]),
-                    models=cast("list[str]", row["models"]),
-                    n=int(cast(int, row["n"])),
-                    max_rounds=int(cast(int, row["max_rounds"])),
-                    role=str(row["role"]),
-                    repro_k=REPRO_K,
-                )
-                params[str(row["name"])] = {
-                    "models": row["models"],
-                    "n": row["n"],
-                    "max_rounds": row["max_rounds"],
+        for spec in matrix_spec:
+            if spec["kind"] == "repair":
+                if ARMS_MODE == "solve_and_grade":
+                    arm = swebench_solve_and_grade_arm(
+                        str(spec["name"]),
+                        role=str(spec["role"]),
+                        models=cast("list[str]", spec["models"]),
+                        report_root=SCRATCH / "grade",
+                        dataset_name=DATASET,
+                        n=int(cast(int, spec["n"])),
+                        max_rounds=int(cast(int, spec["max_rounds"])),
+                    )
+                else:
+                    arm = swebench_repair_arm(
+                        str(spec["name"]),
+                        models=cast("list[str]", spec["models"]),
+                        n=int(cast(int, spec["n"])),
+                        max_rounds=int(cast(int, spec["max_rounds"])),
+                        role=str(spec["role"]),
+                        repro_k=REPRO_K,
+                    )
+                params[str(spec["name"])] = {
+                    "models": spec["models"],
+                    "n": spec["n"],
+                    "max_rounds": spec["max_rounds"],
                 }
-            elif row["kind"] == "container":
-                arm = container_arm(
-                    str(row["name"]),
-                    role=str(row["role"]),
-                    model=cast("list[str]", row["models"])[0],
-                    max_steps=int(cast(int, row["max_steps"])),
-                )
-                params[str(row["name"])] = {
-                    "models": row["models"],
-                    "max_steps": row["max_steps"],
+            elif spec["kind"] == "container":
+                if ARMS_MODE == "solve_and_grade":
+                    arm = container_solve_and_grade_arm(
+                        str(spec["name"]),
+                        role=str(spec["role"]),
+                        model=cast("list[str]", spec["models"])[0],
+                        report_root=SCRATCH / "grade",
+                        dataset_name=DATASET,
+                        max_steps=int(cast(int, spec["max_steps"])),
+                    )
+                else:
+                    arm = container_arm(
+                        str(spec["name"]),
+                        role=str(spec["role"]),
+                        model=cast("list[str]", spec["models"])[0],
+                        max_steps=int(cast(int, spec["max_steps"])),
+                    )
+                params[str(spec["name"])] = {
+                    "models": spec["models"],
+                    "max_steps": spec["max_steps"],
                 }
             else:
-                raise SystemExit(f"unknown arm kind {row['kind']!r} in matrix_spec")
+                raise SystemExit(f"unknown arm kind {spec['kind']!r}")
             arms.append(arm)
 
-        # The pre-registered control for the matrix is single_draft_baseline (the floor) —
-        # every other arm's delta reads as "beats the floor by X." Overridable via SWEBENCH_CONTROL.
         control = CONTROL if CONTROL != ARM_NAME else "single_draft_baseline"
         return arms, params, control
 
     raise SystemExit(
-        f"SWEBENCH_ARMS={ARMS_MODE!r} unknown — must be one of solver | pass1 | matrix"
+        f"SWEBENCH_ARMS={ARMS_MODE!r} unknown — one of solver | pass1 | matrix | solve_and_grade"
     )
+
+
+def _emit_stderr_event(boundary: str, kind: str, payload: dict[str, Any]) -> None:
+    """Boundary event on stderr — used before the substrate topology has a run scope."""
+    line = json.dumps(
+        {"t": time.time(), "kind": kind, "boundary": boundary, "payload": payload},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    print(line, file=sys.stderr, flush=True)
+
+
+async def _prepull_images(ds: list[dict[str, Any]]) -> None:
+    """Pre-pull every unique instance image before the prep sweep so `docker pull` lands
+    once per image on registry bandwidth, not per-cell inside DockerTestRunner."""
+    from substrate.topologies.swebench_solver.select_docker import instance_image
+
+    unique_images = sorted({instance_image(inst["instance_id"]) for inst in ds})
+    print(f"pre-pulling {len(unique_images)} unique instance images...", flush=True)
+    pull_sem = asyncio.Semaphore(min(CONCURRENCY, 4))
+
+    async def _pull(image: str) -> str:
+        started = time.monotonic()
+        _emit_stderr_event("image_pull", "ImageRequested", {"image": image})
+        async with pull_sem:
+            p = await asyncio.to_thread(
+                subprocess.run,
+                ["docker", "pull", "--platform", "linux/amd64", image],
+                capture_output=True,
+                text=True,
+                timeout=1800,
+            )
+        wall_ms = int((time.monotonic() - started) * 1000)
+        if p.returncode == 0:
+            _emit_stderr_event("image_pull", "ImagePulled", {"image": image, "wall_ms": wall_ms})
+        else:
+            _emit_stderr_event(
+                "image_pull",
+                "ImageMissing",
+                {
+                    "image": image,
+                    "wall_ms": wall_ms,
+                    "returncode": p.returncode,
+                    "stderr_tail": (p.stderr or "")[-400:],
+                },
+            )
+        return f"  {image}: rc={p.returncode}"
+
+    pulls = await asyncio.gather(*(_pull(img) for img in unique_images), return_exceptions=True)
+    for pr in pulls:
+        print(pr if not isinstance(pr, BaseException) else f"  pull error: {pr!r}", flush=True)
+
+
+def _preflight_models(models: list[str]) -> None:
+    """Ping every declared model; halt at startup if any doesn't respond. A dead model
+    produces silent zero-patch rows across every arm — fail loud, not with 1800 fake fails."""
+    if not models or os.environ.get("SWEBENCH_SKIP_MODEL_PREFLIGHT", "0") == "1":
+        return
+    import httpx
+
+    print(f"model pre-flight: pinging {len(models)} declared model(s)...", flush=True)
+    dead: list[tuple[str, int | str]] = []
+    for m in models:
+        try:
+            r = httpx.post(
+                "http://127.0.0.1:11434/api/chat",
+                json={"model": m, "messages": [{"role": "user", "content": "ok"}], "stream": False},
+                timeout=30.0,
+            )
+            if r.status_code != 200:
+                dead.append((m, r.status_code))
+                print(f"  {m}: HTTP {r.status_code} — DEAD", flush=True)
+            else:
+                print(f"  {m}: ok", flush=True)
+        except httpx.HTTPError as exc:
+            dead.append((m, repr(exc)))
+            print(f"  {m}: {exc!r} — DEAD", flush=True)
+    if dead:
+        raise SystemExit(
+            f"model pre-flight FAILED: {len(dead)} dead model(s): {dead}. "
+            "Set SWEBENCH_SKIP_MODEL_PREFLIGHT=1 to override."
+        )
+
+
+def _interleave_by_repo(ds: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Deterministic round-robin across repos so 8 concurrent workers pick 8 different
+    repos rather than 8 astropy instances back-to-back."""
+    from collections import defaultdict
+
+    by_repo: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for inst in ds:
+        by_repo[str(inst["repo"])].append(inst)
+    interleaved: list[dict[str, Any]] = []
+    idx = {r: 0 for r in by_repo}
+    while any(idx[r] < len(v) for r, v in by_repo.items()):
+        for repo in sorted(by_repo):
+            i = idx[repo]
+            if i < len(by_repo[repo]):
+                interleaved.append(by_repo[repo][i])
+                idx[repo] = i + 1
+    return interleaved
 
 
 async def _run() -> int:
     global _CONFIG_FP, _RUN_ID
     _RUN_ID = f"run-{int(time.time())}"
-    # Sprint 155 review-fold nit A3: mkdir AFTER the pre-reg gate so a PREG failure genuinely
-    # leaves zero disk artifacts (originally the mkdirs fired first — the gate exited cleanly
-    # but left empty directories behind).
 
-    # Sprint 151 (review-fold finding 151-#3): the pre-registration gate runs FIRST, before any
-    # disk writes — the fingerprint, the meta.json, the sidecar, the sweep. On failure nothing
-    # leaks to disk; on success cfg carries the comparator and the fingerprint reflects the full
-    # committed shape (no post-gate re-fingerprint that would leave rows loaded under the OLD fp
-    # and mismatch Gap 4's mixed-config guard). params_by_arm threads (models, n, max_rounds) into
-    # the arms_hash so a same-name reroll trips the gate (finding 151-#1).
     arms, params_by_arm, control = _build_arms_for_mode()
     cfg = _config()
     cfg["arms_mode"] = ARMS_MODE
@@ -571,9 +622,11 @@ async def _run() -> int:
         pre = preregistration_guard(PREG, arms, params_by_arm=params_by_arm)
         cfg["preregistration"] = {"path": pre.path, "arms_hash": pre.arms_hash}
         cfg["comparator"] = dict(pre.comparator)
+        cfg["graded_rate_floor"] = pre.graded_rate_floor
         print(
             f"pre-registration verified: {pre.path} arms_hash={pre.arms_hash} "
-            f"comparator={pre.comparator['source']}={pre.comparator['resolve_rate']}",
+            f"comparator={pre.comparator['source']}={pre.comparator['resolve_rate']} "
+            f"graded_rate_floor={pre.graded_rate_floor}",
             flush=True,
         )
     print(
@@ -581,64 +634,20 @@ async def _run() -> int:
         flush=True,
     )
 
-    # Model-endpoint pre-flight (fold-2026-08-11): the 6-arm N=300 run at bojl1kk7z burned 25
-    # minutes and 1800 cells against qwen3-coder:480b-cloud, a model that had disappeared from
-    # Ollama cloud (HTTP 410 on every call). The topology tolerated the failure by emitting
-    # zero patches per case; the row said "no model_patch" — same wire as an honest topology
-    # try that failed. Halt at startup if any declared model doesn't respond, so the shape of
-    # the failure lands as a startup error, not as 1800 silent zero-patch rows.
-    _preflight_models: list[str] = list(MODELS) + [m for m in ENSEMBLE if m not in MODELS]
-    if _preflight_models and os.environ.get("SWEBENCH_SKIP_MODEL_PREFLIGHT", "0") != "1":
-        import httpx as _httpx
-
-        print(
-            f"model pre-flight: pinging {len(_preflight_models)} declared model(s)...", flush=True
-        )
-        dead: list[tuple[str, int | str]] = []
-        for m in _preflight_models:
-            try:
-                r = _httpx.post(
-                    "http://127.0.0.1:11434/api/chat",
-                    json={
-                        "model": m,
-                        "messages": [{"role": "user", "content": "ok"}],
-                        "stream": False,
-                    },
-                    timeout=30.0,
-                )
-                if r.status_code != 200:
-                    dead.append((m, r.status_code))
-                    print(f"  {m}: HTTP {r.status_code} — DEAD", flush=True)
-                else:
-                    print(f"  {m}: ok", flush=True)
-            except _httpx.HTTPError as exc:
-                dead.append((m, repr(exc)))
-                print(f"  {m}: {exc!r} — DEAD", flush=True)
-        if dead:
-            raise SystemExit(
-                f"model pre-flight FAILED: {len(dead)} dead model(s): {dead}. "
-                "A dead model produces silent zero-patch rows across every arm; refusing to fire. "
-                "Set SWEBENCH_SKIP_MODEL_PREFLIGHT=1 to override (not recommended)."
-            )
+    _preflight_models(list(MODELS) + [m for m in ENSEMBLE if m not in MODELS])
 
     _CONFIG_FP = _fingerprint(cfg)
     CELLS.parent.mkdir(parents=True, exist_ok=True)
     SCRATCH.mkdir(parents=True, exist_ok=True)
     done = _load_rows()
 
-    # Gap 4: refuse to splice cells from a DIFFERENT config into one results file. Rows without
-    # a fingerprint (a pre-parity run) are tolerated as legacy data. Runs AFTER the pre-reg gate
-    # so the fingerprint compared is the final one (comparator merged), never the intermediate.
     foreign = {str(r.get("config_fp")) for r in done.values() if r.get("config_fp")} - {_CONFIG_FP}
     if foreign:
         raise SystemExit(
             f"{CELLS} holds cells from config(s) {foreign}, current is {_CONFIG_FP}. "
-            "Use a fresh SWEBENCH_CELLS (or delete it) — refusing to mix configs in one file."
+            "Use a fresh SWEBENCH_CELLS (or delete it) — refusing to mix configs."
         )
 
-    # Gap 5: FLAT meta shape — matches bench_coding.py:232-235 so `provenance_status` at
-    # cells.py:94-98 recomputes the fingerprint over the same dict shape (config keys top-level,
-    # not nested under a "config" wrapper). Written ONCE, after the gate.
     (CELLS.parent / f"{CELLS.stem}.meta.json").write_text(
         json.dumps({"config_fp": _CONFIG_FP, "run_id": _RUN_ID, **cfg}, indent=2, sort_keys=True)
     )
@@ -650,78 +659,11 @@ async def _run() -> int:
         ds = [inst for inst in ds if str(inst["instance_id"]) in wanted]
     if LIMIT:
         ds = ds[:LIMIT]
-    # 2026-08-09 wall-clock reshape: interleave by repo so 8 concurrent workers pick 8 different
-    # repos rather than 8 astropy instances back-to-back. Deterministic (round-robin within each
-    # repo, sorted by (index_within_repo, repo_name)) — reproducible across runs, cross-repo
-    # signal arrives in the first 8 cells instead of after ~2h of one-repo grind. On a re-run
-    # (mother cache warm), the ordering is stable so partial-progress cells resume correctly.
-    from collections import defaultdict as _dd
+    ds = _interleave_by_repo(ds)
+    print(f"loaded {len(ds)} instances from {DATASET}:{SPLIT}", flush=True)
 
-    by_repo: dict[str, list[dict[str, Any]]] = _dd(list)
-    for inst in ds:
-        by_repo[str(inst["repo"])].append(inst)
-    interleaved: list[dict[str, Any]] = []
-    per_repo_idx = {r: 0 for r in by_repo}
-    while any(per_repo_idx[r] < len(v) for r, v in by_repo.items()):
-        for repo in sorted(by_repo):
-            idx = per_repo_idx[repo]
-            if idx < len(by_repo[repo]):
-                interleaved.append(by_repo[repo][idx])
-                per_repo_idx[repo] = idx + 1
-    ds = interleaved
-    print(
-        f"loaded {len(ds)} instances from {DATASET}:{SPLIT}, "
-        f"interleaved across {len(by_repo)} repos",
-        flush=True,
-    )
-
-    # The Adapter door — every instance goes through prepare_swebench_case; a firewall failure is
-    # excluded and logged, never silently admitted. `prepare_swebench_case` runs one Docker call
-    # per instance to compute passed_at_base + a git clone. Both are IO-bound (Docker image pull
-    # bandwidth + git clone bandwidth), so a serial for-loop leaves the machine idle. Parallelise
-    # across CONCURRENCY workers via asyncio.to_thread; the Docker daemon and git handle
-    # concurrent pulls fine. 300 instances at CONCURRENCY=8 finishes in ~15-30 min instead of
-    # ~5-10 hours (KIT_DIARY-worthy: the pre-fix serial loop was the projection-blower on this
-    # confirmatory).
-    # 2026-08-09 halt-on-error rewrite: prep failures propagate. Any prep exception (a Docker
-    # pull error, a git-clone error, a firewall violation) kills the whole prep with the
-    # instance_id in the traceback. Verified is human-audited clean, so the firewall check is
-    # not the pre-filter it was on Lite — a real firewall violation on Verified is a data bug
-    # in the benchmark and deserves to halt.
-    # 2026-08-09 wall-clock reshape: pre-pull every unique instance image before the prep sweep.
-    # `docker run` inside `DockerTestRunner.run` (select_docker.py:153-192) pulls on first use per
-    # cell — serialised inside the runner. Pulling up front pins the network cost to registry
-    # bandwidth and lets prep + solve start warm. Verified has ~500 instances across ~12 repos so
-    # the pull count is dominated by repo variety, not instance count. Skip with
-    # SWEBENCH_PREPULL_IMAGES=0 when images are already local.
     if PREPULL_IMAGES:
-        from substrate.topologies.swebench_solver.select_docker import instance_image
-
-        unique_images = sorted({instance_image(inst["instance_id"]) for inst in ds})
-        print(f"pre-pulling {len(unique_images)} unique instance images...", flush=True)
-        pull_sem = asyncio.Semaphore(min(CONCURRENCY, 4))  # docker daemon caps concurrent pulls
-
-        async def _pull(image: str) -> str:
-            import subprocess as _sp
-
-            async with pull_sem:
-                p = await asyncio.to_thread(
-                    _sp.run,
-                    ["docker", "pull", "--platform", "linux/amd64", image],
-                    capture_output=True,
-                    text=True,
-                    timeout=1800,
-                )
-            return f"  {image}: rc={p.returncode}"
-
-        pulls = await asyncio.gather(*(_pull(img) for img in unique_images), return_exceptions=True)
-        for pull_result in pulls:
-            print(
-                pull_result
-                if not isinstance(pull_result, BaseException)
-                else f"  pull error: {pull_result!r}",
-                flush=True,
-            )
+        await _prepull_images(ds)
 
     print(
         f"preparing {len(ds)} cases at CONCURRENCY={CONCURRENCY} "
@@ -747,164 +689,93 @@ async def _run() -> int:
     cases: list[tuple[Case, dict[str, object]]] = list(prepped)
     print(f"prepared {len(cases)} cases", flush=True)
 
-    # Gap 7: write the sidecar BEFORE the sweep so a mid-run abort still leaves the .cases.json
-    # on disk for Sprint 152's report path.
     _write_cases_sidecar(cases)
 
-    suite = swebench_suite(
-        cases=[c for c, _ in cases],
-        arms=arms,
-        report_root=str(SCRATCH / "grade"),
-        dataset_name=DATASET,
-        control_arm=control,
-        equivalence_margin=MARGIN,
-        pass_k=1,
-    )
-    # 2026-08-09 wall-clock reshape (review item 1): batch-grade path. Swap the sync
-    # SwebenchRecordOracle for the extract-only variant so the sweep skips 1500 fresh
-    # `run_swebench` subprocesses. Batch grade fires at end of sweep.
-    if BATCH_GRADE:
-        from dataclasses import replace as _dc_replace
-
-        suite = _dc_replace(suite, oracle=SwebenchExtractOnlyOracle())
-        print(
-            "BATCH_GRADE=1: oracle deferred; batch grade fires after sweep with "
-            f"max_workers={CONCURRENCY}",
-            flush=True,
+    # Suite construction: `solve_and_grade` uses the log-projection oracle (Sprint 197);
+    # every other mode uses the record oracle (external harness call from `run_arm_on_case`).
+    case_list = [c for c, _ in cases]
+    if ARMS_MODE == "solve_and_grade":
+        suite: Suite = swebench_solve_and_grade_suite(
+            cases=case_list,
+            arms=arms,
+            control_arm=control,
+            equivalence_margin=MARGIN,
+            pass_k=1,
         )
+    else:
+        suite = swebench_suite(
+            cases=case_list,
+            arms=arms,
+            report_root=str(SCRATCH / "grade"),
+            dataset_name=DATASET,
+            control_arm=control,
+            equivalence_margin=MARGIN,
+            pass_k=1,
+        )
+        if BATCH_GRADE:
+            from dataclasses import replace as _dc_replace
 
-    # Sprint 160-plan: the sweep fans over ARMS × cases × trials. Pre-160 (solver mode) this was
-    # over one arm; matrix mode now grows the fanout by the arm count without any other structural
-    # change (the same salvage / timeout / row-write shape applies per cell).
-    todo = [
-        (a, case, t)
-        for a in arms
-        for case, _ in cases
-        for t in range(TRIALS)
-        if (a.name, case.case_id, t) not in done
-    ]
-    total = len(arms) * len(cases) * TRIALS
+            suite = _dc_replace(suite, oracle=SwebenchExtractOnlyOracle())
+            print(
+                f"BATCH_GRADE=1: oracle deferred; batch grade fires post-sweep, "
+                f"max_workers={CONCURRENCY}",
+                flush=True,
+            )
+
+    def _instance_id(case: Case) -> str:
+        if isinstance(case.ground_truth, dict):
+            return str(case.ground_truth.get("instance_id", case.case_id))
+        return case.case_id
+
+    def _budget_for_cell(_arm: Arm, case: Case) -> PerCellBudget:
+        """Sprint 198: per-repo table capped by SWEBENCH_RUN_TIMEOUT."""
+        t = min(RUN_TIMEOUT, float(timeout_for_instance(_instance_id(case))))
+        return PerCellBudget(time_s=t, reason="per-repo table capped by SWEBENCH_RUN_TIMEOUT")
+
+    total_cells = len(arms) * len(cases) * TRIALS
+    todo_count = total_cells - sum(
+        1 for a in arms for c, _ in cases for t in range(TRIALS) if (a.name, c.case_id, t) in done
+    )
     print(
-        f"todo: {len(todo)} of {total} total cells across {len(arms)} arm(s) "
+        f"todo: {todo_count} of {total_cells} cells across {len(arms)} arm(s) "
         f"(already done: {len(done)}; concurrency={CONCURRENCY}, timeout={RUN_TIMEOUT}s, "
         f"salvage={'on' if SALVAGE else 'off'})",
         flush=True,
     )
 
-    sem = asyncio.Semaphore(CONCURRENCY)  # Gap 1
-    lock = asyncio.Lock()
     started = time.monotonic()
+    write_lock = asyncio.Lock()
     progress = {"n": 0}
 
-    async def cell(arm: Arm, case: Case, trial: int) -> None:
-        async with sem:
-            salv: Path | None = (
-                Path(SALVAGE) / f"{arm.name}__{case.case_id}__t{trial}" if SALVAGE else None
-            )
-            row: dict[str, object]
-            if salv is not None and salv.exists():
-                # Salvage — regrade an existing record without new model calls. A salvage
-                # failure is a real bug in the record layer or the oracle (the record already
-                # exists and either reads or does not); halt propagates through the classifier's
-                # `_ERROR_UNCLASSIFIED` bucket rather than silently row-as-fail.
-                events: list[Any] = list(api.read_record(salv))
-                grade = suite.oracle.grade(events, case.ground_truth)
-                row = _row(
-                    arm,
-                    case,
-                    trial,
-                    grade.verdict,
-                    CellSource.SALVAGE,
-                    _ZERO,
-                    0,
-                    str(salv),
-                    detail=grade.detail,
-                    reason="" if grade.verdict is not Verdict.NO_VERDICT else REASON_HARNESS_ERROR,
-                    reproduction=project_reproduction_for_selected(events),
-                    recall_at_k=grade.recall_at_k,
-                    full_recall_at_k=grade.full_recall_at_k,
+    async def _append_row(outcome: CellOutcome) -> None:
+        row = _shape_row(outcome)
+        async with write_lock:
+            with CELLS.open("a") as fh:
+                fh.write(json.dumps(row) + "\n")
+            progress["n"] += 1
+            if progress["n"] % 5 == 0 or progress["n"] == todo_count:
+                rate = progress["n"] / max(1e-9, time.monotonic() - started)
+                eta = (todo_count - progress["n"]) / max(1e-9, rate)
+                print(
+                    f"  {progress['n']}/{todo_count}  ({rate * 60:.1f}/min, "
+                    f"~{eta / 60:.1f} min left)",
+                    flush=True,
                 )
-            else:
-                root = SCRATCH / f"{arm.name}__{case.case_id}__t{trial}"
-                # 2026-08-09 wall-clock reshape: typed per-cell error taxonomy. A cell that
-                # raises is classified into `_classify_cell_error` — halt-critical (a data-bug
-                # class like a Verified firewall violation or an unclassified exception) re-
-                # raises so `asyncio.gather` propagates and the sweep halts with the traceback;
-                # flaky (Docker/git/timeout) writes a `source="error"` row with typed detail so
-                # the cell counts as a graded failure (not silently absent) and the sweep
-                # continues. See the module-level classifier docstring for the taxonomy.
-                try:
-                    cr = await asyncio.wait_for(
-                        run_arm_on_case(arm, case, suite.oracle, root, trial=trial),
-                        timeout=RUN_TIMEOUT,
-                    )
-                except BaseException as exc:
-                    err_reason, should_halt = _classify_cell_error(exc)
-                    if should_halt:
-                        raise
-                    # A cell that raised before or around the harness call has no verdict —
-                    # NO_VERDICT with the classifier's typed reason from the shared closed set.
-                    # `firewall_violation:<detail>` collapses to REASON_FIREWALL_VIOLATION at
-                    # the wire so the reason field stays inside the closed set; detail carries
-                    # the specifics.
-                    wire_reason = (
-                        REASON_FIREWALL_VIOLATION
-                        if err_reason.startswith(REASON_FIREWALL_VIOLATION)
-                        else err_reason
-                    )
-                    row = _row(
-                        arm,
-                        case,
-                        trial,
-                        Verdict.NO_VERDICT,
-                        CellSource.ERROR,
-                        _ZERO,
-                        0,
-                        str(root),
-                        detail=f"{err_reason}: {type(exc).__name__}: {str(exc)[:280]}",
-                        reason=wire_reason,
-                        reproduction="",
-                    )
-                else:
-                    row = _row(
-                        arm,
-                        case,
-                        trial,
-                        cr.result.verdict,
-                        CellSource.RUN,
-                        cr.usage,
-                        cr.elapsed_ms,
-                        cr.root,
-                        detail=cr.result.detail,
-                        # Reason lives as a first-class field on Result (fold-2026-08-10);
-                        # empty on pass/fail, closed-set string on NO_VERDICT. The
-                        # detail-string marker fallback stays for legacy oracle paths that
-                        # haven't migrated to the typed field.
-                        reason=cr.result.reason
-                        or (
-                            ""
-                            if cr.result.verdict is not Verdict.NO_VERDICT
-                            else _reason_from_detail(cr.result.detail)
-                        ),
-                        reproduction=cr.reproduction,
-                        recall_at_k=cr.result.recall_at_k,
-                        full_recall_at_k=cr.result.full_recall_at_k,
-                    )
-            async with lock:
-                with CELLS.open("a") as fh:
-                    fh.write(json.dumps(row) + "\n")
-                progress["n"] += 1
-                if progress["n"] % 5 == 0 or progress["n"] == len(todo):
-                    rate = progress["n"] / max(1e-9, time.monotonic() - started)
-                    eta = (len(todo) - progress["n"]) / max(1e-9, rate)
-                    print(
-                        f"  {progress['n']}/{len(todo)}  ({rate * 60:.1f}/min, "
-                        f"~{eta / 60:.1f} min left)",
-                        flush=True,
-                    )
 
-    if todo:
-        await asyncio.gather(*(cell(a, c, t) for a, c, t in todo))
+    def _skip(arm: Arm, case: Case, trial: int) -> bool:
+        return (arm.name, case.case_id, trial) in done
+
+    await run_suite_with_salvage(
+        suite,
+        SCRATCH,
+        trials=TRIALS,
+        concurrency=CONCURRENCY,
+        salvage_dir=Path(SALVAGE) if SALVAGE else None,
+        budget_for_cell=_budget_for_cell,
+        classify_exception=_classify_cell_error,
+        on_outcome=_append_row,
+        skip=_skip,
+    )
 
     elapsed = int(time.monotonic() - started)
     print(
@@ -912,9 +783,8 @@ async def _run() -> int:
         flush=True,
     )
 
-    # 2026-08-09 wall-clock reshape (review item 1): batch grade phase.
     if BATCH_GRADE:
-        print("BATCH_GRADE: reading records for the whole sweep + firing one harness call...")
+        print("BATCH_GRADE: reading records + firing one harness call...", flush=True)
         instances_by_case_id = {case.case_id: inst for case, inst in cases}
         grade_start = time.monotonic()
         resolved_by_cell = await asyncio.to_thread(
@@ -934,9 +804,6 @@ async def _run() -> int:
             f"({sum(resolved_by_cell.values())} resolved) in {grade_elapsed}s",
             flush=True,
         )
-        # Rewrite cells.jsonl in place: for every deferred row, look up its resolved bool by
-        # cell dir name (arm__case__tN) and update verdict + passed + detail. Rows not present
-        # in resolved_by_cell (empty patch, no record) keep their sweep-time NO_VERDICT.
         updated_rows: list[dict[str, object]] = []
         for line in CELLS.read_text().splitlines():
             if not line.strip():
@@ -956,7 +823,7 @@ async def _run() -> int:
 
     print(f"cells: {CELLS}", flush=True)
     print(
-        "run `uv run python scripts/assay_swebench_confirmatory.py report` for the aggregated Report",
+        "run `uv run python scripts/assay_swebench_confirmatory.py report` for the Report",
         flush=True,
     )
     return 0

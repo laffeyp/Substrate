@@ -86,6 +86,15 @@ markers = [
   # after Sprint 146 removed them without pytest coverage equivalents (sprint 146a).
   "swebench_harness: pins the swebench 4.x harness binding via a live Docker gold-differential run",
 ]
+# Sprint 173 (F9): elevate the retired heavy topology's DeprecationWarning so any new
+# consumer trips CI red. Filter matches by message substring so callers of
+# `swebench_solver_topology_with_test_selection` (from anywhere in the tree) escalate to
+# error unless the caller opts in with `pytest.warns(DeprecationWarning)` around the site.
+# The nine legitimate tests in test_swebench_solver.py + two in test_assay_swebench_suite.py
+# were updated to opt-in per site. Every other DeprecationWarning stays a warning.
+filterwarnings = [
+  "error:swebench_solver_topology_with_test_selection is deprecated:DeprecationWarning",
+]
 # Hard safety net: any test (e.g. a never-quiescent writer or a self-feeding Trigger
 # loop) FAILS FAST instead of wedging the machine. Each test finishes well under a second (this timeout is PER-TEST, not whole-suite); 30s is
 # generous headroom that still catches non-termination immediately.

@@ -1,0 +1,5 @@
+# Sprint 194 — `DockerTestRunner` emits typed events (roadmap v2 S5.3)
+
+Same shape as Sprint 190. `topologies/swebench_solver/select_docker.py::DockerTestRunner.run` emits `ContainerRequested` on entry, then `ContainerExited` (normal termination, carries `exit_code` + `wall_ms`) or `ContainerKilled` (timeout → reason=timed_out; OSError → reason=docker_error + detail). Kind names match vocab v0.3 § G.2. Canonical JSON to stderr with `boundary=container`. `ContainerStarted` isn't emitted here because `subprocess.run` is synchronous — the started + exited boundaries collapse into one call site under blocking shape; a future async spawn+wait rewrite would separate them.
+
+Files: `src/substrate/topologies/swebench_solver/select_docker.py` (`_emit_container_event` helper + emit call sites on the three branches; type-annotated `dict[str, object]` for mypy) + `tests/test_container_events.py` (three substance tests via monkeypatched subprocess.run: normal exit, timeout, OSError; source-scan pin for the three kinds). 21 tests pass across the container + swebench-solver + select-docker suite; ruff + mypy strict clean.

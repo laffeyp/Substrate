@@ -45,6 +45,14 @@ from .topology import Registration, RegistrationError, TopologyBuilder
 from ..types import Event, ProducerRef
 
 _QUIESCENCE_POLL_S = 0.01  # writer idle-poll for the quiescence/watchdog check
+# Sprint 199a (SDD vocabulary-as-contract, fold): a `Budget.wall_seconds` breach adds a
+# structured `budget_exceeded` block to the `ProducerFailed` payload. Downstream readers
+# check `payload.get("budget_exceeded")`; the block carries the axis, limit, and reason as
+# typed fields, not embedded in a string. The `error` string is a short human tag
+# ("budget_exceeded"), not the discrimination signal. This closes KIT_DIARY 44 without
+# minting a new reserved kind.
+BUDGET_EXCEEDED_AXIS_WALL_SECONDS = "wall_seconds"
+BUDGET_EXCEEDED_ERROR_TAG = "budget_exceeded"
 # Consecutive fully-quiescent idle polls where the policy still returns CONTINUE before the
 # run is declared STUCK (the silent-hang guard, e.g. a resumable run on all_completed). Two
 # polls is unambiguous: with logical cooldowns true quiescence is terminal — no event can
@@ -543,16 +551,45 @@ class Runtime:
         ref = {"kind": kind, "instance": instance, "parent": parent}
         inbox = self._st.inbox
         inbox.put_nowait(_Lifecycle("substrate.ProducerStarted", {"producer": ref}))
+        # Sprint 199 (roadmap v2 S1b fold-in): `Budget.wall_seconds` enforcement. If the
+        # producer_kind declared a wall-clock cap, wrap the async-for consumer in
+        # `asyncio.wait_for`. On timeout we synthesise the exception path — ProducerFailed
+        # with a typed `error="budget_exceeded: wall_seconds=<limit>s: <reason>"` — so a
+        # downstream reader inspecting the error prefix can distinguish a budget breach from
+        # a producer bug. Emission-count caps (`Budget.event_counts`) are a later sprint
+        # (their site is emit-time inside `_submit_emission`, and this fold is wall-only).
+        producer_kind = self._reg.producer_kinds[kind]
+        budget = producer_kind.budget
+        wall_cap = budget.wall_seconds if budget is not None else None
         try:
-            start = self._reg.producer_kinds[kind].factory()
-            async for obj in start(inp):
-                await self._submit_emission(ref, obj)
+            start = producer_kind.factory()
+
+            async def _consume() -> None:
+                async for obj in start(inp):
+                    await self._submit_emission(ref, obj)
+
+            if wall_cap is not None:
+                await asyncio.wait_for(_consume(), timeout=float(wall_cap.limit))
+            else:
+                await _consume()
             inbox.put_nowait(_Lifecycle("substrate.ProducerCompleted", {"producer": ref}))
         except asyncio.CancelledError:
             inbox.put_nowait(_Lifecycle("substrate.ProducerCancelled", {"producer": ref}))
             raise
+        except asyncio.TimeoutError:
+            assert wall_cap is not None  # only reachable when the budget wrapped _consume
+            payload: dict[str, Any] = {
+                "producer": ref,
+                "error": BUDGET_EXCEEDED_ERROR_TAG,
+                "budget_exceeded": {
+                    "axis": BUDGET_EXCEEDED_AXIS_WALL_SECONDS,
+                    "limit": float(wall_cap.limit),
+                    "reason": wall_cap.reason,
+                },
+            }
+            inbox.put_nowait(_Lifecycle("substrate.ProducerFailed", payload))
         except Exception as exc:
-            payload: dict[str, Any] = {"producer": ref, "error": repr(exc)}
+            payload = {"producer": ref, "error": repr(exc)}
             # Composition (§20): an embedded substrate's inner-run failure surfaces as ONE
             # outer ProducerFailed carrying the inner run_id (the exception carries it).
             inner = getattr(exc, "inner_run_id", None)

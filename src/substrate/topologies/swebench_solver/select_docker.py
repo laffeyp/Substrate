@@ -133,9 +133,31 @@ def build_regression_command(
     return f"{activate} && {install} && {test_cmd} {args}".strip()
 
 
+def _emit_container_event(kind: str, payload: dict[str, object]) -> None:
+    """Sprint 194 (roadmap v2 S5.3): typed events for the B3 Docker container lifecycle.
+    `DockerTestRunner.run` fires `docker run --rm` per invocation; each run is one container's
+    lifecycle. Stderr JSON matches Sprint 190's repo-clone, Sprint 192's image-pull, Sprint 193's
+    harness patterns. Kind names match vocab v0.3 § G.2."""
+    import json as _json
+    import sys as _sys
+    import time as _time
+
+    line = _json.dumps(
+        {"t": _time.time(), "kind": kind, "boundary": "container", "payload": payload},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    print(line, file=_sys.stderr, flush=True)
+
+
 class DockerTestRunner:
     """Run `test_command` in the instance container after applying `model_patch` to /testbed. Returns
-    (returncode, combined-output). A patch that fails to apply -> non-zero (an honest not-passed)."""
+    (returncode, combined-output). A patch that fails to apply -> non-zero (an honest not-passed).
+
+    Sprint 194 (roadmap v2 S5.3): emits typed `ContainerRequested` on entry then one of
+    `ContainerExited` (normal termination — carries `exit_code`) or `ContainerKilled`
+    (wall-clock exceeded or start failure) on the terminal branch. Same stderr-JSON pattern
+    as Sprint 190's repo-clone events."""
 
     def __init__(
         self,
@@ -153,6 +175,17 @@ class DockerTestRunner:
     def run(
         self, model_patch: str, test_command: str, extra_files: dict[str, str] | None = None
     ) -> tuple[int, str]:
+        import time as _time
+
+        _started = _time.monotonic()
+        _emit_container_event(
+            "ContainerRequested",
+            {
+                "image": self.image,
+                "timeout_s": self.timeout,
+                "patch_bytes": len(model_patch),
+            },
+        )
         with tempfile.TemporaryDirectory() as d:
             with open(os.path.join(d, "patch.diff"), "w") as fh:
                 fh.write(model_patch)
@@ -186,7 +219,32 @@ class DockerTestRunner:
                     timeout=self.timeout,
                 )
             except subprocess.TimeoutExpired:
+                _emit_container_event(
+                    "ContainerKilled",
+                    {
+                        "image": self.image,
+                        "wall_ms": int((_time.monotonic() - _started) * 1000),
+                        "reason": "timed_out",
+                    },
+                )
                 return (124, f"docker run timed out after {self.timeout}s")
             except OSError as exc:
+                _emit_container_event(
+                    "ContainerKilled",
+                    {
+                        "image": self.image,
+                        "wall_ms": int((_time.monotonic() - _started) * 1000),
+                        "reason": "docker_error",
+                        "detail": str(exc)[:400],
+                    },
+                )
                 return (125, f"docker run failed to start: {exc}")
+            _emit_container_event(
+                "ContainerExited",
+                {
+                    "image": self.image,
+                    "exit_code": p.returncode,
+                    "wall_ms": int((_time.monotonic() - _started) * 1000),
+                },
+            )
             return (p.returncode, p.stdout + p.stderr)

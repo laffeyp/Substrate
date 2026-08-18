@@ -61,13 +61,18 @@ class Case(Struct, frozen=True):
 
 @dataclass(frozen=True)
 class Arm:
-    """A configured topology-or-baseline run on each Case. `role` places it in the control matrix;
-    `build(case)` returns the topology to run for that Case. Exactly one Arm in a Suite is the
-    control (named by Suite.control_arm) — every other Arm's result is reported as a delta against it."""
+    """A configured topology for one benchmark slot. `build(case)` returns the topology to run
+    for that Case. `role` (default `"full"`) places the Arm in a comparative control matrix when
+    a Suite carries more than one Arm; a solo topology run leaves the default alone.
+
+    Sprint 201 (best-practice fold): `role` defaulted to `"full"` so a topology author firing a
+    solo test-drive against SWE-bench does not have to invent a comparative-experiment label.
+    Comparative runs still set `role` explicitly; the `_ROLES` closed set still constrains
+    values other than the default."""
 
     name: str
-    role: str
     build: Callable[[Case], Topology]
+    role: str = FULL
 
     def __post_init__(self) -> None:
         if self.role not in _ROLES:
@@ -77,20 +82,22 @@ class Arm:
 
 @dataclass(frozen=True)
 class Suite:
-    """A named, versioned, pre-registered benchmark. `cases` is frozen before any run; `arms` is the
-    control matrix; `oracle` grades every Case; `control_arm` names the baseline the comparison is
-    paired against; `primary_metric` is the single pre-registered endpoint; `null_rule` is the
-    published rule under which a null result is reported (so 'no measured benefit' is reachable, not
-    hidden by degrees of freedom — design §4.3)."""
+    """A named benchmark: cases, arms, oracle. `control_arm` (default `None`) designates the
+    baseline for a paired comparison; a solo-arm Suite leaves it as `None` and the report layer
+    skips paired-delta framing.
+
+    Sprint 201 (best-practice fold): `control_arm` defaulted to `None` so a topology author
+    firing a single-arm run does not have to name their arm as its own control. Multi-arm
+    Suites still set `control_arm` explicitly; when set, it must name one of the arms."""
 
     name: str
     version: str
     cases: tuple[Case, ...]
     arms: tuple[Arm, ...]
     oracle: Oracle
-    control_arm: str
     primary_metric: str
     null_rule: str
+    control_arm: str | None = None
     # the TOST equivalence margin: |Δ-pass^k| inside ±margin reads as "no meaningful difference" (a
     # REAL null, not mere non-significance). Pre-registered like everything else.
     equivalence_margin: float = 0.1
@@ -105,7 +112,7 @@ class Suite:
         names = [a.name for a in self.arms]
         if len(set(names)) != len(names):
             raise ValueError(f"Arm names must be unique; got {names}")
-        if self.control_arm not in names:
+        if self.control_arm is not None and self.control_arm not in names:
             raise ValueError(f"control_arm {self.control_arm!r} is not among arms {names}")
         for case in self.cases:
             _check_token(case.case_id, "Case.case_id")

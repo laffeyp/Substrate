@@ -167,10 +167,18 @@ def coding_suite(
 
     cases = tuple(Case(case_id=p.problem_id, payload={}, ground_truth=p) for p in problems)
     arms = (
-        Arm("strong_ref", BASELINE, build([strong_model], 1, 1)),  # the control: the bar to erode
-        Arm("weak_single", ABLATION, build([weak[0]], 1, 1)),  # a single weak model (the floor)
-        Arm("ensemble_no_correction", ABLATION, build(weak, n, 1)),  # ensemble diversity, no loop
-        Arm("full", FULL, build(weak, n, max_rounds)),  # ensemble + correction — reaches the bar?
+        Arm(
+            "strong_ref", build([strong_model], 1, 1), role=BASELINE
+        ),  # the control: the bar to erode
+        Arm(
+            "weak_single", build([weak[0]], 1, 1), role=ABLATION
+        ),  # a single weak model (the floor)
+        Arm(
+            "ensemble_no_correction", build(weak, n, 1), role=ABLATION
+        ),  # ensemble diversity, no loop
+        Arm(
+            "full", build(weak, n, max_rounds), role=FULL
+        ),  # ensemble + correction — reaches the bar?
     )
     return Suite(
         name="coding-firewalled",

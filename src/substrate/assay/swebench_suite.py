@@ -20,11 +20,10 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict, cast
 
-from ..topologies.swebench_solver.assemble import swebench_solver_topology_with_test_selection
 from ..topologies.swebench_solver.select_docker import (
     DockerTestRunner,
     build_regression_command,
@@ -32,10 +31,7 @@ from ..topologies.swebench_solver.select_docker import (
     repo_test_spec,
 )
 from ..topologies.swebench_solver.select_exec import passed_tests
-from ..topologies.swebench_solver.select_regression import (
-    discover_test_modules,
-    make_regression_planner,
-)
+from ..topologies.swebench_solver.select_regression import discover_test_modules
 from .suite import ABLATION, BASELINE, FULL, Arm, Case, Suite, Topology
 from .swebench import swebench_record_oracle
 
@@ -101,20 +97,69 @@ def _added_files(diff: str) -> set[str]:
 _MOTHER_CACHE_ROOT = Path.home() / ".cache" / "substrate" / "swe-mothers"
 
 
+def _emit_repo_clone_event(kind: str, payload: dict[str, Any]) -> None:
+    """Sprint 190 (S5.5): typed events for the B5 GitHub-clone boundary. Prep runs outside
+    any substrate topology so the events land on stderr as canonical JSON lines rather than
+    on a run's bus. Consumers that grep stderr counts see typed cache-hit vs fetch vs failure
+    rates without a log-line-parsing convention. Kind names match vocab v0.3 § G.4."""
+    import json
+    import sys
+    import time
+
+    line = json.dumps(
+        {"t": time.time(), "kind": kind, "boundary": "repo_clone", "payload": payload},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    print(line, file=sys.stderr, flush=True)
+
+
 def _mother_clone(repo: str) -> Path:
     """Bare mother clone for `repo` under `~/.cache/substrate/swe-mothers/`, created on first miss
     under a per-repo `fcntl.flock` so two concurrent workers can't both bare-clone the same missing
-    repo. Returns the mother path. Idempotent."""
+    repo. Returns the mother path. Idempotent.
+
+    Sprint 190 (S5.5): emits typed `RepoCloneRequested` / `RepoCloneCached` / `RepoCloned` /
+    `RepoCloneFailed` events to stderr per vocab v0.3 § G.4. Runs in the prep phase before any
+    substrate topology starts; stderr is the honest emit surface. When the prep phase itself
+    becomes a substrate topology later, the same event kinds ride the bus directly."""
     import fcntl
+    import time
 
     _MOTHER_CACHE_ROOT.mkdir(parents=True, exist_ok=True)
     safe = repo.replace("/", "__")
     mother = _MOTHER_CACHE_ROOT / f"{safe}.git"
     lock_path = _MOTHER_CACHE_ROOT / f"{safe}.lock"
+
+    started = time.monotonic()
+    _emit_repo_clone_event("RepoCloneRequested", {"repo": repo})
+    if mother.exists():
+        _emit_repo_clone_event(
+            "RepoCloneCached",
+            {
+                "repo": repo,
+                "mother_path": str(mother),
+                "wall_ms": int((time.monotonic() - started) * 1000),
+            },
+        )
+        return mother
+
     with open(lock_path, "w") as lf:
         fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
         try:
-            if not mother.exists():
+            if mother.exists():
+                # A peer worker fetched under the lock while we waited; treat as cache hit.
+                _emit_repo_clone_event(
+                    "RepoCloneCached",
+                    {
+                        "repo": repo,
+                        "mother_path": str(mother),
+                        "wall_ms": int((time.monotonic() - started) * 1000),
+                    },
+                )
+                return mother
+            fetch_started = time.monotonic()
+            try:
                 subprocess.run(
                     [
                         "git",
@@ -126,6 +171,25 @@ def _mother_clone(repo: str) -> Path:
                     ],
                     check=True,
                 )
+            except subprocess.CalledProcessError as exc:
+                _emit_repo_clone_event(
+                    "RepoCloneFailed",
+                    {
+                        "repo": repo,
+                        "error": f"git clone --bare failed rc={exc.returncode}",
+                        "wall_ms": int((time.monotonic() - started) * 1000),
+                    },
+                )
+                raise
+            _emit_repo_clone_event(
+                "RepoCloned",
+                {
+                    "repo": repo,
+                    "mother_path": str(mother),
+                    "fetch_ms": int((time.monotonic() - fetch_started) * 1000),
+                    "wall_ms": int((time.monotonic() - started) * 1000),
+                },
+            )
         finally:
             fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
     return mother
@@ -219,39 +283,30 @@ def solver_topology_from_payload(
     max_rounds: int,
     repro_k: int = 1,
 ) -> Topology:
-    """Reconstruct the swebench_solver topology for a prepared Case payload — the runner + the
-    per-candidate firewall-clean regression planner + passed-at-base, with the given responders. Pure
-    (no I/O): the runner runs only when the topology runs. This is the Arm's `build` body.
-    `repro_k` (F4 fix, review 2026-08-08) samples K reproduction scripts in parallel and combines
-    them into ONE runner per Docker invocation — K > 1 is a mechanism upgrade, K = 1 is
-    identical to the pre-F4 wire."""
-    runner = DockerTestRunner(str(payload["image"]))
-    planner = make_regression_planner(
-        payload["spec"], list(payload["regression_files"]), exclude=set(payload["exclude"])
-    )
-    # 2026-08-09 wall-clock reshape: when the case was prepared with
-    # `skip_base_pytest=True`, `passed_at_base` is `[]` and we pass `None` so SELECT
-    # routes through `regression_passed` (the whole-run bool) rather than
-    # `regression_held({}, ...)`, which would treat an empty base-passing set as
-    # "no base evidence" and refuse every regression signal. See PreparedPayload
-    # docstring for the Verified-vs-Lite rationale.
-    passed_at_base: frozenset[str] | None
-    if payload.get("skip_base_pytest", False):
-        passed_at_base = None
-    else:
-        passed_at_base = frozenset(payload["passed_at_base"])
-    return swebench_solver_topology_with_test_selection(
+    """Sprint 199c (roadmap v2 S7b close): reconstruct the light `swebench_repair_topology`
+    for a prepared Case payload — localize + best-of-N repair + emit the first patch that
+    applied. The harness grades.
+
+    Pre-Sprint-199c this function built `swebench_solver_topology_with_test_selection` (the
+    heavy topology with in-topology `select_exec` + reproduction planner). That path duplicated
+    the grader's work in-topology, doubled per-cell Docker minutes, and produced the 517-silent-
+    fails shape the 2026-08-10 postmortem records. Sprint 199b retired the matrix-arm opt-in
+    (`include_test_selection=True`); Sprint 199c migrates the last live callers (`swebench_solver_arm`
+    and `scripts/assay_swebench_run.py`) to the light topology. `repro_k` is preserved in the
+    signature for source-compat with pre-migration callers but is ignored — the light topology
+    does not run reproductions in-topology; the harness re-runs FAIL_TO_PASS + PASS_TO_PASS.
+    """
+    from ..topologies.swebench_solver.assemble import swebench_repair_topology
+
+    _ = repro_k  # source-compat with pre-Sprint-199c callers
+    return swebench_repair_topology(
         responders=responders,
         base_checkout=str(payload["base_checkout"]),
         issue=str(payload["issue"]),
         repo_skeleton=str(payload["repo_skeleton"]),
         known_files=set(payload["known_files"]),
-        runner=runner,
-        regression_command=planner,
-        passed_at_base=passed_at_base,
         n=n,
         max_rounds=max_rounds,
-        repro_k=repro_k,
         watchdog_seconds=2400.0,
     )
 
@@ -265,24 +320,24 @@ def swebench_solver_arm(
     max_rounds: int = 2,
     max_tokens: int = 2048,
 ) -> Arm:
-    """A pipeline (localize→repair→select) Arm over the given producer models. `build(case)` wires the
-    swebench_solver topology from the prepared payload with one OllamaResponder per slot. `n` defaults to
-    len(models). The producers are interchangeable — this arm uses Ollama responders; the CLI/agent seam
-    is a drop-in once built (no model-tier distinction — just producers)."""
+    """A repair Arm over the given producer models. `build(case)` wires the light
+    `swebench_repair_topology` from the prepared payload with one rate-limit-wrapped
+    Ollama responder per slot. `n` defaults to len(models).
+
+    Sprint 199c (roadmap v2 S7b close): migrated off the heavy
+    `swebench_solver_topology_with_test_selection` — the topology's job is producing a
+    candidate patch, not grading it. Same wire-shape and Arm contract as Sprint 199b's
+    matrix-mode arms; the harness grades.
+    """
     slots = n if n is not None else len(models)
 
     def build(case: Case) -> Topology:
-        # Rate-limit shim wraps every responder so concurrent in-flight calls to the same
-        # model share one semaphore capped at the tier limit (design DESIGN-2026-08-11).
         from .swebench_matrix import _ollama_quota_from_env, _wrap_ollama
 
         quota = _ollama_quota_from_env()
         responders = [
             _wrap_ollama(models[i % len(models)], quota, max_tokens) for i in range(slots)
         ]
-        # The cast is the Adapter's promise: this Case was built by `prepare_swebench_case`, so its
-        # payload matches PreparedPayload. Any callsite that constructs a Case without going through
-        # the Adapter loses the type refinement, which is exactly the door we want closed at check time.
         payload = cast(PreparedPayload, case.payload)
         return solver_topology_from_payload(payload, responders, n=slots, max_rounds=max_rounds)
 
@@ -295,7 +350,7 @@ def swebench_suite(
     *,
     report_root: Path | str,
     dataset_name: str,
-    control_arm: str,
+    control_arm: str | None = None,
     name: str = "swebench",
     version: str = "0.1",
     primary_metric: str = "resolved",
@@ -307,8 +362,12 @@ def swebench_suite(
     equivalence_margin: float = 0.1,
     pass_k: int = 1,
 ) -> Suite:
-    """Assemble the pre-registered SWE-bench Suite: the prepared Cases, the Arm matrix, and the
-    record-grading Docker Oracle. `report_root` is where the harness writes per-instance grade reports."""
+    """Assemble a SWE-bench Suite: the prepared Cases, the Arm(s), and the record-grading Docker
+    Oracle. `report_root` is where the harness writes per-instance grade reports.
+
+    Sprint 201 (best-practice fold): `control_arm` defaulted to `None`. A single-arm Suite (the
+    topology-attachment test-drive shape) skips paired-delta framing at the report layer.
+    Multi-arm comparative Suites still pass `control_arm` explicitly."""
     return Suite(
         name=name,
         version=version,
@@ -323,12 +382,159 @@ def swebench_suite(
     )
 
 
+def _repair_and_grade_topology_from_payload(
+    payload: PreparedPayload,
+    responders: list[Any],
+    *,
+    n: int,
+    max_rounds: int,
+    dataset_name: str,
+    model_name: str,
+    run_id: str,
+    report_dir: Any,
+    grade_timeout_seconds: int,
+    split: str = "test",
+    namespace: str = "swebench",
+) -> Topology:
+    """Sprint 197 (roadmap v2 S6 consumer): reconstruct `swebench_solve_and_grade_topology` for a
+    prepared Case payload. Same Adapter contract as `solver_topology_from_payload`, but the
+    topology emits `GradeResult` on the cell's record; the paired `swebench_log_projection_oracle`
+    reads it off. `instance_id` comes from the payload's `image` (which encodes it) — the
+    payload's `image` is deterministic per instance_id via `instance_image`."""
+    from ..topologies.swebench_solver.assemble import swebench_solve_and_grade_topology
+
+    # Extract instance_id from the image string (`swebench.eval.<arch>.<instance>.<hash>`).
+    # Sprint 197: the payload doesn't carry instance_id directly; it's on the Case's
+    # `ground_truth`. Callers pass instance_id explicitly via the Arm's build closure.
+    return swebench_solve_and_grade_topology(
+        responders=responders,
+        base_checkout=str(payload["base_checkout"]),
+        issue=str(payload["issue"]),
+        repo_skeleton=str(payload["repo_skeleton"]),
+        known_files=set(payload["known_files"]),
+        instance_id=run_id,  # caller passes instance_id-derived run_id (see arm helper)
+        dataset_name=dataset_name,
+        model_name=model_name,
+        run_id=run_id,
+        report_dir=report_dir,
+        grade_timeout_seconds=grade_timeout_seconds,
+        split=split,
+        namespace=namespace,
+        n=n,
+        max_rounds=max_rounds,
+    )
+
+
+def swebench_solve_and_grade_arm(
+    name: str,
+    role: str,
+    *,
+    models: Sequence[str],
+    report_root: Path | str,
+    dataset_name: str,
+    model_name: str = "substrate",
+    grade_timeout_seconds: int = 1800,
+    n: int | None = None,
+    max_rounds: int = 2,
+    max_tokens: int = 2048,
+    split: str = "test",
+    namespace: str = "swebench",
+) -> Arm:
+    """Sprint 197 (roadmap v2 S6 consumer): an Arm whose `build(case)` returns
+    `swebench_solve_and_grade_topology`. Grade emits `GradeResult` on the cell's record;
+    paired with `swebench_log_projection_oracle` in `swebench_solve_and_grade_suite`.
+
+    Same responder + rate-limit wiring as `swebench_solver_arm`. `run_id` derives
+    from the case's instance_id (via ground_truth) so the harness call inside the grade
+    producer uses a deterministic run_id per (arm, case).
+    """
+    slots = n if n is not None else len(models)
+
+    def build(case: Case) -> Topology:
+        from .swebench_matrix import _ollama_quota_from_env, _wrap_ollama
+
+        quota = _ollama_quota_from_env()
+        responders = [
+            _wrap_ollama(models[i % len(models)], quota, max_tokens) for i in range(slots)
+        ]
+        payload = cast(PreparedPayload, case.payload)
+        # instance_id comes from ground_truth (the raw swebench instance dict); the run_id
+        # binds (arm, instance) so parallel grades don't collide on the same report_dir path.
+        instance_id = (
+            str(case.ground_truth["instance_id"])
+            if isinstance(case.ground_truth, Mapping)
+            else str(case.ground_truth)
+        )
+        run_id = f"{name}-{safe_case_id(instance_id)}"
+        from ..topologies.swebench_solver.assemble import swebench_solve_and_grade_topology
+
+        return swebench_solve_and_grade_topology(
+            responders=responders,
+            base_checkout=str(payload["base_checkout"]),
+            issue=str(payload["issue"]),
+            repo_skeleton=str(payload["repo_skeleton"]),
+            known_files=set(payload["known_files"]),
+            instance_id=instance_id,
+            dataset_name=dataset_name,
+            model_name=model_name,
+            run_id=run_id,
+            report_dir=Path(report_root),
+            grade_timeout_seconds=grade_timeout_seconds,
+            split=split,
+            namespace=namespace,
+            n=slots,
+            max_rounds=max_rounds,
+        )
+
+    return Arm(name=name, role=role, build=build)
+
+
+def swebench_solve_and_grade_suite(
+    cases: Sequence[Case],
+    arms: Sequence[Arm],
+    *,
+    control_arm: str | None = None,
+    name: str = "swebench",
+    version: str = "0.1",
+    primary_metric: str = "resolved",
+    null_rule: str = (
+        "the primary endpoint is instances resolved (held-out FAIL_TO_PASS + PASS_TO_PASS all pass, "
+        "all-or-nothing). A control Arm must appear on the log; equivalence is claimed only if the paired "
+        "delta CI sits inside the pre-registered margin, never from non-significance alone."
+    ),
+    equivalence_margin: float = 0.1,
+    pass_k: int = 1,
+) -> Suite:
+    """Sprint 197 (roadmap v2 S6 consumer): assemble a Suite that grades via
+    `SwebenchLogProjectionOracle` — reads `GradeResult` off each cell's record instead of
+    calling `run_swebench` externally. The arms must build topologies that emit `GradeResult`
+    (use `swebench_solve_and_grade_arm` or a hand-wired topology using
+    `swebench_solve_and_grade_topology`). No `report_root` param — reports live inside the
+    grade producer's run scope; the oracle needs only the record."""
+    from .swebench import swebench_log_projection_oracle
+
+    return Suite(
+        name=name,
+        version=version,
+        cases=tuple(cases),
+        arms=tuple(arms),
+        oracle=swebench_log_projection_oracle(),
+        control_arm=control_arm,
+        primary_metric=primary_metric,
+        null_rule=null_rule,
+        equivalence_margin=equivalence_margin,
+        pass_k=pass_k,
+    )
+
+
 __all__ = [
     "safe_case_id",
     "prepare_swebench_case",
     "solver_topology_from_payload",
     "swebench_solver_arm",
+    "swebench_solve_and_grade_arm",
     "swebench_suite",
+    "swebench_solve_and_grade_suite",
     "ABLATION",
     "BASELINE",
     "FULL",

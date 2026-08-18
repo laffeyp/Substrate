@@ -9,7 +9,6 @@ types reconstruct their own suite when they exist."""
 
 from __future__ import annotations
 
-import enum
 import hashlib
 import json
 from pathlib import Path
@@ -19,30 +18,17 @@ from .coding import coding_suite
 from .coding_problems import coding_problem_bank
 from .oracle import EXTERNAL_GRADER, LogProjectionOracle, Result, Verdict
 from .report import Report, build_report
-from .run import CaseResult, UsageTotals
+from .run import CaseResult, CellSource, UsageTotals
 from .suite import Arm, Case, Suite, Topology
 
 CODING_ASSAY_KIND = "coding"
 SWEBENCH_ASSAY_KIND = "swebench"
 
-
-class CellSource(str, enum.Enum):
-    """SDD Gap 6 (2026-08-09 conformance review, closed 2026-08-11): the runner's cell-row
-    `source` field is a closed lexicon — one of three values naming HOW the cell landed
-    on disk. Pre-fold every write site typed `"run"` / `"salvage"` / `"error"` as a bare
-    string; a typo passed strict mypy and drifted at run-time only in the aggregate report
-    where the wrong-string cell silently fell out of the counts. Str-subclass so the wire
-    form on cells.jsonl stays `"run"` / `"salvage"` / `"error"` — reader compatibility with
-    every existing row is exact.
-
-    - RUN — the topology built + ran, oracle graded; usage/timing measured.
-    - SALVAGE — a prior run's record was regraded without new model calls; usage null.
-    - ERROR — the cell raised before/around the grade; classifier wrote a typed reason on
-      the row. Usage null."""
-
-    RUN = "run"
-    SALVAGE = "salvage"
-    ERROR = "error"
+# Sprint 199 (SDD vocabulary-as-contract): `CellSource` moved to its primary consumer
+# (`assay/run.py::CellOutcome`). Re-exported here so `from substrate.assay.cells import
+# CellSource` keeps working for every reader on disk before the move. Do not add new
+# imports here — import from `substrate.assay.run` directly for new code.
+__all__ = ["CellSource"]
 
 
 def read_meta(cells_path: Path) -> dict[str, Any]:
@@ -286,12 +272,21 @@ def report_from_cells(cells_path: Path) -> tuple[Report, dict[str, Any]]:
     """The whole read: rows + meta -> (Report, meta). The Report carries both currencies, the harsher
     delta_vs_control + McNemar, the pass@1 bootstrap + margin-verdict + FDR. `meta['_provenance']`
     flags whether the recorded config (the margin the verdict binds to) is verified / tampered /
-    unverified — so a post-hoc-edited margin cannot silently drive a confirmatory verdict."""
+    unverified — so a post-hoc-edited margin cannot silently drive a confirmatory verdict.
+
+    Sprint 177 (F3 real closure — external round-2 M3): threads `meta.get("graded_rate_floor")`
+    (stored by the confirmatory runner when a pre-registration is present) into `build_report`
+    so Sprint 170's `RunUnpublishable` branch actually fires. When the meta carries no floor
+    (a pre-Sprint-170 run, a runner without a pre-reg gate), `build_report` sees `None` and
+    behaves identically to the pre-Sprint-170 arm-completeness gate — backward compatible."""
     meta = read_meta(cells_path)
     rows = read_rows(cells_path)
     cases_sidecar = read_cases_sidecar(cells_path)
     meta["_provenance"] = provenance_status(meta, rows)
     results = [caseresult_from_row(r) for r in rows]
+    graded_rate_floor = meta.get("graded_rate_floor")
     return build_report(
-        suite_from_meta(meta, rows=rows, cases_sidecar=cases_sidecar), results
+        suite_from_meta(meta, rows=rows, cases_sidecar=cases_sidecar),
+        results,
+        graded_rate_floor=graded_rate_floor,
     ), meta

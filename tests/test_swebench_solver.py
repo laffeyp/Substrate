@@ -1,15 +1,30 @@
 """End-to-end observation contract for the full swebench_solver topology (sprint 141): LOCALIZE -> REPAIR
 -> SELECT on a FIXTURE repo with deterministic responders + a stand-in runner. The record is the
-observable — a SelectedPatch with the resolving diff comes out the far end of the whole pipeline."""
+observable — a SelectedPatch with the resolving diff comes out the far end of the whole pipeline.
+
+Sprint 173 (F9 fold): every test in this file legitimately constructs the retired heavy
+topology `swebench_solver_topology_with_test_selection`; the module-level filter here opts
+out of the pyproject `filterwarnings` gate that elevates the deprecation to error. A new
+consumer OUTSIDE this file trips the gate; the tests here explicitly own the deprecation
+and stay green. KIT_DIARY finding 38 named the retire-in-place discipline; this filter is
+the per-file opt-in that discipline calls for. The deprecation fires at CALL time
+(warnings.warn inside the function body at assemble.py:553), not at import, so pytestmark
+correctly sits AFTER the imports."""
 
 import subprocess
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from substrate.api import Runtime, read_record
 from substrate.topologies.swebench_solver.assemble import (
     swebench_repair_topology,
     swebench_solver_topology_with_test_selection,
+)
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:swebench_solver_topology_with_test_selection is deprecated:DeprecationWarning"
 )
 
 _FIX = "# path: m.py\n<<<<<<< SEARCH\n    return x\n=======\n    return x + 1\n>>>>>>> REPLACE\n"

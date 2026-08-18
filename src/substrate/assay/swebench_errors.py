@@ -72,9 +72,9 @@ class HarnessError(SwebenchRunnerError):
 
 
 # NOTE: `ProviderRateLimited` lives at `substrate.adapters.rate_limit` — it is a
-# provider-agnostic exception raised by `RateLimitedResponder` when the shim
+# provider-agnostic exception raised by `RateLimitedResponder` when the wrapper
 # exhausts its retry budget on 429/503. It is NOT a SwebenchRunnerError subclass
-# because the shim is assay-independent; the runner catches the adapter's class
+# because the wrapper is assay-independent; the runner catches the adapter's class
 # explicitly in `_classify_cell_error` and maps to REASON_RATE_LIMITED. Adding a
 # duplicate class here would just re-hide the coupling in a wrapper class no
 # raise-site uses.

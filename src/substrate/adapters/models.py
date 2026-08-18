@@ -32,7 +32,7 @@ import os
 from msgspec import Struct
 
 # The Responder Protocol lives among the structural protocols (substrate.protocols) and is public
-# as substrate.api.Responder; re-exported here (and via the substrate.reference back-compat shim)
+# as substrate.api.Responder; re-exported here (and via the substrate.reference back-compat module)
 # so `from substrate.adapters import Responder` and legacy `...reference._models` imports both work.
 from ..protocols import Responder
 

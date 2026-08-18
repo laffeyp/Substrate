@@ -35,6 +35,7 @@ __all__ = [
     "SelectedPatch",
     "RepairOutcome",
     "RepairSummary",
+    "GradeResult",
 ]
 
 
@@ -150,3 +151,24 @@ class RepairSummary(Struct, frozen=True):
     drafted: int  # number of candidate drafts the model produced
     applied: int  # number of drafts that applied cleanly
     selected_slot: int
+
+
+# --- GRADE (post-loop, topology-level terminal) ---
+
+
+class GradeResult(Struct, frozen=True):
+    """Sprint 195 (roadmap v2 S6 part 1 of 2, vocab v0.3 § G.6): the grade of one instance's
+    submitted patch. Emitted once by the grade producer after `SelectedPatch` lands. The
+    `LogProjectionOracle` at post-S6 `swebench.py:swebench_log_projection_oracle` reads
+    exactly this event off the record — the grade becomes a projection of the record instead
+    of an external run-and-observe call the ExternalGraderOracle owned.
+
+    `verdict` matches the § E.1 `Verdict` enum's wire strings (`"pass"` / `"fail"` /
+    `"no_verdict"`). `reason` is `""` when `verdict ∈ {"pass", "fail"}`; one of the
+    `_HARNESS_REASONS` closed-set strings otherwise (`"timed_out"`, `"container_crashed"`,
+    `"harness_error"`, `"docker_error"`, `"rate_limited"`, ...). `instance_id` is the
+    SWE-bench instance the grade was on."""
+
+    instance_id: str
+    verdict: str
+    reason: str

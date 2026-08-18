@@ -66,12 +66,22 @@ class PreregistrationViolation(ValueError):
 @dataclass(frozen=True)
 class Preregistration:
     """A parsed `.preg.json`. The runtime carries only the fields the gate checks; the full 18-
-    section template lives in the JSON and reaches the substrate-ui pane by other paths."""
+    section template lives in the JSON and reaches the substrate-ui pane by other paths.
+
+    `graded_rate_floor` (Sprint 170, F3 fold): the minimum fraction of attempted cells that
+    must produce a definitive verdict (PASS or FAIL — not NO_VERDICT) for the report to publish
+    a confirmatory delta. Design v3 § "The report contract" mandates this floor; below it,
+    `build_report` emits a `RunUnpublishable` block naming the arm and gap, and collapses the
+    arm's delta / CI / equivalence / fdr fields to None. Default 1.0 (every attempted cell must
+    grade) matches the pre-Sprint-170 arm-completeness gate exactly. Pre-reg files typically
+    pin a looser floor (0.8) that reflects the fraction of NO_VERDICT the run's shape tolerates.
+    """
 
     path: str
     arms_hash: str
     comparator: dict[str, Any]
     raw: dict[str, Any]
+    graded_rate_floor: float = 1.0
 
 
 def _canonical_bytes(obj: Any) -> bytes:
@@ -190,7 +200,22 @@ def load_preregistration(path: Path | str) -> Preregistration:
         raise PreregistrationViolation(
             p, "malformed_comparator", f"resolve_rate must be a number in [0, 1]; got {rr!r}"
         )
-    return Preregistration(path=str(p), arms_hash=arms_hash, comparator=comparator, raw=raw)
+    # Sprint 170 (F3): parse the optional graded_rate_floor. Absent defaults to 1.0 (strict —
+    # matches the pre-Sprint-170 arm-completeness gate). Presence must be a number in [0, 1].
+    floor_raw = raw.get("graded_rate_floor", 1.0)
+    if not isinstance(floor_raw, int | float) or not (0.0 <= float(floor_raw) <= 1.0):
+        raise PreregistrationViolation(
+            p,
+            "malformed_graded_rate_floor",
+            f"graded_rate_floor must be a number in [0, 1]; got {floor_raw!r}",
+        )
+    return Preregistration(
+        path=str(p),
+        arms_hash=arms_hash,
+        comparator=comparator,
+        raw=raw,
+        graded_rate_floor=float(floor_raw),
+    )
 
 
 def check_arms_match(

@@ -26,6 +26,51 @@ class RegistrationError(SubstrateError):
     """A topology is malformed (design §6.1). Raised at build time, before any run."""
 
 
+class Cap(Struct, frozen=True):
+    """One named cap in a `Budget`. `limit` is the ceiling value the runtime enforces; `reason`
+    is the human-readable string that rides on `substrate.BudgetExceeded` when the cap trips.
+    Named fields keep the enforcement site legible: `budget.wall_seconds.reason` reads as
+    the reason for the wall-clock cap, not `budget.wall_seconds[1]` — a positional-tuple
+    access that hides which slot is which and can silently swap on refactor.
+
+    `limit` typed `int | float` covers both wall-clock caps (seconds, typically float) and
+    event-count caps (integer count of an event kind). msgspec preserves the input type
+    on the wire.
+    """
+
+    limit: int | float
+    reason: str
+
+
+class Budget(Struct, frozen=True):
+    """A producer_kind's declared resource caps. All caps optional; None means unbounded
+    on that axis. Additive kernel primitive (Sprint 164, amended Sprint 166 to use the
+    named `Cap` struct at the reviewer's F6 request; roadmap v2 S1); every existing
+    producer without a budget behaves identically.
+
+    `wall_seconds` — `Cap(limit=cap_seconds, reason=...)`. Max elapsed wall-clock from
+    `substrate.ProducerStarted` to any terminal for this producer instance. On overrun the
+    enforcement sprint (roadmap v2 Sprint 1b) yields `substrate.BudgetExceeded` with
+    `reason=cap.reason` and cancels the producer factory.
+
+    `event_counts` — `{event_kind_name: Cap(limit=cap_count, reason=...)}`. Per-kind cap
+    on events of that name that this producer instance may emit. The runtime tracks
+    per-instance counts and enforces at the emit boundary. Names are the event Struct's
+    class name, matching the emit-time schema validation. A producer that spawns Docker
+    containers caps `ContainerRequested`; a producer that calls the LLM caps
+    `ModelUsage`; and so on.
+
+    Sprint 164 (initial landing) stored the budget on the `ProducerKindReg` without
+    enforcing it. Sprint 166 (this amendment) replaces the earlier `tuple[float, str]`
+    and `tuple[int, str]` cap types with a named `Cap` struct so the enforcement site
+    reads `cap.limit` and `cap.reason` at every call site. The primitive is still on the
+    shelf; the enforcement sprint (roadmap v2 Sprint 1b) consumes the amended shape.
+    """
+
+    wall_seconds: Cap | None = None
+    event_counts: dict[str, Cap] | None = None
+
+
 @dataclass(frozen=True)
 class ProducerKindReg:
     kind: str
@@ -37,6 +82,10 @@ class ProducerKindReg:
     # substrate's own map (the SINGLE source of truth) — None for a non-embedded kind. The
     # manifest reads this; there is no parallel hand-maintained copy.
     export_map: dict[str, str] | None = None
+    # declared resource budget (Sprint 164, additive). None means unbounded — every
+    # existing producer_kind. Enforcement is a follow-on runtime sprint; Sprint 164
+    # only stores the declaration.
+    budget: Budget | None = None
 
 
 @dataclass(frozen=True)
@@ -95,6 +144,7 @@ class TopologyBuilder:
         start: Producer | None = None,
         deterministic: bool = False,
         author_version: str | None = None,
+        budget: Budget | None = None,
     ) -> None:
         """Register a Producer kind: its name, the frozen msgspec Struct event schemas it may
         emit (+ schema_version), and the Producer to run. Give EITHER `start=` — the Producer
@@ -102,7 +152,11 @@ class TopologyBuilder:
         `factory=` — a zero-arg callable returning a fresh Producer per instantiation, for the
         stateful/configured case. Exactly one is required. Set `deterministic=True` if the same
         input always yields the same events (it gates Level-3a replay). Names using the reserved
-        `substrate.` prefix are rejected."""
+        `substrate.` prefix are rejected.
+
+        Optional `budget=Budget(...)` declares resource caps the runtime enforces at run time
+        (roadmap v2 Sprint 1b). `None` (the default) means unbounded on every axis and
+        preserves the pre-Sprint-164 behaviour. See `Budget` for the cap shapes."""
         if (factory is None) == (start is None):
             raise RegistrationError(
                 f'producer_kind "{kind}": provide exactly one of start= (the Producer) or '
@@ -156,8 +210,26 @@ class TopologyBuilder:
                 export_map = dict(raw)
         except Exception:
             export_map = None  # a factory that can't be pre-built has no static export map
+        if budget is not None and budget.event_counts is not None:
+            # Sprint 199 (roadmap v2 S7a fold-in): wall_seconds enforcement lives at
+            # Runtime._producer_task — a producer exceeding its wall-clock cap yields
+            # ProducerFailed with `error="budget_exceeded: wall_seconds=..."`. The
+            # `event_counts` cap is still on the shelf; its enforcement site is
+            # emit-time inside `_submit_emission` and lands in a later sprint. Warn
+            # for that axis only so a caller who declares an event_counts cap sees
+            # the honest state; wall_seconds callers get real enforcement, no warning.
+            import warnings
+
+            warnings.warn(
+                f'producer_kind "{kind}" declared Budget.event_counts, but per-kind '
+                "emission caps are not yet enforced (Sprint 199 landed wall_seconds "
+                "only). The declaration is stored on the ProducerKindReg; a producer "
+                "that exceeds its event-count cap in the interim will not be terminated.",
+                UserWarning,
+                stacklevel=2,
+            )
         self._reg.producer_kinds[kind] = ProducerKindReg(
-            kind, schema_map, factory, deterministic, author_version, export_map
+            kind, schema_map, factory, deterministic, author_version, export_map, budget
         )
 
     def view(self, name: str, view: View) -> None:

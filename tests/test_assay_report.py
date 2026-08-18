@@ -518,3 +518,182 @@ def test_arm_report_recall_fields_none_when_no_cells_carry_recall():
     (line,) = report.arms
     assert line.mean_recall_at_k is None
     assert line.full_recall_at_k_rate is None
+
+
+# ── Sprint 170 (F3 fold): RUN_UNPUBLISHABLE publish-refusal branch ───────────────────────────
+
+
+def _cr_verdict(
+    verdict: Verdict, arm: str = "solver", case_id: str = "c0", trial: int = 0
+) -> CaseResult:
+    """A CaseResult with an explicit Verdict — covers PASS / FAIL / NO_VERDICT for the
+    graded-rate-floor tests. Usage/timing zeroed, reproduction empty."""
+    return CaseResult(
+        arm=arm,
+        role=FULL,
+        case_id=case_id,
+        trial=trial,
+        result=Result(
+            verdict=verdict,
+            score=1.0 if verdict is Verdict.PASS else 0.0,
+            metric="resolved",
+            oracle_class=EXTERNAL_GRADER,
+            replayable=False,
+        ),
+        usage=UsageTotals(0, 0, 0, 0, False),
+        elapsed_ms=0,
+        root="",
+        reproduction="",
+    )
+
+
+def _floor_suite(*arm_names: str, control: str = "control", n_cases: int = 10) -> Suite:
+    """A Suite with `n_cases` cases and the given arms. Every arm uses the same throwaway
+    build (unused by build_report). `control` is the control arm; each arm here becomes an
+    Arm(role=FULL). Roles do not matter for the floor tests."""
+    arms = tuple(
+        Arm(name=name, role=FULL, build=lambda _c: None)  # type: ignore[arg-type,return-value]
+        for name in (control, *arm_names)
+    )
+    cases = tuple(Case(case_id=f"c{i}", payload={}, ground_truth=None) for i in range(n_cases))
+    return Suite(
+        name="s",
+        version="0.1",
+        cases=cases,
+        arms=arms,
+        oracle=type("O", (), {"grade": lambda self, _r, _g: None})(),
+        control_arm=control,
+        primary_metric="resolved",
+        null_rule="",
+    )
+
+
+def test_report_unpublishable_empty_by_default_no_floor_passed():
+    """Backward compat: `build_report` without `graded_rate_floor` produces an empty
+    `unpublishable` tuple even when the run has NO_VERDICT cells. The old arm-completeness
+    gate still fires (deltas collapse to None), but no RunUnpublishable entries surface."""
+    suite = _floor_suite("solver", n_cases=10)
+    # solver graded 7 of 10 (3 NO_VERDICT); control graded all 10.
+    results = [_cr_verdict(Verdict.PASS, arm="control", case_id=f"c{i}") for i in range(10)]
+    results += [_cr_verdict(Verdict.PASS, arm="solver", case_id=f"c{i}") for i in range(7)]
+    results += [
+        _cr_verdict(Verdict.NO_VERDICT, arm="solver", case_id=f"c{i}") for i in range(7, 10)
+    ]
+
+    report = build_report(suite, results)
+    assert report.unpublishable == ()  # no floor passed, no entries
+    solver = next(a for a in report.arms if a.arm == "solver")
+    # delta stays None from the pre-Sprint-170 arm-completeness gate.
+    assert solver.delta_pass_k is None
+    assert solver.equivalence is None
+
+
+def test_report_unpublishable_names_below_floor_arm():
+    """With `graded_rate_floor=0.8`, a solver with 7/10 graded (0.7) trips the branch: one
+    RunUnpublishable entry names the arm; delta stays None."""
+    suite = _floor_suite("solver", n_cases=10)
+    results = [_cr_verdict(Verdict.PASS, arm="control", case_id=f"c{i}") for i in range(10)]
+    results += [_cr_verdict(Verdict.PASS, arm="solver", case_id=f"c{i}") for i in range(7)]
+    results += [
+        _cr_verdict(Verdict.NO_VERDICT, arm="solver", case_id=f"c{i}") for i in range(7, 10)
+    ]
+
+    report = build_report(suite, results, graded_rate_floor=0.8)
+    assert len(report.unpublishable) == 1
+    entry = report.unpublishable[0]
+    assert entry.arm == "solver"
+    assert entry.graded_rate == pytest.approx(0.7)
+    assert entry.threshold == pytest.approx(0.8)
+    assert "below pre-registered floor" in entry.reason
+    assert "NO_VERDICT" in entry.reason
+    assert "not confirmatory" in entry.reason
+
+    solver = next(a for a in report.arms if a.arm == "solver")
+    assert solver.delta_pass_k is None
+    assert solver.equivalence is None
+
+
+def test_report_unpublishable_empty_when_all_arms_meet_floor():
+    """Same 7/10 graded solver against a loose floor of 0.5 — solver meets it, no
+    RunUnpublishable entry surfaces, and the delta gate opens (deltas compute or return
+    None from the bootstrap's own inconclusive path, but not from the floor gate)."""
+    suite = _floor_suite("solver", n_cases=10)
+    # Mix of PASS + FAIL on both arms so the bootstrap has variance and produces a delta
+    # rather than collapsing on all-pass degeneracy. Solver graded 7 of 10, floor=0.5 → meets.
+    results = [_cr_verdict(Verdict.PASS, arm="control", case_id=f"c{i}") for i in range(6)]
+    results += [_cr_verdict(Verdict.FAIL, arm="control", case_id=f"c{i}") for i in range(6, 10)]
+    results += [_cr_verdict(Verdict.PASS, arm="solver", case_id=f"c{i}") for i in range(4)]
+    results += [_cr_verdict(Verdict.FAIL, arm="solver", case_id=f"c{i}") for i in range(4, 7)]
+    results += [
+        _cr_verdict(Verdict.NO_VERDICT, arm="solver", case_id=f"c{i}") for i in range(7, 10)
+    ]
+
+    report = build_report(suite, results, graded_rate_floor=0.5)
+    # Primary pin: floor met on every arm → no RunUnpublishable entries. Whether the delta
+    # computes further depends on `check_control_ran`'s on-disk record check, which unit
+    # tests skip; other test files (test_assay_control_plane.py) exercise the full path
+    # against real records. Sprint 170's pin is: the floor gate does not add a False.
+    assert report.unpublishable == ()
+    solver = next(a for a in report.arms if a.arm == "solver")
+    assert solver.graded_rate == pytest.approx(0.7)  # unchanged from the ArmReport population
+
+
+def test_report_unpublishable_lists_every_below_floor_arm():
+    """Multiple arms below the floor produce multiple RunUnpublishable entries."""
+    suite = _floor_suite("solver_a", "solver_b", n_cases=10)
+    results = [_cr_verdict(Verdict.PASS, arm="control", case_id=f"c{i}") for i in range(10)]
+    # solver_a graded 5 of 10; solver_b graded 6 of 10; both below 0.8.
+    results += [_cr_verdict(Verdict.PASS, arm="solver_a", case_id=f"c{i}") for i in range(5)]
+    results += [
+        _cr_verdict(Verdict.NO_VERDICT, arm="solver_a", case_id=f"c{i}") for i in range(5, 10)
+    ]
+    results += [_cr_verdict(Verdict.PASS, arm="solver_b", case_id=f"c{i}") for i in range(6)]
+    results += [
+        _cr_verdict(Verdict.NO_VERDICT, arm="solver_b", case_id=f"c{i}") for i in range(6, 10)
+    ]
+
+    report = build_report(suite, results, graded_rate_floor=0.8)
+    unpub_arms = sorted(e.arm for e in report.unpublishable)
+    assert unpub_arms == ["solver_a", "solver_b"]
+    for entry in report.unpublishable:
+        assert entry.threshold == pytest.approx(0.8)
+        assert entry.graded_rate < 0.8
+
+
+def test_report_unpublishable_covers_control_arm_when_control_falls_short():
+    """A control arm below the floor lands in `unpublishable` too — the report does not
+    silently exempt the control from the discipline it applies to every other arm."""
+    suite = _floor_suite("solver", n_cases=10)
+    # control graded only 6 of 10; solver graded all 10.
+    results = [_cr_verdict(Verdict.PASS, arm="control", case_id=f"c{i}") for i in range(6)]
+    results += [
+        _cr_verdict(Verdict.NO_VERDICT, arm="control", case_id=f"c{i}") for i in range(6, 10)
+    ]
+    results += [_cr_verdict(Verdict.PASS, arm="solver", case_id=f"c{i}") for i in range(10)]
+
+    report = build_report(suite, results, graded_rate_floor=0.8)
+    unpub_arms = sorted(e.arm for e in report.unpublishable)
+    assert "control" in unpub_arms
+    # solver's delta is None because the control fell below the floor — a delta requires
+    # a valid control comparison.
+    solver = next(a for a in report.arms if a.arm == "solver")
+    assert solver.delta_pass_k is None
+
+
+def test_report_unpublishable_reason_string_contains_the_arithmetic():
+    """The reason string carries the fraction, the threshold, and the NO_VERDICT count so a
+    reader without the ArmReport in front of them still sees the arithmetic."""
+    suite = _floor_suite("solver", n_cases=10)
+    results = [_cr_verdict(Verdict.PASS, arm="control", case_id=f"c{i}") for i in range(10)]
+    results += [_cr_verdict(Verdict.PASS, arm="solver", case_id=f"c{i}") for i in range(6)]
+    results += [
+        _cr_verdict(Verdict.NO_VERDICT, arm="solver", case_id=f"c{i}") for i in range(6, 10)
+    ]
+
+    report = build_report(suite, results, graded_rate_floor=0.8)
+    entry = report.unpublishable[0]
+    # 6 of 10 graded, 4 NO_VERDICT, 0.60 < 0.80 threshold.
+    assert "6 of 10" in entry.reason
+    assert "0.600" in entry.reason
+    assert "0.800" in entry.reason
+    assert "4 cells" in entry.reason

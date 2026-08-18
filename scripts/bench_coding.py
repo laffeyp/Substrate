@@ -34,6 +34,7 @@ from pathlib import Path
 
 from substrate import api
 from substrate.assay import run_arm_on_case
+from substrate.assay.cells import CellSource
 from substrate.assay.coding import coding_suite
 from substrate.assay.coding_problems import coding_problem_bank
 from substrate.assay.preregistration import fingerprint as _fingerprint
@@ -111,9 +112,10 @@ def _row(
     elapsed: int,
     root: str,
 ) -> dict[str, object]:
-    # compute fields are NULL for salvage/fail cells (no calls were MADE this run — null, not a
-    # measured 0); real only for freshly-run, metered cells.
-    measured = source == "run"
+    # compute fields are NULL for salvage/error cells (no calls were MADE this run — null,
+    # not a measured 0); real only for freshly-run, metered cells. Sprint 176 (F14 fold):
+    # source is a CellSource wire string; `CellSource.RUN.value` == `"run"` for the compare.
+    measured = source == CellSource.RUN.value
     return {
         "arm": arm.name,
         "role": arm.role,
@@ -158,9 +160,16 @@ def _print_report() -> None:
             f"  NOTE: BENCH_MARGIN={env_margin} IGNORED — the report uses the run's RECORDED margin "
             f"±{rec_margin}. A post-hoc margin is not allowed; re-margining is a NEW pre-registered run."
         )
-    n_run = sum(1 for r in rows if r.get("source") == "run")
-    n_salv = sum(1 for r in rows if r.get("source") == "salvage")
-    n_fail = sum(1 for r in rows if r.get("source") == "fail")
+    # Sprint 176 (F14): source counts use CellSource enum values. Legacy rows on disk
+    # carrying the pre-fold `"fail"` string still count under n_err via the compat check.
+    n_run = sum(1 for r in rows if r.get("source") == CellSource.RUN.value)
+    n_salv = sum(1 for r in rows if r.get("source") == CellSource.SALVAGE.value)
+    n_err = sum(
+        1
+        for r in rows
+        if r.get("source") in (CellSource.ERROR.value, "fail")  # legacy: "fail"
+    )
+    n_fail = n_err  # naming preserved for the report line below
     trials = (max((int(r["trial"]) for r in rows), default=0) + 1) if rows else 0
     print(
         f"\n=== {report.suite}  control={report.control_arm}  margin=±{rec_margin} (recorded)  "
@@ -270,9 +279,11 @@ async def main() -> None:
                             ).passed
                         )
                     )
-                    row = _row(arm, case, trial, passed, "salvage", _ZERO, 0, str(salv))
+                    row = _row(
+                        arm, case, trial, passed, CellSource.SALVAGE.value, _ZERO, 0, str(salv)
+                    )
                 except Exception:
-                    row = _row(arm, case, trial, False, "fail", _ZERO, 0, str(salv))
+                    row = _row(arm, case, trial, False, CellSource.ERROR.value, _ZERO, 0, str(salv))
             else:
                 root = base / f"{arm.name}__{case.case_id}__t{trial}"
                 try:
@@ -281,11 +292,25 @@ async def main() -> None:
                         timeout=RUN_TIMEOUT,
                     )
                     row = _row(
-                        arm, case, trial, r.result.passed, "run", r.usage, r.elapsed_ms, r.root
+                        arm,
+                        case,
+                        trial,
+                        r.result.passed,
+                        CellSource.RUN.value,
+                        r.usage,
+                        r.elapsed_ms,
+                        r.root,
                     )
                 except Exception:
                     row = _row(
-                        arm, case, trial, False, "fail", _ZERO, int(RUN_TIMEOUT * 1000), str(root)
+                        arm,
+                        case,
+                        trial,
+                        False,
+                        CellSource.ERROR.value,
+                        _ZERO,
+                        int(RUN_TIMEOUT * 1000),
+                        str(root),
                     )
             async with lock:
                 with CELLS.open("a") as fh:

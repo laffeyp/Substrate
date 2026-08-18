@@ -36,7 +36,7 @@ from typing import Any
 
 from msgspec import Struct
 
-from .oracle import EXTERNAL_GRADER, ExternalGraderOracle, Result, Verdict
+from .oracle import EXTERNAL_GRADER, LOG_PROJECTION, ExternalGraderOracle, Result, Verdict
 
 # Default grader_error_band for SWE-bench Lite (Xia & Chen 2025, arxiv 2503.15223). Rides on every
 # SWE-bench Result so headline numbers can honestly report `resolved ± band × resolved`. Verified
@@ -65,7 +65,7 @@ REASON_DOCKER_ERROR = "docker_error"
 REASON_HARNESS_ERROR = "harness_error"
 REASON_GIT_ERROR = "git_error"
 REASON_FIREWALL_VIOLATION = "firewall_violation"
-# Design DESIGN-2026-08-11-responder-rate-limit-shim.md §"Closed-set additions":
+# Design DESIGN-2026-08-11-responder-rate-limit.md §"Closed-set additions":
 # a provider (Ollama Cloud tier, OpenAI RPM, Anthropic TPM, ...) rate-limited the
 # request. Different from `harness_error` (a harness exception) and from
 # `timed_out` (wall-clock exceeded); a rate-limit is a "capacity denied at the
@@ -84,6 +84,36 @@ _HARNESS_REASONS: frozenset[str] = frozenset(
         REASON_RATE_LIMITED,
     }
 )
+
+
+def classify_reason_string(msg: str) -> str:
+    """Sprint 200a (roadmap v2 S9 close): classify a stringified exception (typically
+    `repr(exc).lower()` from a `substrate.ProducerFailed.error` payload or from the
+    runner's classifier fallback) into a `_HARNESS_REASONS` value.
+
+    One source of truth for the classifier's string-repr fallback: both the runner's
+    `_classify_cell_error` (which classifies Python exceptions the cell raised) and the
+    log-projection oracle (which classifies error strings on record events) route their
+    string checks through this helper. Prevents drift where the runner grew a new
+    substring match and the oracle stayed on the old set.
+
+    Match order matches the runner's fallback: docker/container → docker_error;
+    git → git_error; rate-limit-ish → rate_limited; anything else → harness_error.
+    The substring matches are known imprecise (a subprocess.CalledProcessError whose
+    stderr mentions "docker" for a git error would mis-classify) — the fix is more typed
+    raise-sites at the producer boundary, not a smarter regex.
+    """
+    m = msg.lower()
+    if "docker" in m or "container" in m:
+        return REASON_DOCKER_ERROR
+    if "git" in m:
+        return REASON_GIT_ERROR
+    if "rate" in m and "limit" in m:
+        return REASON_RATE_LIMITED
+    if "timeout" in m or "timed out" in m:
+        return REASON_TIMED_OUT
+    return REASON_HARNESS_ERROR
+
 
 # Per-repo wall-clock timeouts for the harness (seconds). Loaded from swebench_timeouts.json
 # so the pre-registration can pin the table's sha256. The default when a repo is unknown
@@ -301,10 +331,15 @@ def read_run_report(path: Path | str) -> dict[str, Any]:
 def verify_constants() -> None:
     """If swebench is importable, assert our prediction field-name literals match its constants — the
     bridge-mapping discipline made executable. A no-op (returns) when swebench is absent, so it is safe
-    to call in any environment."""
+    to call in any environment.
+
+    Sprint 171 (F10): narrowed the import-guard catch from `Exception` to `ImportError`. A
+    swebench absence is legitimately silent (the module is env-gated); anything else — a real
+    dependency error, an AttributeError from a schema drift inside swebench's own imports,
+    an OSError — surfaces so the drift the check exists for is not silently skipped."""
     try:
         import swebench.harness.constants as sw  # lazy, env-gated (mypy: see [tool.mypy.overrides])
-    except Exception:
+    except ImportError:
         return
     drift = {
         name: (ours, theirs)
@@ -394,6 +429,25 @@ def _docker_kill(container_name: str) -> None:
         pass
 
 
+def _emit_harness_event(kind: str, payload: dict[str, Any]) -> None:
+    """Sprint 193 (roadmap v2 S5.6): typed events for the B6 swebench-harness boundary.
+    Grade calls happen in the runner's grade phase — sometimes inside a substrate assay
+    topology, sometimes standalone (`run_swebench_one` is called directly by
+    `SwebenchRecordOracle.grade`). Stderr JSON matches the same shape as `_emit_repo_clone_event`
+    at `swebench_suite.py` (Sprint 190) and the runner's `_emit_image_pull_event`
+    (Sprint 192). Kind names match vocab v0.3 § G.5."""
+    import json as _json
+    import sys as _sys
+    import time as _time
+
+    line = _json.dumps(
+        {"t": _time.time(), "kind": kind, "boundary": "harness", "payload": payload},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    print(line, file=_sys.stderr, flush=True)
+
+
 def run_swebench_one(
     instance_id: str,
     model_patch: str,
@@ -418,7 +472,23 @@ def run_swebench_one(
 
     Container name is `sweb.eval.{instance_id}.{run_id}` (the harness's own naming rule);
     on `subprocess.TimeoutExpired`, `docker kill` targets that name so no orphan container
-    survives the call (design v3 §"No orphaned containers")."""
+    survives the call (design v3 §"No orphaned containers").
+
+    Sprint 193 (roadmap v2 S5.6): emits typed `HarnessCallFired` on entry, then one of
+    `HarnessReportRead` / `HarnessCompleted` / `HarnessTimeout` / `HarnessError` on the
+    terminal branch. Same stderr-JSON pattern as Sprint 190's repo-clone events."""
+    import time as _time
+
+    _started_at = _time.monotonic()
+    _emit_harness_event(
+        "HarnessCallFired",
+        {
+            "instance_id": instance_id,
+            "run_id": run_id,
+            "timeout_seconds": timeout_seconds,
+            "patch_bytes": len(model_patch),
+        },
+    )
     verify_constants()
     report_dir = Path(report_dir)
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -427,6 +497,16 @@ def run_swebench_one(
         # Consistent with the sync oracle: an empty patch is a definite FAIL, no harness
         # call needed. The oracle already returns FAIL for this shape; the grader is
         # defensive so a direct caller can't get a NO_VERDICT for an empty patch.
+        _emit_harness_event(
+            "HarnessCompleted",
+            {
+                "instance_id": instance_id,
+                "verdict": "fail",
+                "reason": "",
+                "wall_ms": int((_time.monotonic() - _started_at) * 1000),
+                "detail": "empty patch",
+            },
+        )
         return HarnessOutcome(verdict=Verdict.FAIL, reason="", detail="empty patch")
 
     pred = make_prediction(instance_id, model_patch, model_name=model_name)
@@ -468,12 +548,28 @@ def run_swebench_one(
         )
     except subprocess.TimeoutExpired:
         _docker_kill(container)
+        _emit_harness_event(
+            "HarnessTimeout",
+            {
+                "instance_id": instance_id,
+                "wall_ms": int((_time.monotonic() - _started_at) * 1000),
+                "deadline_s": timeout_seconds,
+            },
+        )
         return HarnessOutcome(
             verdict=Verdict.NO_VERDICT,
             reason=REASON_TIMED_OUT,
             detail=f"wall-clock exceeded {timeout_seconds}s for {instance_id}",
         )
     except FileNotFoundError as e:
+        _emit_harness_event(
+            "HarnessError",
+            {
+                "instance_id": instance_id,
+                "wall_ms": int((_time.monotonic() - _started_at) * 1000),
+                "error_class": type(e).__name__,
+            },
+        )
         return HarnessOutcome(
             verdict=Verdict.NO_VERDICT,
             reason=REASON_HARNESS_ERROR,
@@ -488,16 +584,47 @@ def run_swebench_one(
     except FileNotFoundError:
         if proc.returncode != 0:
             tail = (proc.stderr or "")[-400:]
+            _emit_harness_event(
+                "HarnessError",
+                {
+                    "instance_id": instance_id,
+                    "wall_ms": int((_time.monotonic() - _started_at) * 1000),
+                    "error_class": "ContainerCrashed",
+                    "returncode": proc.returncode,
+                    "stderr_tail": tail,
+                },
+            )
             return HarnessOutcome(
                 verdict=Verdict.NO_VERDICT,
                 reason=REASON_CONTAINER_CRASHED,
                 detail=f"exit={proc.returncode} stderr_tail={tail!r}",
             )
+        _emit_harness_event(
+            "HarnessError",
+            {
+                "instance_id": instance_id,
+                "wall_ms": int((_time.monotonic() - _started_at) * 1000),
+                "error_class": "MissingReport",
+            },
+        )
         return HarnessOutcome(
             verdict=Verdict.NO_VERDICT,
             reason=REASON_HARNESS_ERROR,
             detail=f"exit=0 but no report.json for {instance_id}",
         )
+    _emit_harness_event(
+        "HarnessReportRead",
+        {"instance_id": instance_id, "resolved": resolved},
+    )
+    _emit_harness_event(
+        "HarnessCompleted",
+        {
+            "instance_id": instance_id,
+            "verdict": "pass" if resolved else "fail",
+            "reason": "",
+            "wall_ms": int((_time.monotonic() - _started_at) * 1000),
+        },
+    )
     return HarnessOutcome(
         verdict=Verdict.PASS if resolved else Verdict.FAIL,
         reason="",
@@ -719,6 +846,133 @@ class SwebenchRecordOracle:
         )
 
 
+class SwebenchLogProjectionOracle:
+    """Sprint 196 (roadmap v2 S6, part 2 of 2): the projection oracle for the
+    `swebench_solve_and_grade_topology`. Reads exactly one `GradeResult` event off the
+    cell's record and returns a `Result` — the AUDIT of the grade re-derives from the
+    record deterministically (`replayable=True`). The GRADE ITSELF (pytest inside Docker)
+    remains non-deterministic; the recorded `GradeResult` event is what re-derives.
+
+    Contrast with `SwebenchRecordOracle` (Sprint 143+): the old oracle called
+    `run_swebench_one` at grade time — the harness ran INSIDE the oracle, `replayable=False`.
+    The new oracle just reads the event that the grade producer already emitted onto the
+    cell's record during the run. The grade producer's Sprint-195 wrapper does the harness
+    subprocess call once at run time; the oracle projects the result.
+
+    No `GradeResult` on the record → the topology never selected a patch. Sprint 200a
+    distinguishes two sub-cases at the oracle: (a) the essential producers ran cleanly
+    but produced no `SelectedPatch` (Exhausted / NO_LOCALIZATION / NO_APPLICABLE_EDIT) —
+    returns `Verdict.FAIL, reason=""` because the arm honestly submitted nothing to grade;
+    (b) an essential producer (`solve` or `grader`) emitted `substrate.ProducerFailed` on
+    the record before quiescence — returns `Verdict.NO_VERDICT` with the reason
+    classified via `classify_reason_string`, because the topology's mechanism broke rather
+    than the model failing to solve. The distinction lands at the row level so the report
+    can count docker-failed cells apart from no-patch cells.
+    """
+
+    _ESSENTIAL_PRODUCER_KINDS = frozenset({"solve", "grader"})
+
+    def __init__(
+        self,
+        *,
+        grader_error_band: float | None = _LITE_GRADER_ERROR_BAND,
+    ) -> None:
+        self._grader_error_band = grader_error_band
+
+    def grade(self, record: Any, ground_truth: Any) -> Result:
+        events = list(record) if not isinstance(record, list) else record
+        instance_id = (
+            str(ground_truth["instance_id"])
+            if isinstance(ground_truth, Mapping)
+            else str(ground_truth)
+        )
+        # Localization recall for the writeup (F2 fix, sprint 160) — same as the record-oracle
+        # path. The GradeResult is the primary; recall lands on Result too.
+        suspects = suspect_files_from_record(events)
+        gold_patch = str(ground_truth.get("patch", "")) if isinstance(ground_truth, Mapping) else ""
+        recall, full_recall = _recall_metrics(suspects, gold_patch)
+
+        # Find the GradeResult on the record. Sprint 196's `swebench_solve_and_grade_topology`
+        # emits exactly one when the trigger fires; if no SelectedPatch was emitted, no
+        # GradeResult follows and the oracle takes the no-grade fallback branch below.
+        grades = [e["payload"] for e in events if e["kind"] == "GradeResult"]
+        if not grades:
+            # Sprint 200a: distinguish the two no-grade sub-cases via `substrate.ProducerFailed`
+            # on `solve` or `grader`. A docker-rc=125 solve producer that dies without emitting
+            # SelectedPatch previously landed as `verdict=fail, reason=""`, indistinguishable
+            # from a Draft-Exhausted honest "no patch to grade" state. Row-level distinction
+            # lets the report count mechanism failures apart from arm failures.
+            producer_failures = [
+                e["payload"]
+                for e in events
+                if e["kind"] == "substrate.ProducerFailed"
+                and e["payload"].get("producer", {}).get("kind") in self._ESSENTIAL_PRODUCER_KINDS
+            ]
+            if producer_failures:
+                last = producer_failures[-1]
+                error_str = str(last.get("error", ""))
+                reason = classify_reason_string(error_str)
+                producer_kind = str(last.get("producer", {}).get("kind", ""))
+                return Result(
+                    verdict=Verdict.NO_VERDICT,
+                    score=0.0,
+                    metric="resolved",
+                    oracle_class=LOG_PROJECTION,
+                    replayable=True,
+                    detail=(
+                        f"essential producer {producer_kind!r} failed for {instance_id}: "
+                        f"{error_str[:200]}"
+                    ),
+                    reason=reason,
+                    grader_error_band=self._grader_error_band,
+                    recall_at_k=recall,
+                    full_recall_at_k=full_recall,
+                )
+            return Result(
+                verdict=Verdict.FAIL,
+                score=0.0,
+                metric="resolved",
+                oracle_class=LOG_PROJECTION,
+                replayable=True,
+                detail=(
+                    f"no GradeResult on record for {instance_id} — topology never emitted a "
+                    "grade (Exhausted or no SelectedPatch path)"
+                ),
+                grader_error_band=self._grader_error_band,
+                recall_at_k=recall,
+                full_recall_at_k=full_recall,
+            )
+        gr = grades[-1]  # last GradeResult wins; the topology's Once() trigger emits exactly one
+        wire_verdict = str(gr.get("verdict", ""))
+        wire_reason = str(gr.get("reason", ""))
+        verdict_map = {"pass": Verdict.PASS, "fail": Verdict.FAIL, "no_verdict": Verdict.NO_VERDICT}
+        verdict = verdict_map.get(wire_verdict, Verdict.NO_VERDICT)
+        return Result(
+            verdict=verdict,
+            score=1.0 if verdict is Verdict.PASS else 0.0,
+            metric="resolved",
+            oracle_class=LOG_PROJECTION,
+            replayable=True,
+            detail=(
+                f"grade verdict={wire_verdict}"
+                + (f" reason={wire_reason}" if wire_reason else "")
+                + f" for {instance_id}"
+            ),
+            reason=wire_reason,
+            grader_error_band=self._grader_error_band,
+            recall_at_k=recall,
+            full_recall_at_k=full_recall,
+        )
+
+
+def swebench_log_projection_oracle(
+    grader_error_band: float | None = _LITE_GRADER_ERROR_BAND,
+) -> SwebenchLogProjectionOracle:
+    """Public constructor for `SwebenchLogProjectionOracle` — Sprint 196's replacement for
+    `swebench_record_oracle` when the runner uses `swebench_solve_and_grade_topology`."""
+    return SwebenchLogProjectionOracle(grader_error_band=grader_error_band)
+
+
 def swebench_record_oracle(
     *,
     report_root: Path | str,
@@ -859,7 +1113,7 @@ def batch_grade_from_records(
     Cells with no patch aren't invoked (the placeholder Result from
     SwebenchExtractOnlyOracle already carries `passed=False` for those).
     """
-    from ..api import read_record
+    from ..api import RecordGapError, RecordIncompleteError, read_record
 
     records_dir = Path(records_dir)
     report_dir = Path(report_dir)
@@ -883,7 +1137,18 @@ def batch_grade_from_records(
             continue
         try:
             events = list(read_record(cell_dir))
-        except Exception:
+        except (RecordIncompleteError, RecordGapError) as exc:
+            # Sprint 171 (F11): narrowed from `Exception` to the two typed record errors
+            # that are legitimately silent here — a torn tail (RecordIncompleteError) or a
+            # sequence gap (RecordGapError) means this cell's record can't be read cleanly;
+            # skip and continue. Any other exception (disk-full, permission, a real bug in
+            # read_record) surfaces so the batch grader does not silently under-count.
+            import sys
+
+            print(
+                f"batch_grade_from_records: skipping {cell_dir}: {type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
             continue
         patch = model_patch_from_record(events)
         if not patch.strip():

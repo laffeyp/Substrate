@@ -150,6 +150,81 @@ def test_wrapper_raises_typed_after_exhaustion():
     asyncio.run(_run())
 
 
+def test_semaphore_released_during_retry_sleep_lets_peer_progress():
+    """F1 regression pin (Sprint 168, external review F1). The pre-fix shim wrapped the
+    entire retry loop in `async with sem:`; a 429 sleep pinned the slot while nothing
+    was in flight. Under sustained 429 the 2026-08-10 N=300 Pro run collapsed to 82%
+    throttled because three workers sleeping on 429 pinned all three Pro-tier slots
+    simultaneously.
+
+    This test proves the fix: with a per-key cap of 1, a first worker gets 429 and
+    starts sleeping. A second worker (a healthy peer) should be able to acquire the
+    slot during the first's sleep — proving the slot is released during retry-sleep.
+    A pre-fix implementation would deadlock this test because the first worker's
+    sleep would pin the only slot until the retry budget exhausted."""
+    quota = ProviderQuota(max_concurrent_per_model=1, max_retries=3)
+    failing = _Failing429Responder(retry_after="1")
+    healthy = _CountingResponder()
+
+    a = RateLimitedResponder(failing, key="ollama:shared-slot", quota=quota)
+    b = RateLimitedResponder(healthy, key="ollama:shared-slot", quota=quota)
+
+    # Track when the healthy peer entered its inner call vs when the failing worker
+    # exited (raised). If the fix is in place, the healthy peer enters DURING the
+    # failing worker's retry-sleep — before the failing worker finishes exhausting.
+    healthy_entered_at: list[float] = []
+    failing_exited_at: list[float] = []
+    fake_time = [0.0]
+
+    real_sleep_ref = asyncio.sleep  # capture before we monkey-patch
+
+    async def _fake_sleep(delay: float):
+        # Advance a fake clock, but yield to the event loop so peer tasks can run
+        # during the "sleep." A pure return would monopolize the loop and hide the
+        # slot-hold behavior this test is designed to expose.
+        fake_time[0] += delay
+        await real_sleep_ref(0.01)
+
+    orig_arespond = healthy.arespond
+
+    async def _tracked_arespond(prompt: str) -> str:
+        healthy_entered_at.append(fake_time[0])
+        # Immediately release so the test finishes fast.
+        healthy.release()
+        return await orig_arespond(prompt)
+
+    healthy.arespond = _tracked_arespond  # type: ignore[assignment,method-assign]
+
+    async def _run():
+        import substrate.adapters.rate_limit as rl_module
+
+        real_sleep = asyncio.sleep
+        rl_module.asyncio.sleep = _fake_sleep  # type: ignore[assignment]
+        try:
+            ta = asyncio.create_task(a.arespond("failing"))
+            # Give the failing worker a scheduling tick to acquire the slot first.
+            await real_sleep(0.01)
+            tb = asyncio.create_task(b.arespond("healthy"))
+            try:
+                await ta
+            except ProviderRateLimited:
+                failing_exited_at.append(fake_time[0])
+            await tb
+        finally:
+            rl_module.asyncio.sleep = real_sleep  # type: ignore[assignment]
+
+    asyncio.run(_run())
+
+    # Healthy peer entered before the failing worker exhausted retries.
+    assert healthy_entered_at, "healthy peer should have entered the inner call"
+    assert failing_exited_at, "failing worker should have raised ProviderRateLimited"
+    assert healthy_entered_at[0] < failing_exited_at[0], (
+        f"healthy peer entered at t={healthy_entered_at[0]} but failing worker did not "
+        f"exit until t={failing_exited_at[0]} — the slot was pinned during retry sleep, "
+        f"which is the pre-Sprint-168 slot-holding bug."
+    )
+
+
 def test_semaphore_key_isolation():
     quota = ProviderQuota(max_concurrent_per_model=1)
     inner_a = _CountingResponder()

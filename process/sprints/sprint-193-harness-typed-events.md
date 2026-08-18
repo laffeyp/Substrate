@@ -1,0 +1,5 @@
+# Sprint 193 — `run_swebench_one` emits typed events (roadmap v2 S5.6)
+
+Same shape as Sprint 190. `assay/swebench.py::run_swebench_one` emits `HarnessCallFired` on entry, then one of: `HarnessCompleted` (empty-patch fast path → verdict=fail; or normal grade → verdict=pass|fail after `HarnessReportRead` fires with the `resolved` bool), `HarnessTimeout` (subprocess.TimeoutExpired → wall_ms + deadline_s), `HarnessError` (FileNotFoundError, ContainerCrashed, MissingReport — error_class distinguishes the three). Kind names match vocab v0.3 § G.5. Canonical JSON to stderr with `boundary=harness`; the grade call runs inside the runner but the emit surface is stderr because grade often lands outside a substrate assay topology (`SwebenchRecordOracle.grade` calls `run_swebench_one` directly).
+
+Files: `src/substrate/assay/swebench.py` (`_emit_harness_event` helper + emit call sites on all five branches) + `tests/test_harness_events.py` (one substance test on the empty-patch fast path + source-scan pin for the five kinds). 25 tests pass across the harness + assay swebench suite; ruff + mypy strict clean.

@@ -1,6 +1,11 @@
 """SWE-bench Adapter/Suite wiring — the non-Docker parts. `prepare_swebench_case` (git + Docker) is
 env-gated and exercised live; here we prove an Arm builds a topology from a prepared payload and the Suite
-assembles + validates, with no I/O."""
+assembles + validates, with no I/O.
+
+Sprint 199c (roadmap v2 S7b close): `solver_topology_from_payload` and `swebench_solver_arm`
+migrated off the heavy `swebench_solver_topology_with_test_selection` — both now build the
+light `swebench_repair_topology`. The pre-Sprint-199c per-file DeprecationWarning filter is
+gone; the migration removed the last live callers of the deprecated heavy topology."""
 
 from substrate.assay.suite import BASELINE, FULL, Case
 from substrate.assay.swebench_suite import (
