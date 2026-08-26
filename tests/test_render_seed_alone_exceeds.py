@@ -17,7 +17,7 @@ import pytest
 from substrate import api
 from substrate.adapters import DeterministicResponder
 from substrate.testing import assert_event
-from substrate.topologies.session import session_topology
+from substrate.topologies.session import SessionWarning, session_topology
 
 
 def _open(
@@ -78,9 +78,13 @@ async def test_session_warning_producer_emits_exactly_one_and_completes(tmp_path
     warning_reg = reg.producer_kinds["session_warning"]
 
     def solo_topo(b: api.TopologyBuilder) -> None:
+        # Register with `[SessionWarning]` directly rather than destructuring
+        # `warning_reg.schemas.values()` — reaching into ProducerKindReg's tuple shape
+        # would rot if the substrate ever grew the tuple. The vocab lock is stable;
+        # SessionWarning is the one Struct the session_warning producer emits.
         b.producer_kind(
             "session_warning",
-            schemas=list(cls for cls, _ in warning_reg.schemas.values()),
+            schemas=[SessionWarning],
             schema_version=1,
             factory=warning_reg.factory,
             deterministic=True,

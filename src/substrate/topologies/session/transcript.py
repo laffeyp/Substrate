@@ -55,6 +55,10 @@ _KIND_TOOL_CALL = "ToolCall"
 _KIND_TOOL_RESULT = "ToolResult"
 _KIND_FINAL_ANSWER = "FinalAnswer"
 _KIND_PARK = "Park"
+_KIND_TRANSCRIPT_COMPACTED = "TranscriptCompacted"
+# `TranscriptCompacted` rides a turn because the `model` producer yields it at the start
+# of a firing (session/__init__.py::_model_factory). `SessionWarning` fires at session-open
+# via the `session_warning` initial and never rides a turn, so it stays out of this set.
 _TURN_EVENT_KINDS = frozenset(
     {
         _KIND_USER_MESSAGE,
@@ -63,6 +67,7 @@ _TURN_EVENT_KINDS = frozenset(
         _KIND_TOOL_RESULT,
         _KIND_FINAL_ANSWER,
         _KIND_PARK,
+        _KIND_TRANSCRIPT_COMPACTED,
     }
 )
 
@@ -157,28 +162,6 @@ def resolve_driver_context_tokens(
 
 def _est_tokens(text: str) -> int:
     return max(len(text) // _CHARS_PER_TOKEN, 1) if text else 0
-
-
-def _est_tokens_events(events: list[dict[str, Any]]) -> int:
-    """Approximate token count over an envelope stream.
-
-    Payloads are `Any` at the record boundary. Text-carrying fields
-    (`text`, `assembled_prompt`, `output`, `error`) dominate the count; every
-    other field contributes a fixed 8-token overhead per event. Under the same
-    chars/4 heuristic used by `_est_tokens`.
-    """
-    total = 0
-    for env in events:
-        payload = env.get("payload") or {}
-        if not isinstance(payload, dict):
-            total += 8
-            continue
-        for key in ("text", "assembled_prompt", "output", "error"):
-            v = payload.get(key)
-            if isinstance(v, str):
-                total += _est_tokens(v)
-        total += 8
-    return total
 
 
 def _compute_k(
@@ -334,13 +317,19 @@ def render_transcript(
         last_dropped = dropped_turns[-1][-1]
         first_kept = kept_turns[0][0]
         reason = "driver_window_exceeded" if 0 < k < len(turns) else "K_bound"
+        # `tokens_before` and `tokens_after` must live on the same axis so a reader can
+        # subtract them and get a meaningful "tokens the window saved" number. Both now
+        # measure the RENDERED prompt cost: `tokens_after` is what we actually send,
+        # `tokens_before` is what we would have sent if we had rendered every turn.
+        # One extra render on the compaction path is the honest cost for this comparability.
+        full_prompt = _render(seed, per_turn, turns, turns[-1])
         compaction_events.append(
             TranscriptCompacted(
                 strategy="rolling_window",
                 dropped_seq_range=(int(first_dropped["seq"]), int(last_dropped["seq"])),
                 kept_seq_start=int(first_kept["seq"]),
                 reason=reason,
-                tokens_before=_est_tokens_events(events),
+                tokens_before=_est_tokens(full_prompt),
                 tokens_after=tokens_estimated,
             )
         )

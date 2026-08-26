@@ -15,6 +15,17 @@ from ...types import Event, Subscription
 _PRODUCER_FAILED = "substrate.ProducerFailed"
 
 
+def producer_kind_from_lifecycle_payload(payload: Any) -> str | None:
+    """Read `producer.kind` off a `substrate.ProducerStarted / Failed / Cancelled` payload.
+
+    The lifecycle envelopes carry `payload["producer"]` as `{kind, instance, parent}` per
+    kernel §4. Trigger predicates and the ModelFailures view both need to filter by that
+    kind; this helper is the one source of truth for the defensive `isinstance` ladder.
+    """
+    ref = payload.get("producer") if isinstance(payload, dict) else None
+    return ref.get("kind") if isinstance(ref, dict) else None
+
+
 class ModelFailures:
     """Payloads of `substrate.ProducerFailed` where `producer.kind == "model"`.
 
@@ -31,9 +42,7 @@ class ModelFailures:
 
     def update(self, event: Event) -> None:
         payload = event.payload if isinstance(event.payload, dict) else {}
-        ref = payload.get("producer")
-        kind = ref.get("kind") if isinstance(ref, dict) else None
-        if kind == "model":
+        if producer_kind_from_lifecycle_payload(payload) == "model":
             self._items.append(payload)
 
     def value(self) -> list[Any]:

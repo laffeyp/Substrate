@@ -75,15 +75,12 @@ async def test_one_turn_scripted_pauses_on_park(tmp_path: Path) -> None:
     assert_event(record_root, "Park", reason="final_answer", turn_index=0)
     # No SessionEnded on the first turn — the pause holds the run.
     assert_no_event(record_root, "SessionEnded")
-    # `assert_replayable(root, "3a")` would be the natural next check — scripted
-    # DeterministicResponder + deterministic CALCULATOR tool → the run should replay
-    # byte-identical. Not called here: `Runtime(root, persistent=True).resume(...)` on
-    # a FRESH root skips `_bootstrap` (`runtime.py:216-218`) and enters
-    # `_resume_bootstrap` (`runtime.py:409-450`) which does not write `substrate.RunStarted`.
-    # Level-3(a) reads the deterministic-producer manifest off RunStarted, so replay
-    # refuses with "no RunStarted". Sprint 214 (daemon session API core) needs to define
-    # the session-open dance — either a fresh `.resume()` writes RunStarted, or the
-    # daemon opens with `.run()` for a priming turn first. Filed on the BLACKBOARD.
+    # `assert_replayable(root, "3a")` is not called here — a fresh `.resume()` skips
+    # RunStarted, so Level-3(a) refuses. Sprint 214 (daemon session API core) owns the
+    # session-open dance fix. Full explanation on the BLACKBOARD; sprint 209a card
+    # halt-conditions section names the same gap. Sprint 209b's `test_session_topology_bundled`
+    # exercises replay via the CI wrapper, which drives everything through one `.run()`
+    # and writes RunStarted normally.
 
 
 @pytest.mark.asyncio

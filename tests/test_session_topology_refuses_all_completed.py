@@ -51,7 +51,7 @@ def test_direct_all_completed_is_refused() -> None:
     with pytest.raises(api.RegistrationError) as info:
         _refuse_all_completed(policy)
     assert "all_completed" in str(info.value)
-    assert "policies.py:90-97" in str(info.value)
+    assert "policies.py::all_completed" in str(info.value)
 
 
 def test_all_completed_inside_any_of_is_refused() -> None:

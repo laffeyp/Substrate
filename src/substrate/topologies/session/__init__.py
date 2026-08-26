@@ -19,12 +19,12 @@ the real model / tool / park / session_end loop and the rolling-window transcrip
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator, Callable
+from pathlib import Path
 from typing import Any
 
 from msgspec import Struct
-
-import re
 
 from ... import api
 from ...adapters import DeterministicResponder, Responder
@@ -51,8 +51,8 @@ def _refuse_all_completed(policy: TerminationPolicy) -> None:
             "session_topology termination policy contains `all_completed` "
             f"(name={policy.name!r}). A pausable topology on all_completed hangs on "
             "resume — the paused Producer's ProducerStarted has no durable end, so "
-            "started > ended forever. See kernel/policies.py:90-97. Compose with "
-            "quiescence_with_watchdog or threshold_count instead."
+            "started > ended forever. See kernel/policies.py::all_completed. Compose "
+            "with quiescence_with_watchdog or threshold_count instead."
         )
 
 
@@ -144,35 +144,59 @@ def _model_factory(
     driver: Responder,
     per_turn: str,
     script: list[tuple[str, list[Any]]] | None,
+    seed: str,
+    driver_context_tokens: int,
+    driver_headroom_frac: float,
+    record_root: Path | None,
 ) -> Callable[[], Any]:
-    """Model Producer body. Yields ToolCall, ModelReply, or FinalAnswer per firing.
+    """Model Producer body. Yields TranscriptCompacted, ToolCall, ModelReply, or FinalAnswer.
 
-    Three dispatch paths in order:
-      1. `final=True` on the wrap-up trigger's input: force a FinalAnswer synthesized
-         from the last tool result (or a stubbed no-result note).
-      2. `script` given: read `script[step]` as `(tool, args)` and yield a ToolCall;
-         once the script exhausts, yield a FinalAnswer citing the last tool output.
-         This is the CI dispatch path — a scripted deterministic driver keeps records
-         byte-stable. It parallels `tool_loop`'s script hook.
-      3. Otherwise: call `driver.respond(...)` on the assembled prompt (built from
-         the seed-derived rolling transcript in a later sprint; for now the caller
-         hands `assembled_prompt` on `resume-on-user` or a synthesized "continue"
-         prompt on `continue`). Emit one `ModelReply` with the response text; if
-         the response looks like a `TOOL: <name> args=[...]` line, yield a ToolCall
-         instead. This is the minimal driver-parse path; sprint-210's observation
-         contract runs against a real LLM via the same path.
+    Sprint 209a v2 (post-review 2026-08-25) wires the four order-of-operations:
 
-    A run of `_MAX_CONSECUTIVE_FAILS` tool failures at the tail bails with a
-    truthful FinalAnswer citing the last error — matches `tool_loop`'s anti-spin
-    guard.
+      1. **Transcript render + compaction emit.** When `record_root` is set, the body
+         calls `render_transcript(...)` at the start of every firing and yields each
+         `TranscriptCompacted` from `result.compaction_events` BEFORE any of the other
+         schemas. This anchors the compaction to the model firing that drove it, per
+         `transcript.py` §cadence and vocab-lock §F #6.
+      2. **wrap-up guard.** `final=True` on the wrap-up trigger's input forces a
+         `FinalAnswer` synthesized from the last tool result (or a stubbed no-result
+         note when there is none).
+      3. **Anti-spin.** A run of `_MAX_CONSECUTIVE_FAILS` tool failures at the tail
+         bails with a truthful `FinalAnswer` citing the last error. Matches
+         `tool_loop`'s guard.
+      4. **Dispatch to a call.** Scripted path (CI): `script[step]` yields a
+         `ToolCall`; on exhaustion, a `FinalAnswer`. Driver path (real LLM or
+         DeterministicResponder): `driver.respond(prompt)` yields `ModelReply`
+         then `FinalAnswer`. The prompt is `result.prompt_text` when the renderer
+         ran, or a bare `assembled_prompt` when it did not (CI without a
+         `record_root` binding). The reviewer-flagged `TOOL:` parse branch is
+         deferred — sprint 210 (piece-A observation contract against a real LLM)
+         is where a real driver-parse path lands.
     """
 
-    async def _model(inp: Any) -> AsyncIterator[ToolCall | ModelReply | FinalAnswer]:
+    async def _model(
+        inp: Any,
+    ) -> AsyncIterator[ToolCall | ModelReply | FinalAnswer | TranscriptCompacted]:
         step = int(inp.get("step", 0)) if hasattr(inp, "get") else 0
         results = list(inp.get("results", [])) if hasattr(inp, "get") else []
         final = bool(inp.get("final", False)) if hasattr(inp, "get") else False
         turn_index = int(inp.get("turn_index", 0)) if hasattr(inp, "get") else 0
         assembled_prompt = str(inp.get("assembled_prompt", "")) if hasattr(inp, "get") else ""
+
+        prompt_text = assembled_prompt
+        if record_root is not None:
+            rendered = render_transcript(
+                record_root=record_root,
+                seed=seed,
+                per_turn=per_turn,
+                driver_context_tokens=driver_context_tokens,
+                driver_headroom_frac=driver_headroom_frac,
+                turn_index_now=turn_index,
+            )
+            for compaction in rendered.compaction_events:
+                yield compaction
+            prompt_text = rendered.prompt_text
+
         if final:
             text = _answer_text_from_results(results)
             yield FinalAnswer(text=text, steps=step)
@@ -196,8 +220,7 @@ def _model_factory(
             else:
                 yield FinalAnswer(text=_answer_text_from_results(results), steps=step)
             return
-        prompt = _prompt_for_driver(assembled_prompt, per_turn, results)
-        reply_text = str(driver.respond(prompt))
+        reply_text = str(driver.respond(prompt_text))
         yield ModelReply(text=reply_text, model_usage={}, turn_index=turn_index)
         yield FinalAnswer(text=reply_text, steps=step)
 
@@ -211,25 +234,6 @@ def _answer_text_from_results(results: list[dict[str, Any]]) -> str:
     if not last.get("ok", True):
         return f"stopped: {last.get('error', 'tool failed')}"
     return str(last.get("output", ""))
-
-
-def _prompt_for_driver(
-    assembled_prompt: str,
-    per_turn: str,
-    results: list[dict[str, Any]],
-) -> str:
-    lines: list[str] = []
-    if per_turn:
-        lines.append(per_turn.rstrip())
-    if assembled_prompt:
-        lines.append(assembled_prompt)
-    if results:
-        progress = [
-            {"tool": r.get("tool"), "ok": r.get("ok", True), "output": r.get("output", "")}
-            for r in results
-        ]
-        lines.append(f"Tool results so far: {progress}")
-    return "\n".join(lines)
 
 
 def _session_warning_factory(
@@ -274,6 +278,8 @@ def session_topology(
     parent_session_id: str | None = None,
     parent_seq_at_call: int | None = None,
     script: list[tuple[str, list[Any]]] | None = None,
+    record_root: Path | None = None,
+    driver_headroom_frac: float = 0.6,
 ) -> Callable[[api.TopologyBuilder], None]:
     """Build the session topology.
 
@@ -292,8 +298,12 @@ def session_topology(
     # They ride the signature so the outer daemon does not shift when they wire up.
 
     def _step_of(ctx: Any) -> int:
+        # `step` rides ToolResult and continue/wrap-up input payloads. Absent means the
+        # first firing of a turn (resume-on-user) — step 0. Historical default of
+        # `turn_max_steps` was a coincidental failsafe that routed a missing step to
+        # wrap-up; explicit 0 matches the actual semantics.
         payload = getattr(ctx.event, "payload", None) or {}
-        return int(payload.get("step", turn_max_steps))
+        return int(payload.get("step", 0))
 
     def _turn_index(ctx: Any) -> int:
         # UserMessage KindCount rides `user_turns`; the count is 1-based right after
@@ -303,8 +313,7 @@ def session_topology(
 
     def _producer_kind_from_ref(ctx: Any) -> str | None:
         payload = getattr(ctx.event, "payload", None) or {}
-        ref = payload.get("producer") if isinstance(payload, dict) else None
-        return ref.get("kind") if isinstance(ref, dict) else None
+        return producer_kind_from_lifecycle_payload(payload)
 
     def _continue_input(ctx: Any, *, final: bool) -> dict[str, Any]:
         return {
@@ -314,16 +323,26 @@ def session_topology(
             "turn_index": _turn_index(ctx),
         }
 
-    # A scripted CI dispatch produces a byte-stable record; a real driver never does,
-    # so the model producer stays `deterministic=False` in the driver-parse path.
-    model_is_deterministic = script is not None and isinstance(driver, DeterministicResponder)
+    # DeterministicResponder is deterministic on (prompt, seed) by construction; both
+    # the scripted path and the driver-parse path are byte-stable when the driver is
+    # deterministic. A real OllamaResponder or CliResponder is not — the model producer
+    # stays `deterministic=False` on those paths.
+    model_is_deterministic = isinstance(driver, DeterministicResponder)
 
     def topo(b: api.TopologyBuilder) -> None:
         b.producer_kind(
             "model",
             schemas=[ToolCall, FinalAnswer, ModelReply, TranscriptCompacted],
             schema_version=1,
-            factory=_model_factory(driver=driver, per_turn=per_turn, script=script),
+            factory=_model_factory(
+                driver=driver,
+                per_turn=per_turn,
+                script=script,
+                seed=seed,
+                driver_context_tokens=driver_context_tokens,
+                driver_headroom_frac=driver_headroom_frac,
+                record_root=record_root,
+            ),
             deterministic=model_is_deterministic,
         )
         b.producer_kind(
@@ -462,13 +481,18 @@ def session_topology(
             policy=api.Once(),
         )
         b.trigger(
+            # end-on-cap fires when the (max_turns + 1)th UserMessage arrives — the intent
+            # is "let max_turns turns complete, then end on the next attempt". `>= max_turns`
+            # off-by-one'd (fired on the max_turnsth message so its turn never ran); `> max_turns`
+            # is what the tech spec §3 wording ("SessionEnded{reason: 'timeout'} on the 201st turn
+            # for max_turns=200") actually names.
             "end-on-cap",
             subscription=api.Subscription(kinds=frozenset({"UserMessage"})),
-            predicate=lambda ctx: int(ctx.views["user_turns"].value()) >= max_turns,
+            predicate=lambda ctx: int(ctx.views["user_turns"].value()) > max_turns,
             starts="session_end",
             input_builder=lambda ctx: {
                 "reason": "timeout",
-                "total_turns": int(ctx.views["user_turns"].value()),
+                "total_turns": int(ctx.views["user_turns"].value()) - 1,
             },
             policy=api.Once(),
         )
@@ -516,7 +540,7 @@ from .transcript import (  # noqa: E402
     render_transcript,
     resolve_driver_context_tokens,
 )
-from .views import ModelFailures  # noqa: E402
+from .views import ModelFailures, producer_kind_from_lifecycle_payload  # noqa: E402
 
 __all__ = [
     "FinalAnswer",

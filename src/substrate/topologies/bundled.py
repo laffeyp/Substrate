@@ -26,6 +26,7 @@ from .prisoners_dilemma import prisoners_dilemma_topology
 from .pair_coding import pair_coding_topology
 from .game_of_life import game_of_life_topology, glider
 from .recursive_decomposition import recursive_decomposition_topology
+from .session.ci import ci_session_topology
 from .swebench_solver.bundled import swebench_repair_ci
 from .tool_loop import tool_loop_topology
 
@@ -83,6 +84,14 @@ BUNDLED: dict[str, Callable[[], _Topo]] = {
     # Uses a deterministic on-disk fixture repo under ~/.substrate/ci-fixtures/swebench_repair/
     # (override via SUBSTRATE_CI_FIXTURE_ROOT) so the record is byte-stable across regenerations.
     "swebench_repair": swebench_repair_ci,
+    # Sprint 209b: the daily-driver session topology. `session_topology` itself terminates on
+    # `pause_await_input(Park)` — the correct shape for a driver conversation — but does not
+    # finalise in one `.run()`, so `gen_topology_records.py` cannot record it directly. The
+    # `ci_session_topology` wrapper adds an opener producer that walks a three-turn script
+    # ending in `/exit`, and overrides the termination to `threshold_count(SessionEnded, 1)`
+    # so the CI record finalises cleanly. Everything else — Structs, triggers, Views — comes
+    # from `session_topology` unchanged.
+    "session": ci_session_topology,
 }
 
 _registered = False
