@@ -16,6 +16,7 @@ import pytest
 
 from substrate import api
 from substrate.adapters import DeterministicResponder
+from substrate.testing import assert_event
 from substrate.topologies.session import session_topology
 
 
@@ -87,12 +88,24 @@ async def test_session_warning_producer_emits_exactly_one_and_completes(tmp_path
         b.initial("session_warning", input={})
         b.termination(api.threshold_count("SessionWarning", 1))
 
-    await api.Runtime(tmp_path / "sess-warn").run(solo_topo)
-    envelopes = list(api.read_record(tmp_path / "sess-warn"))
-    warnings = [e for e in envelopes if e["kind"] == "SessionWarning"]
-    assert len(warnings) == 1
-    payload = warnings[0]["payload"]
-    assert payload["kind"] == "seed_alone_exceeds"
-    assert payload["session_id"] == "sess-warn"
-    assert payload["driver_context_tokens"] == 4096
-    assert payload["seed_tokens"] > payload["driver_context_tokens"] * 0.6
+    record_root = tmp_path / "sess-warn"
+    await api.Runtime(record_root).run(solo_topo)
+    # Exactly-one contract via assert_sequence over the payload-carrying kinds.
+    payload_kinds = [
+        e["kind"] for e in api.read_record(record_root) if not e["kind"].startswith("substrate.")
+    ]
+    assert payload_kinds == ["SessionWarning"]
+    # Payload assertions via the F-API-4 primitive. `SessionWarning.kind` collides
+    # with `assert_event`'s positional `kind` parameter, so filter on the fields
+    # the primitive can address and verify `payload["kind"]` on the returned
+    # envelope directly.
+    warning = assert_event(
+        record_root,
+        "SessionWarning",
+        session_id="sess-warn",
+        driver_context_tokens=4096,
+    )
+    assert warning["payload"]["kind"] == "seed_alone_exceeds"
+    assert warning["payload"]["seed_tokens"] > warning["payload"]["driver_context_tokens"] * 0.6
+    # The session_warning producer is declared deterministic; the record must replay byte-identical.
+    api.assert_replayable(record_root, "3a")

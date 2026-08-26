@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 
 from substrate import api
+from substrate.testing import assert_event
 from substrate.topologies.session import ModelReply, UserMessage
 from substrate.topologies.session.transcript import render_transcript
 
@@ -66,9 +67,10 @@ def _fixture_topology(turns: int) -> Callable[[api.TopologyBuilder], None]:
 async def test_transcript_compacted_seqs_match_on_real_record(tmp_path: Path) -> None:
     record_root = tmp_path / "session"
     await api.Runtime(record_root).run(_fixture_topology(turns=10))
-    envelopes = list(api.read_record(record_root))
-    user_messages = [e for e in envelopes if e["kind"] == "UserMessage"]
-    assert len(user_messages) == 10
+    # Anchor the first + sixth UserMessage seqs via F-API-4 primitives; assert_event
+    # returns the matching envelope so the seq math below stays record-derived.
+    first_user = assert_event(record_root, "UserMessage", turn_index=0)
+    kept_head_user = assert_event(record_root, "UserMessage", turn_index=5)
     result = render_transcript(
         record_root=record_root,
         seed="",
@@ -79,9 +81,11 @@ async def test_transcript_compacted_seqs_match_on_real_record(tmp_path: Path) ->
     assert result.turns_dropped == 5
     assert len(result.compaction_events) == 1
     comp = result.compaction_events[0]
-    assert comp.dropped_seq_range[0] == user_messages[0]["seq"]
-    assert comp.kept_seq_start == user_messages[5]["seq"]
+    assert comp.dropped_seq_range[0] == first_user["seq"]
+    assert comp.kept_seq_start == kept_head_user["seq"]
     assert comp.dropped_seq_range[1] < comp.kept_seq_start
+    # The fixture producer is deterministic; the record must replay byte-identical.
+    api.assert_replayable(record_root, "3a")
 
 
 @pytest.mark.asyncio
@@ -97,3 +101,4 @@ async def test_no_transcript_compacted_on_short_real_record(tmp_path: Path) -> N
     )
     assert result.turns_dropped == 0
     assert result.compaction_events == []
+    api.assert_replayable(record_root, "3a")
