@@ -111,6 +111,9 @@ Superseded drafts under `docs/specs/product_spec/`, `docs/specs/technical_spec/`
 | Driver context lookup (`resolve_driver_context_tokens`, 60-s TTL cache, CLI-config fallback at 100 000 default, `DeterministicResponder` at 4096 constant) | `substrate/src/substrate/topologies/session/transcript.py` | sprint 208 |
 | Driver introspection API (`OllamaResponder.context_tokens()`, typed `ContextTokensUnknown` and `DriverIntrospectionUnavailable` errors) | `substrate/src/substrate/adapters/models.py` | sprint 208 |
 | Session `session_warning` producer + seed-alone-exceeds guard (registered on `session_topology`, binds `initial("session_warning", ...)` only when `_est_tokens(seed) + _est_tokens(per_turn) > driver_context_tokens * 0.6`) | `substrate/src/substrate/topologies/session/__init__.py` | sprint 208 |
+| SessionRegistry (in-memory name index + per-session `asyncio.Lock` map + boot scan) | `substrate-ui/session_registry.py` | sprint 211 |
+| Session name → session_id index (persistent, `fcntl.flock`-atomic writes via `.by-name.lock` sibling; atomic-write via tempfile+rename) | `~/.substrate/sessions/by-name.json` | sprint 211 |
+| Session manifest (per-session hint the boot scan reads to rebuild the in-memory catalog; `SessionManifest` msgspec Struct per TECH-SPEC §5; status one of `running`/`parked`/`interrupted`/`ended`) | `~/.substrate/sessions/<session_id>/manifest.json` | sprint 211 |
 
 Every claim in TECH-SPEC-2026-08-25-round6 about where a daily-driver entity lives cites a row above. When a downstream sprint discovers a new entity, it halts on `canonical_home_missing` and adds the row before writing code.
 

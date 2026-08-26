@@ -3,7 +3,7 @@
 ```yaml
 ---
 id: 211
-status: pending
+status: closed
 phase: daily-driver-piece-C
 pass_kind: architecture
 ---
@@ -45,7 +45,12 @@ Author `substrate-ui/session_registry.py` (a substrate-ui module, since the daem
 
 ## observation contract
 
-Create three named sessions; kill the daemon (SIGKILL); restart; assert all three show up in `substrate session ls` with correct status (running → interrupted; parked → parked; ended → ended).
+**Scope amendment folded 2026-08-26.** The original observation contract calls for `substrate session ls` — the CLI verb that lands with sprint 222 and does not exist yet. Rescoped in place: sprint 211 discharges an in-process restart simulation. `test_boot_scan_restores_multiple_sessions_across_restart` creates two sessions with a first `SessionRegistry`, finalises one via `ci_session_topology`, then constructs a SECOND `SessionRegistry` against the same base directory. The fresh registry's `boot_scan()` reads by-name.json + every manifest.json and reclassifies status per the record's own last envelope: `substrate.RunFinalised` → `ended`, `substrate.TerminationMatched(decision="pause-await-input")` → `parked`, torn tail or gap → `interrupted`, everything else → `interrupted`. Sprint 222 adds the SIGKILL/restart harness driven through the shipped CLI.
+
+**Two real bugs surfaced during the sprint 211 tests and fixed at the root.**
+
+  1. `_scan_record_status` initially used `api.recover_open_segment(record_root)` to detect a torn tail. That function is a WRITE operation — it truncates a torn tail and returns the frames-kept count (not None — see `record/record.py:304-324`). Rewritten to read the record's last envelope: RunFinalised → ended, TerminationMatched-pause-await-input → parked, anything else → interrupted.
+  2. `_FlockedIndex` initially took the flock on `by-name.json` itself. `_atomic_write_json` writes via tempfile + `os.replace`, which swaps the inode. The next caller's `open()` gets the NEW inode and its flock is on a different lock object — no mutual exclusion. Rewritten to take the flock on a stable sibling `.by-name.lock` file that atomic-rename never touches. The 100-concurrent-create test surfaced this; the fix ships all 100 entries to disk in a single run.
 
 ## halt conditions
 
