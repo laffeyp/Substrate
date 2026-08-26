@@ -27,8 +27,9 @@ from msgspec import Struct
 import re
 
 from ... import api
-from ...adapters import Responder
+from ...adapters import DeterministicResponder, Responder
 from ...kernel.policies import TerminationPolicy
+from ..tool_loop import _tool_factory as _tool_loop_tool_factory
 from ..tool_loop.tools import Tool
 
 _ALL_COMPLETED_RE = re.compile(r"\ball_completed\b")
@@ -110,41 +111,125 @@ class SessionWarning(Struct, frozen=True):
     driver_context_tokens: int
 
 
-# Sprint 206 replaces every producer body below with the real loop. The scaffold keeps
-# registration honest — schemas, deterministic flag, factory shape — so `build()` fails
-# on the missing terminal, not on the missing producer body.
+# Sprint 209a wires the four core producer bodies. The model producer reads the
+# just-appended UserMessage / ToolResult and yields ToolCall / ModelReply / FinalAnswer.
+# The tool producer is verbatim from `tool_loop` — same tool seam, same error-as-observation
+# discipline. Park and session_end each yield one Struct and complete; both declared
+# `deterministic=True` because the emission depends only on the trigger input.
 
 
-def _scaffold_model_factory() -> Callable[[], Any]:
-    async def _model(inp: Any) -> AsyncIterator[Any]:
-        raise NotImplementedError("session `model` producer wires in sprint 206")
-        yield  # pragma: no cover — makes the async generator type check
-
-    return lambda: _model
+_MAX_CONSECUTIVE_FAILS = 3
 
 
-def _scaffold_tool_factory() -> Callable[[], Any]:
-    async def _tool(inp: Any) -> AsyncIterator[Any]:
-        raise NotImplementedError("session `tool` producer wires in sprint 206")
-        yield  # pragma: no cover
-
-    return lambda: _tool
-
-
-def _scaffold_park_factory() -> Callable[[], Any]:
+def _park_factory() -> Callable[[], Any]:
     async def _park(inp: Any) -> AsyncIterator[Park]:
-        raise NotImplementedError("session `park` producer wires in sprint 206")
-        yield  # pragma: no cover
+        turn_index = int(inp.get("turn_index", 0)) if hasattr(inp, "get") else 0
+        reason = str(inp.get("reason", "final_answer")) if hasattr(inp, "get") else "final_answer"
+        yield Park(awaiting="UserMessage", turn_index=turn_index, reason=reason)
 
     return lambda: _park
 
 
-def _scaffold_session_end_factory() -> Callable[[], Any]:
+def _session_end_factory() -> Callable[[], Any]:
     async def _session_end(inp: Any) -> AsyncIterator[SessionEnded]:
-        raise NotImplementedError("session `session_end` producer wires in sprint 206")
-        yield  # pragma: no cover
+        reason = str(inp.get("reason", "user_exit")) if hasattr(inp, "get") else "user_exit"
+        total_turns = int(inp.get("total_turns", 0)) if hasattr(inp, "get") else 0
+        yield SessionEnded(reason=reason, total_turns=total_turns)
 
     return lambda: _session_end
+
+
+def _model_factory(
+    *,
+    driver: Responder,
+    per_turn: str,
+    script: list[tuple[str, list[Any]]] | None,
+) -> Callable[[], Any]:
+    """Model Producer body. Yields ToolCall, ModelReply, or FinalAnswer per firing.
+
+    Three dispatch paths in order:
+      1. `final=True` on the wrap-up trigger's input: force a FinalAnswer synthesized
+         from the last tool result (or a stubbed no-result note).
+      2. `script` given: read `script[step]` as `(tool, args)` and yield a ToolCall;
+         once the script exhausts, yield a FinalAnswer citing the last tool output.
+         This is the CI dispatch path — a scripted deterministic driver keeps records
+         byte-stable. It parallels `tool_loop`'s script hook.
+      3. Otherwise: call `driver.respond(...)` on the assembled prompt (built from
+         the seed-derived rolling transcript in a later sprint; for now the caller
+         hands `assembled_prompt` on `resume-on-user` or a synthesized "continue"
+         prompt on `continue`). Emit one `ModelReply` with the response text; if
+         the response looks like a `TOOL: <name> args=[...]` line, yield a ToolCall
+         instead. This is the minimal driver-parse path; sprint-210's observation
+         contract runs against a real LLM via the same path.
+
+    A run of `_MAX_CONSECUTIVE_FAILS` tool failures at the tail bails with a
+    truthful FinalAnswer citing the last error — matches `tool_loop`'s anti-spin
+    guard.
+    """
+
+    async def _model(inp: Any) -> AsyncIterator[ToolCall | ModelReply | FinalAnswer]:
+        step = int(inp.get("step", 0)) if hasattr(inp, "get") else 0
+        results = list(inp.get("results", [])) if hasattr(inp, "get") else []
+        final = bool(inp.get("final", False)) if hasattr(inp, "get") else False
+        turn_index = int(inp.get("turn_index", 0)) if hasattr(inp, "get") else 0
+        assembled_prompt = str(inp.get("assembled_prompt", "")) if hasattr(inp, "get") else ""
+        if final:
+            text = _answer_text_from_results(results)
+            yield FinalAnswer(text=text, steps=step)
+            return
+        trailing_fails = 0
+        for r in reversed(results):
+            if r.get("ok", True):
+                break
+            trailing_fails += 1
+        if trailing_fails >= _MAX_CONSECUTIVE_FAILS:
+            last_err = str(results[-1].get("error", "tool failed"))
+            yield FinalAnswer(
+                text=f"stopped after {trailing_fails} failed tool call(s): {last_err}",
+                steps=step,
+            )
+            return
+        if script is not None:
+            if step < len(script):
+                tool, args = script[step]
+                yield ToolCall(call_id=f"c{step}", tool=tool, args=list(args), step=step)
+            else:
+                yield FinalAnswer(text=_answer_text_from_results(results), steps=step)
+            return
+        prompt = _prompt_for_driver(assembled_prompt, per_turn, results)
+        reply_text = str(driver.respond(prompt))
+        yield ModelReply(text=reply_text, model_usage={}, turn_index=turn_index)
+        yield FinalAnswer(text=reply_text, steps=step)
+
+    return lambda: _model
+
+
+def _answer_text_from_results(results: list[dict[str, Any]]) -> str:
+    if not results:
+        return "no result"
+    last = results[-1]
+    if not last.get("ok", True):
+        return f"stopped: {last.get('error', 'tool failed')}"
+    return str(last.get("output", ""))
+
+
+def _prompt_for_driver(
+    assembled_prompt: str,
+    per_turn: str,
+    results: list[dict[str, Any]],
+) -> str:
+    lines: list[str] = []
+    if per_turn:
+        lines.append(per_turn.rstrip())
+    if assembled_prompt:
+        lines.append(assembled_prompt)
+    if results:
+        progress = [
+            {"tool": r.get("tool"), "ok": r.get("ok", True), "output": r.get("output", "")}
+            for r in results
+        ]
+        lines.append(f"Tool results so far: {progress}")
+    return "\n".join(lines)
 
 
 def _session_warning_factory(
@@ -188,33 +273,23 @@ def session_topology(
     workspace_path: str,
     parent_session_id: str | None = None,
     parent_seq_at_call: int | None = None,
+    script: list[tuple[str, list[Any]]] | None = None,
 ) -> Callable[[api.TopologyBuilder], None]:
-    """Build the session topology (skeleton — sprint 205).
+    """Build the session topology.
 
-    Twelve keyword arguments name every input the daily-driver session opens with; the
+    Thirteen keyword arguments name every input the daily-driver session opens with; the
     seed is the assembled string from §1.6.5 (composed by the daemon before this call).
-    Sprint 205 registers Producers + Views + Structs and stops there. `TopologyBuilder.build()`
-    will raise `RegistrationError` naming the missing terminal — that failure is how sprint
-    206 knows it inherits a scaffolded surface. Sprint 208 adds a `session_warning` producer
-    for the `SessionWarning` Struct declared here.
+    Sprint 205 registered Producers + Views + Structs. Sprint 206 added the ten triggers
+    and composed termination. Sprint 208 added the `session_warning` producer + guard.
+    Sprint 209a wires the four core producer bodies (model / tool / park / session_end).
+    The `script` kwarg is the CI dispatch hook: a list of `(tool_name, args)` the model
+    fires in order, matching `tool_loop`'s script convention; omit for the driver-parse
+    path.
     """
 
-    # Locals unused in the scaffold. Sprint 206's model/park/session_end factories
-    # will close over these; keep them named so the signature stays stable across sprints.
-    _ = (
-        driver,
-        driver_name,
-        driver_context_tokens,
-        seed,
-        tools,
-        per_turn,
-        max_turns,
-        turn_max_steps,
-        session_id,
-        workspace_path,
-        parent_session_id,
-        parent_seq_at_call,
-    )
+    # `driver_name`, `workspace_path`, `parent_session_id`, `parent_seq_at_call` are
+    # placeholders on the daemon's call-site contract; sprint 213/217/225 bind them.
+    # They ride the signature so the outer daemon does not shift when they wire up.
 
     def _step_of(ctx: Any) -> int:
         payload = getattr(ctx.event, "payload", None) or {}
@@ -239,33 +314,37 @@ def session_topology(
             "turn_index": _turn_index(ctx),
         }
 
+    # A scripted CI dispatch produces a byte-stable record; a real driver never does,
+    # so the model producer stays `deterministic=False` in the driver-parse path.
+    model_is_deterministic = script is not None and isinstance(driver, DeterministicResponder)
+
     def topo(b: api.TopologyBuilder) -> None:
         b.producer_kind(
             "model",
             schemas=[ToolCall, FinalAnswer, ModelReply, TranscriptCompacted],
             schema_version=1,
-            factory=_scaffold_model_factory(),
-            deterministic=False,
+            factory=_model_factory(driver=driver, per_turn=per_turn, script=script),
+            deterministic=model_is_deterministic,
         )
         b.producer_kind(
             "tool",
             schemas=[ToolResult],
             schema_version=1,
-            factory=_scaffold_tool_factory(),
-            deterministic=False,
+            factory=_tool_loop_tool_factory(tools),
+            deterministic=all(t.deterministic for t in tools.values()) if tools else True,
         )
         b.producer_kind(
             "park",
             schemas=[Park],
             schema_version=1,
-            factory=_scaffold_park_factory(),
+            factory=_park_factory(),
             deterministic=True,
         )
         b.producer_kind(
             "session_end",
             schemas=[SessionEnded],
             schema_version=1,
-            factory=_scaffold_session_end_factory(),
+            factory=_session_end_factory(),
             deterministic=True,
         )
         # Seed-alone-exceeds guard per TECH-SPEC §3a. The threshold is the same
