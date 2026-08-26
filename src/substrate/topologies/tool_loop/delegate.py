@@ -196,6 +196,14 @@ def make_delegate(
     max_children: int = 4,
     child_max_steps: int = 6,
     timeout_seconds: float = 600.0,
+    # Sprint 212: daemon-injected constructor args. All default None so every existing
+    # `make_delegate(...)` call in the tree keeps working. Sprint 213 wires the four
+    # dispatch paths (standing session, different driver, context slice, fresh child)
+    # against these fields; sprint 212 just parses the per-call args and threads them
+    # through so a caller can INSPECT them via the returned Tool.schema before 213 lands.
+    session_registry: Any = None,
+    parent_session_id: str | None = None,
+    parent_record_root: Path | None = None,
 ) -> Tool:
     """A `delegate` Tool the caller composes into a tool_loop suite: `{**full_suite(root), "delegate":
     make_delegate(responder=..., root=...)}`. Calling `delegate(task)` runs a child agent on `task` to a
@@ -232,8 +240,32 @@ def make_delegate(
         )
     spawned = {"n": 0}  # per-instance fan-out counter (the factory is built once per run)
 
+    # Sprint 212: constructor-time provenance the child return will cite once sprint 213
+    # wires the dispatch paths (parent_session_id + parent_seq_at_call on the child baseline
+    # per TECH-SPEC §5). `session_registry` is deliberately typed `Any`: the daemon injects
+    # a `substrate_ui.session_registry.SessionRegistry` at call time, but substrate itself
+    # holds no dependency on the substrate-ui module (F-API-6 keeps the boundary honest).
+    _ = parent_session_id, parent_record_root, session_registry
+
     def run(a: list[Any]) -> dict[str, Any]:
-        task = str(a[0]) if a else ""
+        # Sprint 212 parses per-call args from either a dict (the x-args-passthrough path
+        # from tools.py::_named_to_positional) or a plain string (backwards compat with
+        # every existing caller). Every existing tool_loop test that fires `delegate(task)`
+        # with a bare string sees the same behavior it always saw.
+        if a and isinstance(a[0], dict):
+            args_dict = dict(a[0])
+        elif a:
+            args_dict = {"task": str(a[0])}
+        else:
+            args_dict = {"task": ""}
+        task = str(args_dict.get("task", ""))
+        # Sprint 213 wires the four dispatch paths against these values. Sprint 212
+        # parses them into `args_dict` so a caller can read them via `parse_tool_call`
+        # and the model's native tool-call shape stays intact across model versions.
+        # Currently every call falls through to the round-1 fresh-child path.
+        _ = args_dict.get("model"), args_dict.get("child_session_name")
+        _ = args_dict.get("context"), args_dict.get("baseline")
+        _ = args_dict.get("timeout_seconds")
         if depth >= max_depth:
             # the chain is at its limit — refuse, as a typed failure the model reads (never recurse past it)
             raise ValueError(
@@ -265,11 +297,65 @@ def make_delegate(
 
     return Tool(
         "delegate",
-        "delegate(task) -> {answer, child_root, steps}: hand a self-contained subtask to a child agent; "
-        "it runs to an answer as its own record and the answer folds back (SIDE EFFECT)",
+        "delegate(task, [model], [child_session_name], [context], [baseline], [timeout_seconds]) -> "
+        "{answer, child_root, steps}: hand a self-contained subtask to a child agent; "
+        "it runs to an answer as its own record and the answer folds back (SIDE EFFECT). "
+        "model swaps the driver; child_session_name routes to a standing session; context selects "
+        "parent events by seq range and kind; baseline overrides the child's TopologyBuilder baseline; "
+        "timeout_seconds caps the child's wall clock",
         False,  # runs a real child agent — not deterministic in the pure sense
         run,
-        # the schema travels WITH the tool (review C-10), not as a row in tools.py's closed literal — so
-        # delegate is visible to native tool-calling without tools.py needing to know delegate exists.
-        {"type": "object", "properties": {"task": {"type": "string"}}, "required": ["task"]},
+        # The schema travels WITH the tool (review C-10) so delegate is visible to native tool-calling
+        # without tools.py needing to know delegate exists.
+        #
+        # `x-args-passthrough: true` is the sprint-212 opt-in that tells `_named_to_positional` in
+        # `tools.py` to hand the full named-args dict to `Tool.run` as a single positional element
+        # (rather than iterating schema properties in order, which stops at the first missing prop
+        # and drops trailing optionals — see `tools.py` for the rationale). Delegate's five optional
+        # kwargs need this: a model that sent `task` + `timeout_seconds` but skipped `model` in the
+        # middle would otherwise lose `timeout_seconds` at the seam.
+        {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "the self-contained subtask for the child",
+                },
+                "model": {
+                    "type": "string",
+                    "description": "optional driver override — a model tag like 'kimi-k2.6:cloud'",
+                },
+                "child_session_name": {
+                    "type": "string",
+                    "description": (
+                        "optional standing-session name — routes the task to an existing named session "
+                        "instead of a fresh child"
+                    ),
+                },
+                "context": {
+                    "type": "object",
+                    "description": (
+                        "optional slice of the parent's record to hand the child as prefix; "
+                        "shape: {parent_seq_range: [int, int], kinds: [str, ...]}"
+                    ),
+                    "properties": {
+                        "parent_seq_range": {"type": "array", "items": {"type": "integer"}},
+                        "kinds": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+                "baseline": {
+                    "type": "object",
+                    "description": (
+                        "optional override for the child TopologyBuilder's baseline — a bare dict "
+                        "merged into whatever the child factory declares"
+                    ),
+                },
+                "timeout_seconds": {
+                    "type": "number",
+                    "description": "optional per-call wall-clock cap (seconds); default 600.0",
+                },
+            },
+            "required": ["task"],
+            "x-args-passthrough": True,
+        },
     )

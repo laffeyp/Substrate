@@ -425,9 +425,19 @@ def _named_to_positional(
     """Map a model's NAMED tool args back to the positional list `Tool.run` expects, in schema order.
     Stops at the first missing param so a later arg can never mis-align onto an earlier slot (required
     params are contiguous leading ones, so a trailing optional the model omitted just isn't passed).
-    Falls back to a caller-composed tool's own schema (review C-10)."""
+    Falls back to a caller-composed tool's own schema (review C-10).
+
+    A tool whose schema carries `"x-args-passthrough": true` bypasses the iteration and receives
+    the full named-args dict as a single positional element: `[args]`. This is the delegate seam
+    (sprint 212): delegate's five optional kwargs (`model`, `child_session_name`, `context`,
+    `baseline`, `timeout_seconds`) don't survive the "stop at first missing" contract — a model
+    that skipped `model` but sent `timeout_seconds` would lose the trailing arg. The passthrough
+    marker keeps every arg the model set."""
+    schema = _schema_for(name, suite) or {}
+    if schema.get("x-args-passthrough"):
+        return [dict(args)]
     out: list[Any] = []
-    for p in (_schema_for(name, suite) or {}).get("properties", {}):
+    for p in schema.get("properties", {}):
         if p not in args:
             break
         out.append(args[p])

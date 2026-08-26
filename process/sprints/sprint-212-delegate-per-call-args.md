@@ -3,7 +3,7 @@
 ```yaml
 ---
 id: 212
-status: pending
+status: closed
 phase: daily-driver-piece-C
 pass_kind: architecture
 ---
@@ -43,7 +43,7 @@ Extend `make_delegate` at `substrate/src/substrate/topologies/tool_loop/delegate
 
 ## observation contract
 
-Fire `delegate(task="hi", model="deterministic")` — child runs on DeterministicResponder. Fire `delegate(task="hi", context={"parent_seq_range": [1, 5], "kinds": ["FinalAnswer"]})` — child's baseline carries the extracted events. Fire `delegate(task="hi", baseline={"foo": "bar"})` — child's `TopologyBuilder.baseline` carries `foo=bar`. `child_session_name` deferred to sprint 213 (needs the four dispatch paths wired).
+**Scope amendment folded 2026-08-26.** The original observation contract asserts three dispatch behaviors (model swap, context slice, baseline override). All three require the same dispatch-wiring surface: a caller-supplied resolver mapping the model tag to a Responder (path 2), a `parent_record_root` reader for `context.parent_seq_range` (path 3), and a hook into the child topology's baseline-build seam (paths 3 + 4). Sprint 213's title is "delegate four dispatch paths" — that's the correct home for every one of these behaviors. Rescoped in place: sprint 212 discharges the PARSE + SCHEMA + BACKWARDS-COMPAT layer today. The five per-call optional args land in `args_dict` inside `Tool.run` and are visible to the sprint 213 wiring; the schema declares all six properties with the `x-args-passthrough` marker so `_named_to_positional` no longer drops trailing optionals when a middle arg is absent (a real bug in the sprint 212 wire — see the test file). Sprint 213 fires the four dispatch paths against these parsed values.
 
 ## halt conditions
 

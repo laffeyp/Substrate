@@ -93,10 +93,14 @@ def test_delegate_is_visible_and_callable_via_native_tool_calling(tmp_path: Path
     assert "delegate" in names  # the model is actually shown the tool
     msg = {"tool_calls": [{"function": {"name": "delegate", "arguments": {"task": "do X"}}}]}
     kind, chosen = parse_tool_call(msg, suite)
+    # Sprint 212: delegate opts into `x-args-passthrough`, so `_named_to_positional` hands
+    # `Tool.run` a single-element list wrapping the full args dict — the shape delegate needs
+    # to read its five optional per-call kwargs without middle-gap drop. The task arg still
+    # reaches the tool; the delivery wire is `[{"task": "do X"}]`, not `["do X"]`.
     assert kind == "tool" and chosen == (
         "delegate",
-        ["do X"],
-    )  # its task arg is mapped, not dropped
+        [{"task": "do X"}],
+    )
 
 
 def test_child_writes_to_workspace_not_its_own_record(tmp_path: Path) -> None:
