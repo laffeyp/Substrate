@@ -36,14 +36,17 @@ safety net, not the primary bound.
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from ... import api
-from ...adapters import Responder
+from ...adapters import DeterministicResponder, OllamaResponder, Responder
 from .tools import Tool, full_suite
+
+_CONTEXT_SLICE_CAP_BYTES = 8192  # TECH-SPEC §1.6.5 explicit cap
 
 # What the child IS, given a subtask and its WORKSPACE root (where its tools operate — distinct from the
 # record root, review C-1). Caller-supplied so delegate is agnostic to session-vs-named-topology, and CI
@@ -171,6 +174,127 @@ def _default_child_factory(
     return factory
 
 
+def _default_model_resolver(name: str) -> Responder:
+    """The substrate-side fallback when the daemon injects nothing: `deterministic`
+    is the CI-mode stand-in; every other name is treated as an Ollama tag.
+
+    The daemon (substrate-ui/server.py `_agent_models`) injects its own richer
+    resolver at construction time — one that knows the CLI shells (Claude, Gemini,
+    Codex) and the rate-limited wrappers. This fallback keeps the substrate-side
+    tests self-contained without pulling substrate-ui into the boundary (F-API-6).
+    """
+    if name == "deterministic":
+        return DeterministicResponder(seed=0)
+    return OllamaResponder(name)
+
+
+def _extract_context_slice(
+    record_root: Path,
+    parent_seq_range: tuple[int, int],
+    kinds: tuple[str, ...],
+    cap_bytes: int = _CONTEXT_SLICE_CAP_BYTES,
+) -> tuple[str, int, int, bool]:
+    """Read `record_root` and produce a text slice of events matching seq range + kinds,
+    capped at `cap_bytes`. Drops at the event boundary — an event's payload survives
+    whole or is elided whole (post-review 2026-08-25 large-event rule).
+
+    Returns `(text, elided_count, elided_bytes, single_oversize)`.
+
+    Iterates events in seq order; accumulates until the next event would push the
+    running total past `cap_bytes`; stops. A single event larger than `cap_bytes`
+    by itself is included alone (its content is what the caller asked for) with a
+    trailing note.
+    """
+    lo, hi = parent_seq_range
+    kinds_set = set(kinds) if kinds else None
+    matching: list[dict[str, Any]] = []
+    for env in api.read_record(record_root):
+        seq = int(env.get("seq", -1))
+        if seq < lo or seq > hi:
+            continue
+        if kinds_set is not None and env.get("kind") not in kinds_set:
+            continue
+        matching.append(env)
+    if not matching:
+        return "", 0, 0, False
+    kept: list[str] = []
+    kept_bytes = 0
+    elided: list[int] = []
+    for env in matching:
+        block = _format_context_event(env)
+        block_bytes = len(block.encode("utf-8"))
+        if not kept and block_bytes > cap_bytes:
+            note = (
+                f"\n... this single event is {block_bytes} bytes, larger than the "
+                f"{cap_bytes}-byte slice cap; no other events fit"
+            )
+            return block + note, 0, 0, True
+        if kept_bytes + block_bytes > cap_bytes:
+            elided.append(block_bytes)
+            continue
+        kept.append(block)
+        kept_bytes += block_bytes
+    text = "\n".join(kept)
+    if elided:
+        elided_bytes = sum(elided)
+        text += f"\n... {len(elided)} events elided; narrow the range ({elided_bytes} bytes)"
+    return text, len(elided), sum(elided), False
+
+
+def _format_context_event(env: dict[str, Any]) -> str:
+    seq = env.get("seq", "?")
+    kind = env.get("kind", "?")
+    payload = env.get("payload") or {}
+    if isinstance(payload, dict):
+        payload_repr = json.dumps(payload, sort_keys=True)
+    else:
+        payload_repr = repr(payload)
+    return f"[seq={seq} kind={kind}] {payload_repr}"
+
+
+def _prefix_context_slice(
+    parent_record_root: Path,
+    task: str,
+    context: dict[str, Any],
+) -> str:
+    """Build a child task string prefixed with the extracted parent-record slice."""
+    seq_range_raw = context.get("parent_seq_range")
+    if isinstance(seq_range_raw, (list, tuple)) and len(seq_range_raw) == 2:
+        seq_range: tuple[int, int] = (int(seq_range_raw[0]), int(seq_range_raw[1]))
+    else:
+        seq_range = (0, 2**31)
+    kinds_raw = context.get("kinds") or ()
+    kinds: tuple[str, ...] = tuple(str(k) for k in kinds_raw) if kinds_raw else ()
+    text, _elided_count, _elided_bytes, _single_oversize = _extract_context_slice(
+        parent_record_root, seq_range, kinds
+    )
+    if not text:
+        return task
+    header = (
+        f"[context from parent record — seq {seq_range[0]}..{seq_range[1]}, kinds={list(kinds)}]"
+    )
+    return f"{header}\n{text}\n---\n{task}"
+
+
+def _with_baseline(
+    topology: Callable[[api.TopologyBuilder], None],
+    merged: dict[str, Any],
+) -> Callable[[api.TopologyBuilder], None]:
+    """Wrap a topology so its builder gets `b.baseline(**merged)` called after the
+    inner topology registers everything else. Used to inject per-call `baseline`
+    overrides and provenance (`parent_session_id`, `parent_seq_at_call`) into the
+    child's `substrate.RunStarted.payload.baseline` for downstream `trace_ancestry`.
+    """
+    if not merged:
+        return topology
+
+    def wrapped(b: api.TopologyBuilder) -> None:
+        topology(b)
+        b.baseline(**merged)
+
+    return wrapped
+
+
 def _unique_child_root(base: Path, depth: int, start: int) -> tuple[Path, int]:
     """A delegation dir (holding the child's `workspace/` + `record/`) that does not already exist on
     disk. Probing disk (not just an in-memory counter) is what prevents a FRESH delegate instance in a
@@ -196,14 +320,17 @@ def make_delegate(
     max_children: int = 4,
     child_max_steps: int = 6,
     timeout_seconds: float = 600.0,
-    # Sprint 212: daemon-injected constructor args. All default None so every existing
-    # `make_delegate(...)` call in the tree keeps working. Sprint 213 wires the four
-    # dispatch paths (standing session, different driver, context slice, fresh child)
-    # against these fields; sprint 212 just parses the per-call args and threads them
-    # through so a caller can INSPECT them via the returned Tool.schema before 213 lands.
+    # Sprint 212 added the daemon-injected fields; sprint 213a wires paths 2/3/4
+    # against them and stubs path 1 for sprint 213b. Every kwarg defaults None so
+    # every existing `make_delegate(...)` call in the tree keeps working.
     session_registry: Any = None,
     parent_session_id: str | None = None,
     parent_record_root: Path | None = None,
+    # Sprint 213a: path 2 needs a caller-supplied string → Responder resolver. The
+    # daemon (substrate-ui/server.py `_agent_models`) injects its own richer resolver;
+    # substrate ships the small `_default_model_resolver` fallback (deterministic +
+    # OllamaResponder) so substrate-side tests self-contain.
+    model_resolver: Callable[[str], Responder] | None = None,
 ) -> Tool:
     """A `delegate` Tool the caller composes into a tool_loop suite: `{**full_suite(root), "delegate":
     make_delegate(responder=..., root=...)}`. Calling `delegate(task)` runs a child agent on `task` to a
@@ -240,18 +367,14 @@ def make_delegate(
         )
     spawned = {"n": 0}  # per-instance fan-out counter (the factory is built once per run)
 
-    # Sprint 212: constructor-time provenance the child return will cite once sprint 213
-    # wires the dispatch paths (parent_session_id + parent_seq_at_call on the child baseline
-    # per TECH-SPEC §5). `session_registry` is deliberately typed `Any`: the daemon injects
-    # a `substrate_ui.session_registry.SessionRegistry` at call time, but substrate itself
-    # holds no dependency on the substrate-ui module (F-API-6 keeps the boundary honest).
-    _ = parent_session_id, parent_record_root, session_registry
+    # Constructor-time provenance. `session_registry` stays typed `Any`: the daemon
+    # injects a `substrate_ui.session_registry.SessionRegistry` at call time; substrate
+    # itself holds no dependency on the substrate-ui module (F-API-6 stays honest).
+    _ = session_registry
 
     def run(a: list[Any]) -> dict[str, Any]:
-        # Sprint 212 parses per-call args from either a dict (the x-args-passthrough path
-        # from tools.py::_named_to_positional) or a plain string (backwards compat with
-        # every existing caller). Every existing tool_loop test that fires `delegate(task)`
-        # with a bare string sees the same behavior it always saw.
+        # Parse per-call args from either a dict (the x-args-passthrough path from
+        # tools.py::_named_to_positional) or a plain string (backwards-compat).
         if a and isinstance(a[0], dict):
             args_dict = dict(a[0])
         elif a:
@@ -259,15 +382,16 @@ def make_delegate(
         else:
             args_dict = {"task": ""}
         task = str(args_dict.get("task", ""))
-        # Sprint 213 wires the four dispatch paths against these values. Sprint 212
-        # parses them into `args_dict` so a caller can read them via `parse_tool_call`
-        # and the model's native tool-call shape stays intact across model versions.
-        # Currently every call falls through to the round-1 fresh-child path.
-        _ = args_dict.get("model"), args_dict.get("child_session_name")
-        _ = args_dict.get("context"), args_dict.get("baseline")
-        _ = args_dict.get("timeout_seconds")
+        per_call_model = args_dict.get("model")
+        per_call_session_name = args_dict.get("child_session_name")
+        per_call_context = args_dict.get("context")
+        per_call_baseline = args_dict.get("baseline")
+        per_call_timeout_raw = args_dict.get("timeout_seconds")
+        per_call_timeout = (
+            float(per_call_timeout_raw) if per_call_timeout_raw is not None else timeout_seconds
+        )
+
         if depth >= max_depth:
-            # the chain is at its limit — refuse, as a typed failure the model reads (never recurse past it)
             raise ValueError(
                 f"delegate: max delegation depth ({max_depth}) reached — solve it directly"
             )
@@ -275,25 +399,94 @@ def make_delegate(
             raise ValueError(
                 f"delegate: max children ({max_children}) already spawned by this agent"
             )
-        # a delegation dir that does not already exist (F-3): reuse would append onto a sealed record
-        # and lose data. Inside it, WORKSPACE and RECORD are SEPARATE subdirs (review C-1): the child's
-        # bash/write_file/edit_file are rooted at `workspace/`, the append-only record lives at `record/`,
-        # so an autonomous child cannot write over the immutable evidence of its own run. The two are
-        # opposite kinds of thing; one path can't stand for both.
+
+        # Compute the parent record's seq at delegate-call time. `parent_seq_at_call`
+        # is the seq of the LAST envelope on the parent record at this moment — the
+        # ToolCall that fired us (or the tick immediately before it) — for downstream
+        # `api.trace_ancestry` to walk parent → child → parent.
+        parent_seq_at_call: int | None = None
+        if parent_record_root is not None and Path(parent_record_root).exists():
+            try:
+                count = sum(1 for _ in api.read_record(parent_record_root))
+                parent_seq_at_call = count - 1 if count > 0 else None
+            except Exception:  # noqa: BLE001 — a stale/torn parent record is not our concern
+                parent_seq_at_call = None
+
+        # ── path 1: standing session (deferred to sprint 213b) ────────────────
+        if per_call_session_name is not None:
+            raise ValueError(
+                f"delegate: child_session_name={per_call_session_name!r} dispatch not yet "
+                "wired; sprint 213b lands SessionRegistry.turn() in substrate-ui and the "
+                "path 1 seam here"
+            )
+
+        # ── path 2: different-driver child ────────────────────────────────────
+        if per_call_model is not None:
+            resolver = model_resolver or _default_model_resolver
+            try:
+                resolved_responder = resolver(str(per_call_model))
+            except Exception as exc:  # noqa: BLE001 — surface as typed tool failure
+                raise ValueError(
+                    f"delegate: unknown model {per_call_model!r}: {type(exc).__name__}: {exc}"
+                ) from exc
+            run_factory: ChildFactory = _default_child_factory(
+                resolved_responder,
+                suite_factory,
+                depth,
+                max_depth,
+                max_children,
+                child_max_steps,
+                per_call_timeout,
+            )
+            via = f"different_driver:{per_call_model}"
+        elif per_call_context is not None:
+            # ── path 3: same-driver child with context slice ──────────────────
+            run_factory = factory
+            via = "context_slice"
+        else:
+            # ── path 4: fresh child on parent driver (unchanged from sprint 212) ──
+            run_factory = factory
+            via = None  # keep the return shape identical to pre-213 for backwards compat
+
+        # Path 3: prefix the extracted parent-record slice to the task.
+        effective_task = task
+        if per_call_context is not None and parent_record_root is not None:
+            if isinstance(per_call_context, dict):
+                effective_task = _prefix_context_slice(
+                    Path(parent_record_root), task, per_call_context
+                )
+
+        # Allocate a fresh delegation dir (F-3): reuse would append onto a sealed
+        # record and lose data.
         delegation_dir, n = _unique_child_root(r / "delegate-runs", depth, spawned["n"])
         spawned["n"] = n + 1
         workspace_root = delegation_dir / "workspace"
-        # the child's RECORD root: the caller may redirect it (e.g. the cockpit places child records as
-        # flat served `runs/<name>.record` so the UI can navigate to them — W2.2 follow-on) while the
-        # WORKSPACE stays under this delegation dir. Default: a sibling `record/` subdir of the workspace.
         record_root = (
             child_record_root(n) if child_record_root is not None else delegation_dir / "record"
         )
-        topology = factory(
-            task, workspace_root
-        )  # the child's tools operate in workspace, NOT the record
-        answer, steps = _run_child_to_answer(topology, record_root, timeout_seconds=timeout_seconds)
-        return {"answer": answer, "child_root": str(record_root), "steps": steps}
+
+        # Merge per-call baseline + provenance into a single TopologyBuilder.baseline() call.
+        merged_baseline: dict[str, Any] = {}
+        if isinstance(per_call_baseline, dict):
+            merged_baseline.update(per_call_baseline)
+        if parent_session_id is not None:
+            merged_baseline["parent_session_id"] = parent_session_id
+        if parent_seq_at_call is not None:
+            merged_baseline["parent_seq_at_call"] = parent_seq_at_call
+
+        inner_topology = run_factory(effective_task, workspace_root)
+        topology = _with_baseline(inner_topology, merged_baseline)
+        answer, steps = _run_child_to_answer(
+            topology, record_root, timeout_seconds=per_call_timeout
+        )
+        result: dict[str, Any] = {
+            "answer": answer,
+            "child_root": str(record_root),
+            "steps": steps,
+        }
+        if via is not None:
+            result["via"] = via
+        return result
 
     return Tool(
         "delegate",
