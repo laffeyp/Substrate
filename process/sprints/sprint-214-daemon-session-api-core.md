@@ -3,7 +3,7 @@
 ```yaml
 ---
 id: 214
-status: pending
+status: split-into-214a-and-214b
 phase: daily-driver-piece-B
 pass_kind: architecture
 ---
