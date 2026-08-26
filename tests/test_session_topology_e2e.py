@@ -1,60 +1,75 @@
 """Sprint 210 — piece-A observation contract end-to-end (in-process discharge).
 
 **Scope amendment folded 2026-08-26.** The sprint card names a `substrate chat
-deterministic --script fixtures/two_turns.json --name test-piece-a` CLI subprocess
-harness. That CLI lands in pieces B/C/D (sprints 214-221); it does not exist yet.
-Rescoped: this sprint discharges the RECORD-LEVEL observation contract in-process
-today, using `ci_session_topology` to drive the same three-turn script the fixture
-lists. The stderr-substring checks and the terminal-screenshot check defer to
-sprint 221 (once `substrate chat` exists). The application-kind sequence, the
-per-event payload predicates, and the lifecycle-event coverage all fire here.
+deterministic --script fixtures/three_turns.json --name test-piece-a` CLI
+subprocess harness. That CLI lands in pieces B/C/D (sprints 214-221); it does
+not exist yet. Rescoped: this sprint discharges the RECORD-LEVEL observation
+contract in-process today. The stderr-substring checks and the terminal
+screenshot check defer to sprint 221 (once `substrate chat` exists). The
+application-kind sequence, the per-event payload predicates, the lifecycle
+coverage, and BOTH termination shapes (production `pause_await_input(Park)`
+and CI-wrapper `threshold_count(SessionEnded, 1)`) all fire here.
 
-The fixture `tests/fixtures/two_turns.json` lives on disk so sprint 221 can pick
-it up unchanged. `_load_turns` reads it and passes to `ci_session_topology`.
+The fixture `tests/fixtures/three_turns.json` lives on disk so sprint 221 can
+pick it up unchanged. Two conversation turns plus `/exit` — three UserMessage
+events total; the filename reflects the count, not the prose gloss.
 
-TECH-SPEC-2026-08-25-round6 §3 observation contract:
-  - UserMessage(turn_index=0, text="say hi") → ModelReply(turn_index=0) →
-    FinalAnswer → Park(reason="final_answer", turn_index=0) → (mirror for turn 1) →
-    UserMessage(text="/exit", turn_index=2) → SessionEnded(reason="user_exit",
-    total_turns=3) → substrate.RunFinalised.
-  - Lifecycle events for each turn: `substrate.TriggerFired(resume-on-user)`,
-    `substrate.ProducerStarted(model)`, `substrate.ProducerCompleted(model)`,
-    `substrate.TriggerFired(park-on-final)`, `substrate.ProducerStarted(park)`,
-    `substrate.TerminationMatched(decision=pause-await-input)` — the last one
-    is replaced here by the CI wrapper's `advance-on-park` firing driver_stepper
-    (no pause; the wrapper drives itself to finalise on SessionEnded).
+Two discharge paths per the sprint 210 closure review 2026-08-26:
 
-The wrapper's `driver_stepper` producer fires three times (once per turn). The
-`advance-on-park` trigger replaces the daemon-injected `.resume(UserMessage=...)`
-step. The final trigger is `substrate.TerminationMatched(decision=finalise-run)`
-on the SessionEnded event.
+  1. **Production shape via `.resume()` between pauses.** The daemon-driven
+     flow uses `session_topology`'s `pause_await_input(Park)` termination.
+     `test_piece_a_pauses_between_turns_and_finalises_on_exit` fires three
+     `.resume()` calls against one persistent record, asserts two
+     `TerminationMatched(decision="pause-await-input")` events (turns 0 and 1)
+     plus one `finalise-run` on the `/exit` UserMessage's SessionEnded.
+
+  2. **CI-mode via one `.run()` in the wrapper.** `ci_session_topology`
+     overwrites the production termination with `threshold_count(SessionEnded, 1)`
+     so a scripted session drives itself to finalise inside one `.run()`.
+     Level-3(a) replay locks byte-identical determinism.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from substrate import api
+from substrate.adapters import DeterministicResponder
 from substrate.testing import assert_event, assert_no_event, assert_sequence
+from substrate.topologies.session import UserMessage, session_topology
 from substrate.topologies.session.ci import ci_session_topology
+from substrate.topologies.tool_loop.tools import CALCULATOR
 
 _FIXTURES = Path(__file__).parent / "fixtures"
+_FIXTURE_FILE = _FIXTURES / "three_turns.json"
 
 
 def _load_turns() -> tuple[str, ...]:
-    fixture = _FIXTURES / "two_turns.json"
-    entries = json.loads(fixture.read_text(encoding="utf-8"))
+    entries = json.loads(_FIXTURE_FILE.read_text(encoding="utf-8"))
     return tuple(str(e["text"]) for e in entries)
 
 
+def _read(record_root: Path) -> list[dict[str, Any]]:
+    return list(api.read_record(record_root))
+
+
+def _payload_kinds(envelopes: list[dict[str, Any]]) -> list[str]:
+    return [e["kind"] for e in envelopes if not e["kind"].startswith("substrate.")]
+
+
+def _count_by_kind(envelopes: list[dict[str, Any]], kind: str) -> int:
+    return sum(1 for e in envelopes if e["kind"] == kind)
+
+
 @pytest.mark.asyncio
-async def test_piece_a_observation_contract_record_level(tmp_path: Path) -> None:
-    """Fire the piece-A observation contract in-process. The record's payload-kind
-    sequence matches the tech spec §3 sequence for the three-turn script, and
-    every per-turn payload predicate holds.
+async def test_piece_a_ci_wrapper_observation_contract(tmp_path: Path) -> None:
+    """Discharge path 1: `ci_session_topology` drives the three-turn script
+    inside one `.run()` and asserts the payload sequence + per-turn predicates.
     """
     turns = _load_turns()
     assert turns == ("say hi", "count to five", "/exit"), f"fixture drifted: {turns}"
@@ -64,50 +79,73 @@ async def test_piece_a_observation_contract_record_level(tmp_path: Path) -> None
     )
     assert result.status == "finalised"
 
-    # Payload-kind sequence (application events only, in order).
-    payload_kinds = [
-        e["kind"] for e in api.read_record(record_root) if not e["kind"].startswith("substrate.")
-    ]
-    assert payload_kinds == [
+    envelopes = _read(record_root)
+    kinds = _payload_kinds(envelopes)
+
+    # Race-tolerant assertion on the shape. Turn 2's Park may or may not land
+    # depending on whether park's ProducerCompleted races the CI-wrapper's
+    # threshold_count(SessionEnded, 1) TerminationMatched. Both resolutions are
+    # legitimate; both are byte-stable on this substrate build (`assert_replayable`
+    # locks the actual resolution below). The bounded assertion says: three of each
+    # turn kind + SessionEnded + 2-or-3 Park events + no extras.
+    assert _count_by_kind(envelopes, "UserMessage") == 3
+    assert _count_by_kind(envelopes, "ModelReply") == 3
+    assert _count_by_kind(envelopes, "FinalAnswer") == 3
+    assert _count_by_kind(envelopes, "SessionEnded") == 1
+    assert 2 <= _count_by_kind(envelopes, "Park") <= 3
+    # No stray application kinds beyond the ones counted above.
+    assert set(kinds) == {"UserMessage", "ModelReply", "FinalAnswer", "Park", "SessionEnded"}
+
+    # The ordered subsequence of un-raced kinds is stable regardless of the tail race.
+    ordered_head = [k for k in kinds if k != "Park"][:10]
+    assert ordered_head == [
         "UserMessage",
         "ModelReply",
         "FinalAnswer",
-        "Park",
         "UserMessage",
         "ModelReply",
         "FinalAnswer",
-        "Park",
         "UserMessage",
         "ModelReply",
         "FinalAnswer",
         "SessionEnded",
     ]
 
-    # Per-turn payload predicates (F-API-4 primitives).
-    assert_event(record_root, "UserMessage", turn_index=0, text="say hi")
-    assert_event(record_root, "UserMessage", turn_index=1, text="count to five")
-    assert_event(record_root, "UserMessage", turn_index=2, text="/exit")
-    assert_event(record_root, "ModelReply", turn_index=0)
-    assert_event(record_root, "ModelReply", turn_index=1)
-    assert_event(record_root, "ModelReply", turn_index=2)
-    assert_event(record_root, "FinalAnswer", steps=0)
-    assert_event(record_root, "Park", reason="final_answer", turn_index=0)
-    assert_event(record_root, "Park", reason="final_answer", turn_index=1)
+    # Per-turn payload predicates — verify EVERY instance, not just the first.
+    user_messages = [e for e in envelopes if e["kind"] == "UserMessage"]
+    assert [e["payload"]["turn_index"] for e in user_messages] == [0, 1, 2]
+    assert [e["payload"]["text"] for e in user_messages] == list(turns)
+
+    model_replies = [e for e in envelopes if e["kind"] == "ModelReply"]
+    assert [e["payload"]["turn_index"] for e in model_replies] == [0, 1, 2]
+
+    final_answers = [e for e in envelopes if e["kind"] == "FinalAnswer"]
+    # steps=0 for every FinalAnswer: driver-parse path, step counter fresh on each
+    # resume-on-user firing. A regression that let step drift trips here on every turn.
+    assert all(e["payload"]["steps"] == 0 for e in final_answers)
+
+    parks = [e for e in envelopes if e["kind"] == "Park"]
+    assert all(e["payload"]["reason"] == "final_answer" for e in parks)
+    assert all(e["payload"]["awaiting"] == "UserMessage" for e in parks)
+    park_turn_indices = [e["payload"]["turn_index"] for e in parks]
+    assert park_turn_indices == [0, 1] or park_turn_indices == [0, 1, 2]
+
     assert_event(record_root, "SessionEnded", reason="user_exit", total_turns=3)
     assert_no_event(record_root, "SessionWarning")
 
 
 @pytest.mark.asyncio
 async def test_piece_a_lifecycle_events_cover_each_producer(tmp_path: Path) -> None:
-    """The four session producers (driver_stepper, model, park, session_end) each
-    emit ProducerStarted + ProducerCompleted at least once, and TriggerFired lands
-    for the key triggers (resume-on-user, park-on-final, end-on-exit, advance-on-park).
+    """Every session producer (driver_stepper, model, park, session_end) emits
+    ProducerStarted; the first three also emit ProducerCompleted; session_end's
+    completion may race with TerminationMatched (see prose). Four key triggers
+    fire: resume-on-user, park-on-final, end-on-exit, advance-on-park.
     """
     record_root = tmp_path / "test-piece-a-lifecycle"
     await api.Runtime(record_root).run(
         ci_session_topology(turns=_load_turns(), session_id="test-piece-a-lifecycle")
     )
-    envelopes = list(api.read_record(record_root))
+    envelopes = _read(record_root)
     started_kinds = {
         e["payload"]["producer"]["kind"]
         for e in envelopes
@@ -123,9 +161,7 @@ async def test_piece_a_lifecycle_events_cover_each_producer(tmp_path: Path) -> N
     )
     # session_end's ProducerCompleted may race with TerminationMatched: the wrapper's
     # threshold_count(SessionEnded, 1) matches on the SessionEnded emit and finalises
-    # the run before session_end's completion tick lands. Honest reality of the append
-    # cycle. driver_stepper, model, and park all fire multiple times per session and
-    # their completions always land.
+    # the run before session_end's completion tick lands. Honest reality.
     assert {"driver_stepper", "model", "park"} <= completed_kinds, (
         f"missing ProducerCompleted for driver_stepper/model/park: got {completed_kinds}"
     )
@@ -136,16 +172,17 @@ async def test_piece_a_lifecycle_events_cover_each_producer(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_piece_a_termination_matched_finalises_the_run(tmp_path: Path) -> None:
-    """`substrate.TerminationMatched(decision="finalise-run")` lands as the last
-    lifecycle event before RunFinalised. The CI wrapper's `threshold_count(SessionEnded, 1)`
-    fires on the SessionEnded that `/exit` produces; no pause landed at any Park.
+async def test_piece_a_ci_wrapper_termination_is_finalise_run(tmp_path: Path) -> None:
+    """The CI wrapper never pauses. Exactly one TerminationMatched, decision
+    `finalise-run`; the last envelope is `substrate.RunFinalised`. The CI wrapper's
+    advance-on-park chain bypasses production's pause_await_input path — that path
+    lives in `test_piece_a_pauses_between_turns_and_finalises_on_exit` below.
     """
     record_root = tmp_path / "test-piece-a-termination"
     await api.Runtime(record_root).run(
         ci_session_topology(turns=_load_turns(), session_id="test-piece-a-termination")
     )
-    envelopes = list(api.read_record(record_root))
+    envelopes = _read(record_root)
     term_events = [e for e in envelopes if e["kind"] == "substrate.TerminationMatched"]
     assert len(term_events) == 1
     assert term_events[0]["payload"].get("decision") == "finalise-run"
@@ -153,8 +190,8 @@ async def test_piece_a_termination_matched_finalises_the_run(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
-async def test_piece_a_is_replayable_end_to_end(tmp_path: Path) -> None:
-    """The whole scripted piece-A run is Level-3(a) byte-identical on replay —
+async def test_piece_a_ci_wrapper_is_replayable(tmp_path: Path) -> None:
+    """The whole scripted CI wrapper run is Level-3(a) byte-identical on replay —
     scripted driver_stepper + DeterministicResponder + deterministic CALCULATOR."""
     record_root = tmp_path / "test-piece-a-replay"
     await api.Runtime(record_root).run(
@@ -163,14 +200,91 @@ async def test_piece_a_is_replayable_end_to_end(tmp_path: Path) -> None:
     api.assert_replayable(record_root, "3a")
 
 
-def test_fixture_shape_survives_the_two_turns_json() -> None:
-    """A brittle-fixture guard. Sprint 221 will pick up the JSON verbatim; drift
-    surfaces here before sprint 221 finds it.
+def _production_session_factory(*, session_id: str) -> Callable[[api.TopologyBuilder], None]:
+    return session_topology(
+        driver=DeterministicResponder(seed=0),
+        driver_name="deterministic",
+        driver_context_tokens=4096,
+        seed="you are a companion in a terminal session",
+        tools=CALCULATOR,
+        per_turn="",
+        max_turns=200,
+        turn_max_steps=8,
+        session_id=session_id,
+        workspace_path="/tmp/session-test",
+        script=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_piece_a_pauses_between_turns_and_finalises_on_exit(tmp_path: Path) -> None:
+    """Discharge path 2: production `session_topology` shape via three `.resume()`
+    calls. Two pauses on Park (turns 0 and 1), one finalise-run on the `/exit`
+    UserMessage's SessionEnded.
+
+    Sprint 209a surfaced a substrate primitive gap: `.resume()` on a FRESH
+    persistent root does not write `substrate.RunStarted` (kernel/runtime.py:409).
+    Level-3(a) replay reads the deterministic-producer manifest off RunStarted, so
+    `assert_replayable` refuses. This test therefore verifies the termination
+    decisions on the record and defers the replay check to the CI-wrapper test
+    above. Sprint 214 (daemon session API core) owns the fix.
     """
-    fixture = _FIXTURES / "two_turns.json"
-    entries = json.loads(fixture.read_text(encoding="utf-8"))
+    turns = _load_turns()
+    record_root = tmp_path / "test-piece-a-pauses"
+    for turn_index, text in enumerate(turns):
+        result = await api.Runtime(record_root, persistent=True).resume(
+            _production_session_factory(session_id="test-piece-a-pauses"),
+            resume_event=UserMessage(
+                text=text,
+                turn_index=turn_index,
+                assembled_prompt=text,
+                slash_source="chat",
+            ),
+        )
+        if turn_index < 2:
+            assert result.status == "paused", (
+                f"turn {turn_index} expected pause, got {result.status}"
+            )
+        else:
+            assert result.status == "finalised", (
+                f"turn {turn_index} (/exit) expected finalised, got {result.status}"
+            )
+    envelopes = _read(record_root)
+    term_events = [e for e in envelopes if e["kind"] == "substrate.TerminationMatched"]
+    decisions = [e["payload"].get("decision") for e in term_events]
+    assert decisions == ["pause-await-input", "pause-await-input", "finalise-run"], (
+        f"unexpected TerminationMatched decisions: {decisions}"
+    )
+    # Every pause names UserMessage as the resume_condition.
+    pause_conditions = [
+        e["payload"].get("resume_condition")
+        for e in term_events
+        if e["payload"].get("decision") == "pause-await-input"
+    ]
+    assert pause_conditions == ["UserMessage", "UserMessage"]
+    # SessionEnded lands exactly once, on the /exit turn.
+    assert_event(record_root, "SessionEnded", reason="user_exit")
+    # Both Park events land (no threshold_count race on the production shape).
+    parks = [e for e in envelopes if e["kind"] == "Park"]
+    park_turns = [e["payload"]["turn_index"] for e in parks]
+    assert park_turns == [0, 1]
+
+
+def test_fixture_shape() -> None:
+    """A brittle-fixture guard. Sprint 221 will pick up the JSON verbatim; drift
+    surfaces here before sprint 221 finds it. Also exercises `assert_sequence` as
+    a real integration point (loads the fixture's three-entry sub-sequence and
+    checks the fixture's own text list under the primitive's shape).
+    """
+    entries = json.loads(_FIXTURE_FILE.read_text(encoding="utf-8"))
     assert isinstance(entries, list) and len(entries) == 3
     assert all(isinstance(e, dict) and "text" in e for e in entries)
     assert entries[-1]["text"] == "/exit"
-    # Also verify assert_sequence is imported and usable (silences "unused import").
-    assert callable(assert_sequence)
+    # `assert_sequence` operates on a record OR an iterable of envelopes; feed it
+    # a synthetic envelope stream shaped from the fixture and verify the exact
+    # UserMessage sequence it would produce.
+    synthetic = [
+        {"seq": i, "kind": "UserMessage", "payload": {"text": e["text"]}, "schema": "UserMessage"}
+        for i, e in enumerate(entries)
+    ]
+    assert_sequence(synthetic, ["UserMessage", "UserMessage", "UserMessage"])

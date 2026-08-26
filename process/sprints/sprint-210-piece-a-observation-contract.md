@@ -13,7 +13,7 @@ pass_kind: observation
 
 Fire the piece-A observation contract from TECH-SPEC §3. UI driving steps + expected log substrings + expected runtime signals + expected screenshot. Closes piece A. This is the SDD hard-rule-9 gate — piece A does not close until this sprint runs green in CI.
 
-**Scope amendment folded 2026-08-26.** The card names a `substrate chat deterministic --script fixtures/two_turns.json --name test-piece-a` CLI subprocess harness. That CLI lands in pieces B/C/D (sprints 214-221); it does not exist yet. Rescoped in place: sprint 210 discharges the RECORD-LEVEL observation contract in-process today, using `ci_session_topology(turns=<from fixture>)` to drive the same three-turn script. The stderr-substring checks and the terminal-screenshot check defer to sprint 221 once `substrate chat` exists. The fixture `tests/fixtures/two_turns.json` lives on disk so sprint 221 picks it up verbatim.
+**Scope amendment folded 2026-08-26.** The card names a `substrate chat deterministic --script fixtures/three_turns.json --name test-piece-a` CLI subprocess harness. That CLI lands in pieces B/C/D (sprints 214-221); it does not exist yet. Rescoped in place: sprint 210 discharges the RECORD-LEVEL observation contract in-process today, using `ci_session_topology(turns=<from fixture>)` to drive the same three-turn script. The stderr-substring checks and the terminal-screenshot check defer to sprint 221 once `substrate chat` exists. The fixture `tests/fixtures/three_turns.json` lives on disk so sprint 221 picks it up verbatim.
 
 The application-kind sequence, the per-event payload predicates, the lifecycle-event coverage (ProducerStarted / ProducerCompleted / TriggerFired), the TerminationMatched decision, and Level-3(a) replay all fire here.
 
@@ -41,8 +41,8 @@ Piece A's session topology + committed CI record.
 
 ### Files created or modified
 
-- `substrate/tests/test_session_topology_e2e.py` — new. Runs `substrate chat deterministic --script fixtures/two_turns.json --name test-piece-a` in a subprocess; captures stderr; reads the resulting record; asserts every observation-contract predicate.
-- `substrate/tests/fixtures/two_turns.json` — new. `[{"text": "say hi"}, {"text": "count to five"}, {"text": "/exit"}]`.
+- `substrate/tests/test_session_topology_e2e.py` — new. Runs `substrate chat deterministic --script fixtures/three_turns.json --name test-piece-a` in a subprocess; captures stderr; reads the resulting record; asserts every observation-contract predicate.
+- `substrate/tests/fixtures/three_turns.json` — new. `[{"text": "say hi"}, {"text": "count to five"}, {"text": "/exit"}]`.
 
 ### Content assertions
 
