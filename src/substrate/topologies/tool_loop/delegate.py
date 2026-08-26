@@ -412,13 +412,51 @@ def make_delegate(
             except Exception:  # noqa: BLE001 — a stale/torn parent record is not our concern
                 parent_seq_at_call = None
 
-        # ── path 1: standing session (deferred to sprint 213b) ────────────────
+        # ── path 1: standing session ──────────────────────────────────────────
         if per_call_session_name is not None:
-            raise ValueError(
-                f"delegate: child_session_name={per_call_session_name!r} dispatch not yet "
-                "wired; sprint 213b lands SessionRegistry.turn() in substrate-ui and the "
-                "path 1 seam here"
+            if session_registry is None:
+                raise ValueError(
+                    f"delegate: child_session_name={per_call_session_name!r} requires "
+                    "session_registry at construction (daemon injects it via "
+                    "substrate-ui/server.py); no registry was bound"
+                )
+            resolved = session_registry.by_name(str(per_call_session_name))
+            if resolved is None:
+                raise ValueError(f"delegate: unknown session name: {per_call_session_name!r}")
+            # Import the session vocab lazily to avoid dragging session_topology
+            # into every tool_loop test that does not touch the standing-session path.
+            from ..session import UserMessage
+
+            resume_event = UserMessage(
+                text=task,
+                turn_index=parent_seq_at_call if parent_seq_at_call is not None else 0,
+                assembled_prompt=task,
+                slash_source="delegate",
             )
+            try:
+                _final_manifest, reviewer_root = session_registry.turn_sync(
+                    resolved, resume_event, timeout_seconds=per_call_timeout
+                )
+            except Exception as exc:
+                if type(exc).__name__ == "SessionEndedMidTurn":
+                    raise ValueError(
+                        f"delegate: session_ended_mid_delegate ({per_call_session_name!r}): {exc}"
+                    ) from exc
+                raise
+            # The reviewer's tail FinalAnswer is the answer the parent reads.
+            finals = [e for e in api.read_record(Path(reviewer_root)) if e["kind"] == "FinalAnswer"]
+            if not finals:
+                raise ValueError(
+                    f"delegate: standing session {per_call_session_name!r} produced no "
+                    f"FinalAnswer for this turn"
+                )
+            answer_text = str(finals[-1]["payload"].get("text", ""))
+            return {
+                "answer": answer_text,
+                "child_root": str(reviewer_root),
+                "steps": -1,
+                "via": f"standing_session:{per_call_session_name}",
+            }
 
         # ── path 2: different-driver child ────────────────────────────────────
         if per_call_model is not None:
