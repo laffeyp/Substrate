@@ -3,7 +3,7 @@
 ```yaml
 ---
 id: 210
-status: pending
+status: closed
 phase: daily-driver-piece-A
 pass_kind: observation
 ---
@@ -11,7 +11,11 @@ pass_kind: observation
 
 ## scope
 
-Fire the piece-A observation contract from TECH-SPEC §3 verbatim. UI driving steps + expected log substrings + expected runtime signals + expected screenshot. No new source; runs the harness. Closes piece A. This is the SDD hard-rule-9 gate — piece A does not close until this sprint runs green in CI.
+Fire the piece-A observation contract from TECH-SPEC §3. UI driving steps + expected log substrings + expected runtime signals + expected screenshot. Closes piece A. This is the SDD hard-rule-9 gate — piece A does not close until this sprint runs green in CI.
+
+**Scope amendment folded 2026-08-26.** The card names a `substrate chat deterministic --script fixtures/two_turns.json --name test-piece-a` CLI subprocess harness. That CLI lands in pieces B/C/D (sprints 214-221); it does not exist yet. Rescoped in place: sprint 210 discharges the RECORD-LEVEL observation contract in-process today, using `ci_session_topology(turns=<from fixture>)` to drive the same three-turn script. The stderr-substring checks and the terminal-screenshot check defer to sprint 221 once `substrate chat` exists. The fixture `tests/fixtures/two_turns.json` lives on disk so sprint 221 picks it up verbatim.
+
+The application-kind sequence, the per-event payload predicates, the lifecycle-event coverage (ProducerStarted / ProducerCompleted / TriggerFired), the TerminationMatched decision, and Level-3(a) replay all fire here.
 
 ## prerequisites
 
