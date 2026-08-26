@@ -92,7 +92,7 @@ Superseded drafts under `docs/specs/product_spec/`, `docs/specs/technical_spec/`
 | Session workspace (Mode 1) | `~/.substrate/sessions/<session_id>/workspace/` | daemon piece B — sprint 213 |
 | Session worktree (Mode 2) | `~/.substrate/sessions/wt/<repo>-<session_id>/` on branch `substrate/<session_id>` | `_session_worktree` at `server.py:173-193` (existing) |
 | Delegate child dir | `<parent_workspace>/delegate-runs/d<depth>-c<N>/` | `_unique_child_root` at `delegate.py:174` (existing) |
-| Session registry (in-memory) | daemon module `session_registry.py` | daemon piece B — sprint 211 |
+| Session registry (in-memory) | daemon module `session_registry.py` (lives in substrate-ui) | daemon piece C — sprint 211 |
 | Bundle | `~/.substrate/bundles/<name>/` | user (runtime resolution — sprint 226) |
 | Bundle assembler | `substrate/src/substrate/bundles.py` | piece H — sprint 226 |
 | Application registry (in-memory) | daemon module `topologies/applications/registry.py` | piece E — sprint 222 |

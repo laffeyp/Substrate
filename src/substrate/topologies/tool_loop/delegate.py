@@ -220,15 +220,28 @@ def _extract_context_slice(
     kept: list[str] = []
     kept_bytes = 0
     elided: list[int] = []
-    for env in matching:
+    for i, env in enumerate(matching):
         block = _format_context_event(env)
         block_bytes = len(block.encode("utf-8"))
         if not kept and block_bytes > cap_bytes:
+            # The first matching event alone exceeds the cap. Include it whole
+            # (its content is what the caller asked for; truncation would defeat
+            # the request), then account for every other matching event as
+            # elided rather than dropping them silently (review finding 4).
+            rest_bytes = [
+                len(_format_context_event(other).encode("utf-8")) for other in matching[i + 1 :]
+            ]
+            rest_count = len(rest_bytes)
+            rest_bytes_total = sum(rest_bytes)
             note = (
                 f"\n... this single event is {block_bytes} bytes, larger than the "
-                f"{cap_bytes}-byte slice cap; no other events fit"
+                f"{cap_bytes}-byte slice cap"
             )
-            return block + note, 0, 0, True
+            if rest_count:
+                note += f"; {rest_count} more matching events elided ({rest_bytes_total} bytes)"
+            else:
+                note += "; no other events fit"
+            return block + note, rest_count, rest_bytes_total, True
         if kept_bytes + block_bytes > cap_bytes:
             elided.append(block_bytes)
             continue
@@ -367,10 +380,10 @@ def make_delegate(
         )
     spawned = {"n": 0}  # per-instance fan-out counter (the factory is built once per run)
 
-    # Constructor-time provenance. `session_registry` stays typed `Any`: the daemon
-    # injects a `substrate_ui.session_registry.SessionRegistry` at call time; substrate
-    # itself holds no dependency on the substrate-ui module (F-API-6 stays honest).
-    _ = session_registry
+    # `session_registry` stays typed `Any`: the daemon injects a
+    # `substrate_ui.session_registry.SessionRegistry` at call time; substrate itself
+    # holds no dependency on the substrate-ui module (F-API-6 stays honest).
+    # The `run` closure below captures the parameter directly — no local rebind needed.
 
     def run(a: list[Any]) -> dict[str, Any]:
         # Parse per-call args from either a dict (the x-args-passthrough path from
@@ -427,9 +440,34 @@ def make_delegate(
             # into every tool_loop test that does not touch the standing-session path.
             from ..session import UserMessage
 
+            # Reviewer's turn_index is the reviewer's own per-turn counter, NOT the
+            # parent's record seq. The two records are unrelated numerically (review
+            # finding 1). Read the reviewer's tail UserMessage turn_index off its
+            # record before the turn fires; the new turn is that + 1. When the
+            # reviewer has never seen a UserMessage, this is turn 0.
+            reviewer_manifest = session_registry.get(resolved)
+            reviewer_record_path = (
+                Path(reviewer_manifest.record_root) if reviewer_manifest is not None else None
+            )
+            reviewer_next_turn_index = 0
+            reviewer_tail_seq_before_turn = -1
+            if reviewer_record_path is not None and reviewer_record_path.exists():
+                try:
+                    for env in api.read_record(reviewer_record_path):
+                        reviewer_tail_seq_before_turn = max(
+                            reviewer_tail_seq_before_turn, int(env.get("seq", -1))
+                        )
+                        if env.get("kind") == "UserMessage":
+                            payload = env.get("payload") or {}
+                            if isinstance(payload, dict) and "turn_index" in payload:
+                                reviewer_next_turn_index = int(payload["turn_index"]) + 1
+                except Exception:  # noqa: BLE001 — a stale reviewer record is not the parent's concern
+                    reviewer_next_turn_index = 0
+                    reviewer_tail_seq_before_turn = -1
+
             resume_event = UserMessage(
                 text=task,
-                turn_index=parent_seq_at_call if parent_seq_at_call is not None else 0,
+                turn_index=reviewer_next_turn_index,
                 assembled_prompt=task,
                 slash_source="delegate",
             )
@@ -438,19 +476,34 @@ def make_delegate(
                     resolved, resume_event, timeout_seconds=per_call_timeout
                 )
             except Exception as exc:
+                # SessionEndedMidTurn lives in substrate-ui/session_registry.py;
+                # F-API-6 forbids substrate from importing that module. Duck-typed
+                # catch on the class name is the least-bad guard under the
+                # constraint (review finding 15). Any rename of the exception on
+                # the substrate-ui side must be paired with an update here.
                 if type(exc).__name__ == "SessionEndedMidTurn":
                     raise ValueError(
                         f"delegate: session_ended_mid_delegate ({per_call_session_name!r}): {exc}"
                     ) from exc
                 raise
-            # The reviewer's tail FinalAnswer is the answer the parent reads.
-            finals = [e for e in api.read_record(Path(reviewer_root)) if e["kind"] == "FinalAnswer"]
-            if not finals:
+            # The reviewer's tail FinalAnswer for THIS TURN — scoped to seqs
+            # strictly greater than the pre-turn tail snapshot (review finding 2).
+            # A pre-existing FinalAnswer from an earlier turn cannot masquerade
+            # as this turn's answer; a turn that produced no FinalAnswer raises,
+            # even if the reviewer's record already carries older ones.
+            this_turn_finals = [
+                e
+                for e in api.read_record(Path(reviewer_root))
+                if e["kind"] == "FinalAnswer"
+                and int(e.get("seq", -1)) > reviewer_tail_seq_before_turn
+            ]
+            if not this_turn_finals:
                 raise ValueError(
                     f"delegate: standing session {per_call_session_name!r} produced no "
-                    f"FinalAnswer for this turn"
+                    f"FinalAnswer for this turn (reviewer tail seq at turn start: "
+                    f"{reviewer_tail_seq_before_turn})"
                 )
-            answer_text = str(finals[-1]["payload"].get("text", ""))
+            answer_text = str(this_turn_finals[-1]["payload"].get("text", ""))
             return {
                 "answer": answer_text,
                 "child_root": str(reviewer_root),
@@ -504,9 +557,18 @@ def make_delegate(
         )
 
         # Merge per-call baseline + provenance into a single TopologyBuilder.baseline() call.
+        # The provenance keys `parent_session_id` and `parent_seq_at_call` are reserved for
+        # constructor-injected values — a per-call baseline cannot spoof them, even when the
+        # constructor did NOT set them (review finding 6). Strip the reserved keys off the
+        # per-call dict BEFORE the merge; the constructor values then land unconditionally.
         merged_baseline: dict[str, Any] = {}
         if isinstance(per_call_baseline, dict):
-            merged_baseline.update(per_call_baseline)
+            filtered = {
+                k: v
+                for k, v in per_call_baseline.items()
+                if k not in ("parent_session_id", "parent_seq_at_call")
+            }
+            merged_baseline.update(filtered)
         if parent_session_id is not None:
             merged_baseline["parent_session_id"] = parent_session_id
         if parent_seq_at_call is not None:

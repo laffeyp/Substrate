@@ -145,3 +145,32 @@ def test_per_call_baseline_and_provenance_merge_together(tmp_path: Path) -> None
     baseline = _read_baseline(Path(result["child_root"]))
     assert baseline["topic"] == "reviewer notes"
     assert baseline["parent_session_id"] == "s_authoritative"
+
+
+def test_per_call_baseline_cannot_spoof_provenance_when_constructor_did_not_set_it(
+    tmp_path: Path,
+) -> None:
+    """Post-review 2026-08-26 finding 6 fix. Before: a delegate constructed with
+    `parent_session_id=None` accepted a per-call baseline setting
+    `parent_session_id="s_MALICIOUS"` and forwarded it to the child. Now the
+    provenance keys are STRIPPED from per_call_baseline before the merge, so a
+    caller-supplied `parent_session_id` cannot land on the child even when the
+    constructor left the field unset.
+    """
+    d = make_delegate(responder=DeterministicResponder(seed=0), root=tmp_path)
+    result = d.run(
+        [
+            {
+                "task": "hi",
+                "baseline": {
+                    "topic": "unrelated",
+                    "parent_session_id": "s_SPOOFED",
+                    "parent_seq_at_call": 99999,
+                },
+            }
+        ]
+    )
+    baseline = _read_baseline(Path(result["child_root"]))
+    assert baseline["topic"] == "unrelated"
+    assert "parent_session_id" not in baseline
+    assert "parent_seq_at_call" not in baseline

@@ -101,14 +101,40 @@ def test_slice_drops_at_event_boundary_when_over_cap(monkeypatch: pytest.MonkeyP
 
 
 def test_slice_includes_single_oversize_event_with_note(monkeypatch: pytest.MonkeyPatch) -> None:
-    """One event whose serialized form exceeds the cap. Included alone with a
-    trailing note; no other events fit alongside it.
+    """One event whose serialized form exceeds the cap. Included alone; the
+    subsequent matching events are counted as elided in the return value AND
+    named in the trailing note (post-review 2026-08-26 finding 4 fix: the
+    earlier shape returned elided_count=0 and dropped the tail silently).
     """
     huge = "y" * (_CONTEXT_SLICE_CAP_BYTES + 1000)
     envs = [
         _envelope(0, "ModelReply", {"text": huge}),
         _envelope(1, "ModelReply", {"text": "small"}),
+        _envelope(2, "ModelReply", {"text": "also-small"}),
     ]
+    monkeypatch.setattr(
+        "substrate.topologies.tool_loop.delegate.api.read_record",
+        lambda root: iter(envs),
+    )
+    text, elided_count, elided_bytes, single_oversize = _extract_context_slice(
+        Path("/nowhere"), (0, 10), ()
+    )
+    assert single_oversize
+    assert elided_count == 2, "the two small events after the oversize one must be counted"
+    assert elided_bytes > 0
+    assert "seq=0" in text
+    assert "seq=1" not in text
+    assert "seq=2" not in text
+    assert "larger than the" in text
+    assert "more matching events elided" in text
+
+
+def test_slice_single_oversize_alone_reports_zero_elided(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When the oversize event is the ONLY match, elided_count is 0 and the
+    trailing note says 'no other events fit'.
+    """
+    huge = "z" * (_CONTEXT_SLICE_CAP_BYTES + 500)
+    envs = [_envelope(0, "ModelReply", {"text": huge})]
     monkeypatch.setattr(
         "substrate.topologies.tool_loop.delegate.api.read_record",
         lambda root: iter(envs),
@@ -119,9 +145,7 @@ def test_slice_includes_single_oversize_event_with_note(monkeypatch: pytest.Monk
     assert single_oversize
     assert elided_count == 0
     assert elided_bytes == 0
-    assert "seq=0" in text
-    assert "seq=1" not in text
-    assert "larger than the" in text
+    assert "no other events fit" in text
 
 
 def test_slice_empty_when_no_events_match(monkeypatch: pytest.MonkeyPatch) -> None:
