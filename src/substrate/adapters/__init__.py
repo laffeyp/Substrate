@@ -16,7 +16,9 @@ from __future__ import annotations
 from .ensemble import EnsembleResponder
 from .models import (
     CliResponder,
+    ContextTokensUnknown,
     DeterministicResponder,
+    DriverIntrospectionUnavailable,
     ModelUsage,
     OllamaResponder,
     Responder,
@@ -41,6 +43,8 @@ __all__ = [
     "ProviderQuota",
     "ProviderRateLimited",
     "RateLimitedResponder",
+    "ContextTokensUnknown",
+    "DriverIntrospectionUnavailable",
     "call_responder",
     "call_responder_metered",
 ]

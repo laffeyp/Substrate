@@ -1,0 +1,69 @@
+# Sprint 221 — CLI slash-command router (nine slashes)
+
+```yaml
+---
+id: 221
+status: pending
+phase: daily-driver-piece-D
+pass_kind: functional
+---
+```
+
+## scope
+
+Author `_slash_route(line, session) -> bool` and wire it into the REPL. Nine slashes per TECH-SPEC §6 table:
+
+- `/exit` — send literal `"/exit"` as UserMessage (only slash the model sees).
+- `/model <name>` — `PATCH /api/session/<id> {driver: "<name>"}`; persists across parks.
+- `/tools <comma-list>` — `PATCH /api/session/<id> {tools: [...]}`; persists.
+- `/context <seq-range> [--kind K]` — LOCAL: stores `{parent_seq_range: [a,b], kinds: [K]}` in a per-REPL `_pending_context` dict; next `_daemon.turn` passes it as `context={...}` in the request body; daemon prefixes extracted slice to `UserMessage.assembled_prompt`; state cleared after use.
+- `/inspect <record> [--filter …]` — LOCAL: invoke `api.narrate` or `api.explain_producer` directly (F-API-6 respected).
+- `/list [records|topologies|sessions|applications]` — LOCAL for records/topologies (`api.read_record`, `bundled.names()`); daemon for sessions/applications (`GET /api/session`, `GET /api/applications`).
+- `/replay <record>` — LOCAL: invoke `cli.replay` verb directly.
+- `/run <application> [args]` — DAEMON: `POST /api/topology/<name>/run`; runs as sibling to session; streams events via existing SSE thread.
+- `/help` — LOCAL: print the slash list.
+
+## prerequisites
+
+- Sprint 220 closed.
+
+## context_files
+
+- Sprint 218-220 output.
+- `substrate/src/substrate/cli.py:382-393` — `explain_producer` / `trace_ancestry` usage (for /inspect).
+- `substrate/src/substrate/topologies/bundled.py:names` — for /list topologies.
+- `current-design-direction/TECH-SPEC-2026-08-25-round6.md` §6 slash-command table + product spec §2a for cross-verification.
+
+## artifact contract
+
+### Files
+
+- `substrate/src/substrate/cli.py` — `_slash_route` + nine handler helpers.
+
+### Assertions
+
+- Only `/exit` becomes a UserMessage on the record; every other slash bypasses the model.
+- `/run code_review --repo .` fires `POST /api/topology/code_review/run`; the topology's record streams into the CLI's SSE thread; the session's record shows NO UserMessage containing `/run`.
+- `/context 10-20 --kind FinalAnswer` stores the pending state; the next `_daemon.turn` includes `context={...}`; the third turn (without another `/context`) has no context.
+- `/model claude` PATCHes; session's manifest.json shows `driver: "claude"`; next `Runtime.resume` builds `session_topology` with the new driver.
+
+### Tests
+
+- `test_cli_slash_run_out_of_band.py`
+- `test_cli_slash_context_stateful.py`
+- `test_cli_slash_model_persists.py`
+- `test_cli_slash_inspect_local.py`
+- `test_cli_slash_exit_reaches_model.py` — verifies `/exit` is the ONLY slash that lands as a UserMessage.
+
+## observation contract
+
+Manual: `substrate chat deterministic`, type `/model kimi`, `/tools read_file,grep`, `/context 5-10`, then a normal `hi`; verify session state matches expected. Type `/exit`; session ends with `reason="user_exit"`.
+
+## halt conditions
+
+- `dual_contract_fail` if any non-/exit slash reaches the model.
+- `vocabulary_change_required` if `/context` needs a payload field not covered by the delegate schema.
+
+## definition of done
+
+Nine slashes routed correctly. Sprint 222 (session/bundle/builder subverbs) can dispatch.

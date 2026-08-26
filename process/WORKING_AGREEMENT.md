@@ -80,6 +80,42 @@ Superseded drafts under `docs/specs/product_spec/`, `docs/specs/technical_spec/`
 
 ---
 
+## Canonical home registry — daily driver
+
+*Per AGENTS.md hard rule 7. Seeded from TECH-SPEC-2026-08-25-round6 §1.6.1 (piece 0, sprint 204). Every downstream sprint reads a row here before writing code — new consumers do not re-derive a path. Additions land as new rows before dispatch.*
+
+| Entity | Canonical home | Owner (sprint or module) |
+|---|---|---|
+| Session record | `~/.substrate/sessions/<session_id>/record/` | kernel `Runtime` (existing) |
+| Session manifest | `~/.substrate/sessions/<session_id>/manifest.json` | daemon piece C — sprint 217 |
+| Name → session_id index | `~/.substrate/sessions/by-name.json` | daemon piece C — sprint 217 |
+| Session workspace (Mode 1) | `~/.substrate/sessions/<session_id>/workspace/` | daemon piece B — sprint 213 |
+| Session worktree (Mode 2) | `~/.substrate/sessions/wt/<repo>-<session_id>/` on branch `substrate/<session_id>` | `_session_worktree` at `server.py:173-193` (existing) |
+| Delegate child dir | `<parent_workspace>/delegate-runs/d<depth>-c<N>/` | `_unique_child_root` at `delegate.py:174` (existing) |
+| Session registry (in-memory) | daemon module `session_registry.py` | daemon piece B — sprint 211 |
+| Bundle | `~/.substrate/bundles/<name>/` | user (runtime resolution — sprint 226) |
+| Bundle assembler | `substrate/src/substrate/bundles.py` | piece H — sprint 226 |
+| Application registry (in-memory) | daemon module `topologies/applications/registry.py` | piece E — sprint 222 |
+| Application manifest | `substrate/src/substrate/topologies/applications/<name>.manifest.toml` | piece E — sprint 222 |
+| Role prompts | `substrate/src/substrate/topologies/session/prompts/<role>.md` | piece A — sprint 205 (default.md); sprint 209 (reviewer/planner/tester/explainer) |
+| Substrate config | `~/.substrate/config.toml` | user (runtime resolution — sprint 208) |
+| Daemon socket | `~/.substrate/daemon.sock` | daemon boot — sprint 215 |
+| Daemon pidfile | `~/.substrate/daemon.pid` | daemon boot — sprint 215 |
+| Signal vocabulary — substrate kernel side | topology's own `producer_kind(schemas=[...])` calls; reserved namespace enforced at `topology.py:194` | topology author (existing kernel invariant) |
+| Signal vocabulary — substrate-ui grader side | `substrate-ui/signals/versions/current.json` | substrate-ui SDD — v0.6 ratified 2026-08-25 (sprint 203) |
+| Topology vocabulary — daily driver (substrate side) | `substrate/process/signals/session-vocabulary.md` (topology-scoped Markdown per repo convention; kernel JSON `0.1.json` / `0.2.json` do not bump for application signals) | Sprint-0 Vocabulary Session — sprint 202 (v0.1 RATIFIED 2026-08-25) |
+| Session topology skeleton (Producers + Views + eight Structs) | `substrate/src/substrate/topologies/session/__init__.py` | sprint 205 (skeleton) + sprint 206 (triggers + termination + `all_completed` refusal) |
+| Session `model_failures` View (filters `substrate.ProducerFailed` where `producer.kind == "model"`) | `substrate/src/substrate/topologies/session/views.py` | sprint 205 |
+| Session role prompts (`default.md` and role variants) | `substrate/src/substrate/topologies/session/prompts/<role>.md` | piece A — sprint 205 (default.md); sprint 209 (reviewer / planner / tester / explainer) |
+| Session transcript renderer (`render_transcript`, `RenderedTranscript`, `TranscriptCompacted` Struct — the ONE Python home for the wire name) | `substrate/src/substrate/topologies/session/transcript.py` | sprint 207 |
+| Driver context lookup (`resolve_driver_context_tokens`, 60-s TTL cache, CLI-config fallback at 100 000 default, `DeterministicResponder` at 4096 constant) | `substrate/src/substrate/topologies/session/transcript.py` | sprint 208 |
+| Driver introspection API (`OllamaResponder.context_tokens()`, typed `ContextTokensUnknown` and `DriverIntrospectionUnavailable` errors) | `substrate/src/substrate/adapters/models.py` | sprint 208 |
+| Session `session_warning` producer + seed-alone-exceeds guard (registered on `session_topology`, binds `initial("session_warning", ...)` only when `_est_tokens(seed) + _est_tokens(per_turn) > driver_context_tokens * 0.6`) | `substrate/src/substrate/topologies/session/__init__.py` | sprint 208 |
+
+Every claim in TECH-SPEC-2026-08-25-round6 about where a daily-driver entity lives cites a row above. When a downstream sprint discovers a new entity, it halts on `canonical_home_missing` and adds the row before writing code.
+
+---
+
 ## External SDK bridge mappings
 
 *Per AGENTS.md hard rule 10 / technique 46. The first sprint that imports an SDK without a bridge mapping here MUST halt with `bridge_mapping_required`. Reverse-engineer the real API surface before authoring against it. To be completed in a `pass_kind: bridge` sprint before the encoding/record sprints dispatch.*
@@ -99,6 +135,18 @@ Superseded drafts under `docs/specs/product_spec/`, `docs/specs/technical_spec/`
 ### rfc8785 — VERIFIED against installed **0.1.4** (2026-06-13)
 - **Used for:** RFC 8785 (JCS) canonical JSON encoding — the bytes everything hashes over (`B_hash`).
 - **Verified surface:** `rfc8785.dumps(obj) -> bytes` (UTF-8, minimal, sorted keys); `rfc8785.dump(obj, io)` writes to a binary file-like. Accepts dict/list/str/int/float/bool/None (tuples→lists). Raises **`rfc8785.CanonicalizationError`** (or subclass) on failure. **Does NOT coerce non-`str` dict keys** — our type whitelist already mandates str keys, and `substrate/encoding.py` enforces the whitelist (int range, finite floats, str keys) BEFORE calling `dumps`, rather than relying on rfc8785 to reject. Pipeline: `obj → msgspec.to_builtins → whitelist check → rfc8785.dumps → bytes`. CI runs the RFC 8785 conformance vectors every commit (an upgrade that changes any byte fails CI). *Status: VERIFIED.*
+
+### Ollama `/api/show` — VERIFIED live 2026-08-25 against local daemon at `127.0.0.1:11434`
+- **Used for:** driver context resolution — `session_topology` asks the responder how many tokens the model's window holds so `render_transcript`'s `_compute_k` can size the transcript. Added by sprint 207.5 (this row) ahead of sprint 208 per TECHNIQUE #46: the bridge mapping lands before the code, not folded into the same sprint.
+- **Endpoint:** `POST <OLLAMA_BASE_URL>/api/show` with body `{"name": "<tag>"}`. Same `OLLAMA_BASE_URL` env the responder's `/api/chat` reads (defaults to `http://localhost:11434`; the container test arena points it at `host.docker.internal`).
+- **Response shape (top-level `model_info` dict):** exactly one `<family>.context_length` key names the driver's window size. Family names are model-family, not tag. Verified against three tags:
+  - `POST /api/show {"name":"huihui_ai/qwen2.5-coder-abliterate:7b"}` → `model_info.qwen2.context_length = 32768`.
+  - `POST /api/show {"name":"deepseek-v4-flash:cloud"}` → `model_info.deepseek4.context_length = 1048576`.
+  - `POST /api/show {"name":"llama3.2:1b"}` → `model_info.llama.context_length = 131072` (per TECH-SPEC §3a note; not re-verified this run but published there).
+- **Read rule:** iterate `model_info.keys()`, take the first key ending in `.context_length`, return its int value. Do not hardcode the family prefix — new models bring new prefixes. A tag with no matching key raises `ContextTokensUnknown` (typed), caller falls back to the `~/.substrate/config.toml` `[driver.<name>].context_tokens` value.
+- **Rate class:** local daemon path; no provider rate limit. Cache per tag with a 60-second TTL — the value does not change during a session's lifetime; TTL lets a model reload after config change without a session restart.
+- **httpx:** lazy import inside the call site (matches the existing responder pattern; keeps `openai-compat` optional-extra).
+- **Failure modes:** connection refused (daemon down) → typed `DriverIntrospectionUnavailable` (fallback to config table); 404 (unknown tag) → typed `ContextTokensUnknown`; malformed body → typed `DriverIntrospectionUnavailable`. *Status: VERIFIED.*
 
 ### python-ulid, click, rich
 - python-ulid: `run_id` generation. click: CLI parsing. rich: terminal output. Document surfaces before the CLI sprints.

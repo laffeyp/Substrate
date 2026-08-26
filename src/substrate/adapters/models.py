@@ -44,7 +44,28 @@ __all__ = [
     "call_responder",
     "ModelUsage",
     "call_responder_metered",
+    "ContextTokensUnknown",
+    "DriverIntrospectionUnavailable",
 ]
+
+
+class DriverIntrospectionUnavailable(Exception):
+    """The driver's introspection endpoint could not be reached.
+
+    Sprint 208, sprint 207.5 bridge row: `OllamaResponder.context_tokens()` raises
+    this on connection refused (daemon down), malformed body, or timeout. Callers
+    fall back to the `~/.substrate/config.toml` `[driver.<name>].context_tokens`
+    value; the daemon logs the failure but does not halt the session open.
+    """
+
+
+class ContextTokensUnknown(Exception):
+    """The driver responded but declared no context length the caller can read.
+
+    For Ollama: `/api/show` returned `model_info` with no `*.context_length` key.
+    Callers treat this as an authoritative "unknown" and fall back to the config
+    table; the daemon may print a stderr note naming the driver.
+    """
 
 
 class ModelUsage(Struct, frozen=True):
@@ -296,6 +317,47 @@ class OllamaResponder:
         data = await self._achat(prompt, tools)
         msg = data.get("message")
         return msg if isinstance(msg, dict) else {"content": "", "tool_calls": []}
+
+    def context_tokens(self) -> int:
+        """Return the driver's advertised context window in tokens.
+
+        Reads `POST <base>/api/show` with the responder's own model tag, then
+        iterates `model_info` for the first key ending in `.context_length`.
+        Bridge mapping: `substrate/process/WORKING_AGREEMENT.md` §"Ollama /api/show"
+        (verified 2026-08-25). Family names — `llama.context_length`,
+        `qwen2.context_length`, `deepseek4.context_length` — differ per model
+        family, so the read never hardcodes a prefix. Raises `ContextTokensUnknown`
+        when the response carries no matching key; raises `DriverIntrospectionUnavailable`
+        when the daemon is unreachable, the body is malformed, or the request
+        times out.
+        """
+        import httpx  # lazy: matches the /api/chat call site
+
+        base = self._endpoint[: -len("/api/chat")]
+        show_url = f"{base}/api/show"
+        try:
+            resp = httpx.post(show_url, json={"name": self._model}, timeout=self._timeout)
+            resp.raise_for_status()
+            data = resp.json()
+        except httpx.HTTPError as exc:
+            raise DriverIntrospectionUnavailable(
+                f"OllamaResponder.context_tokens: /api/show failed for {self._model!r}: {exc}"
+            ) from exc
+        except ValueError as exc:
+            raise DriverIntrospectionUnavailable(
+                f"OllamaResponder.context_tokens: /api/show returned unparseable body: {exc}"
+            ) from exc
+        model_info = data.get("model_info") if isinstance(data, dict) else None
+        if not isinstance(model_info, dict):
+            raise ContextTokensUnknown(
+                f"OllamaResponder.context_tokens: {self._model!r} response has no model_info dict"
+            )
+        for key, value in model_info.items():
+            if key.endswith(".context_length") and isinstance(value, int) and value > 0:
+                return value
+        raise ContextTokensUnknown(
+            f"OllamaResponder.context_tokens: {self._model!r} model_info has no *.context_length key"
+        )
 
 
 class CliResponder:
