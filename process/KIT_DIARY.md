@@ -19,6 +19,22 @@
 
 ---
 
+### 2026-08-26 (evening) — Piece-B daemon-side close: sprints 215a, 215c, 215d, 216 + halt on 215b
+
+**Findings 59-63.**
+
+**59. 404 vs 410 is a persistence signal, not a routing detail.** SDD rule 12 preserves the record dir after DELETE. The session_dir stays on disk. `has_session_dir(sid)` distinguishes was-live-and-gone (410) from never-existed (404). The disk state IS the wire signal. Class: any REST endpoint whose backend keeps a tombstone on disk has this exact distinction available; do not throw it away by returning 404 uniformly.
+
+**60. A queue cap acquires its counter under a fast lock BEFORE the slow work lock.** The refusal path must not touch the work lock, or the whole point (immediate rejection) evaporates. `try_enqueue_turn` runs under `_queue_depth_lock` (µs-scale); `turn_sync` runs under the per-session `threading.Lock` (seconds-scale, holds during real model calls). Two locks, ordered: fast then slow. A single lock covering both classes of contention would make 429 responses wait for a running turn to finish before refusing.
+
+**61. A trigger's `input_builder` is fingerprint-neutral.** `TriggerReg` at `kernel/topology.py:97` serializes id, firing_policy, starts, subscription — not the input_builder closure. Changing `end-on-user-end`'s input_builder to switch reason on payload source did not break the committed CI record's byte-identical replay. Adding or removing triggers WOULD. Migration budget by change class: input_builder cheap; predicate cheap; structure (id, subscription, starts) expensive — requires re-recording every committed CI record.
+
+**62. Halt-and-articulate at the substrate/substrate-ui seam when the semantics require a primitive substrate does not publish.** POST /interrupt needs targeted per-producer cancel from outside the loop. Substrate publishes none. Cancelling the outer `Runtime.resume` task (delegate.py:113's pattern) delivers kill-and-seal, not park-on-interrupt: the writer loop is torn down before it processes the ProducerCancelled envelope that would fire `park-on-interrupt`. Halting at the seam and naming the two candidate primitives (`Runtime.cancel_producer(instance)` or a producer-scoped external-event cancel channel) is the correct move. The sprint 215 parent card's "delegate.py:105-115 pattern" spec was factually wrong about which semantics that pattern delivers; the halt names the mismatch.
+
+**63. Match test scaffolding to real-world latency, not synthetic latency.** The queue-cap test's first draft used a 150 ms sleep to keep three admitted callers in-flight while the fourth fired. The deterministic driver completes a turn in ~50 ms, so all three had dequeued before the fourth arrived and the 429-immediate assertion tested nothing. Fix: monkey-patch `turn_sync` to sleep 1 s per admitted turn; the fourth's 429 return time then meaningfully separates "blocked on the turn lock" (~1 s) from "refused without touching it" (<0.3 s). Class: a race/latency test whose scaffold is faster than the code path under test asserts nothing.
+
+---
+
 ### 2026-08-26 — Piece-B closure review fold: 6 lessons on wire-level HTTP + shape parity
 
 **Findings 53–58** (continuing the numbered sequence from the piece-C review fold).
