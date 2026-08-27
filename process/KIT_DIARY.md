@@ -19,6 +19,83 @@
 
 ---
 
+### 2026-08-26 — Piece-B closure review fold: 6 lessons on wire-level HTTP + shape parity
+
+**Findings 53–58** (continuing the numbered sequence from the piece-C review fold).
+
+**53. A "guard" that never fires is not a guard, it is documentation.**
+`test_delete_leaves_the_record_directory_intact` had a content-preservation
+`if envs_before is not None:` branch guarded on `(record_root / "events-000001.jsonl").exists()`.
+Real record segments are named `events-NNNNNN.open.jsonl` and
+`events-NNNNNN.sealed.jsonl` — the file the guard tested for never exists.
+The check passed on the two remaining assertions (`not manifest.exists()` and
+`record_root.exists()`) so the test was green while the SDD-rule-12 audit-
+trail invariant it named was untested. Class of drift the test suite is
+structurally blind to (same shape as piece-C finding 51). Doctrine: guard
+a check against something that can plausibly be false in the "no-check"
+world; never against a shape you author yourself.
+
+**54. Reorder-before-filter is the common shape for stream terminators.**
+`_session_events` filtered on `seq` before checking the RunFinalised kind.
+Consequence: a client reconnecting with `since_seq >= runfinalised_seq`
+hit `continue` on every envelope, `finalised` stayed False, the poll loop
+spun forever. Terminator kinds must be checked before filters — the filter
+belongs to the caller's cursor, but termination belongs to the stream.
+Substrate's own `LiveRecord.follow(until_finalised=True)` has this
+ordering right; the manual reimplementation had regressed it. Corollary:
+when a runtime primitive already implements the loop, calling it beats
+reimplementing it inline — the two implementations drift and one of them
+carries the bug.
+
+**55. Path parsing that treats `<id>` as flat must reject `/` at the routing layer.**
+`do_DELETE` matched every path under `/api/session/`, so
+`DELETE /api/session/<id>/turn` reached `SessionRegistry.delete("<id>/turn")`
+and returned 404 pretending the mangled id was a session name. Two things:
+the corruption was not real (the delete failed cleanly) but the shape hid
+the parsing bug from every future author; and the counterpart POST branches
+already required `path.endswith("/turn")` — the DELETE branch was the odd
+one out. General doctrine: an ambiguous route parses to the wrong resource
+silently; a strict route 404s at the router. Every "/api/session/<id>"
+handler now checks `"/" not in session_id` at the router, not inside the
+handler.
+
+**56. Delete-during-in-flight-work is a race the caller doesn't see.**
+The earlier `SessionRegistry.delete` popped the manifest without regard to
+any in-flight `turn_sync`. The turn's tail `update_status` then found the
+manifest gone and raised KeyError from inside the running turn, surfacing
+to the HTTP caller as a generic 500. The fix is to acquire the per-session
+threading lock during delete — the in-flight turn completes cleanly first;
+subsequent turn_sync callers waiting on the same lock find the manifest
+gone under the lock and raise `SessionEndedMidTurn` (the existing 410
+shape). Doctrine: any teardown of shared state should hold the same
+coordination primitive the in-flight users hold; "we just remove it" is
+a per-tick race that surfaces as a mysterious 500. Cost: delete may wait
+up to 600 s (turn_sync's timeout) — this is what the operator wanted.
+
+**57. Field-name drift between spec and handler is a silent-nothing bug.**
+TECH-SPEC §4 named the create body's seed field as `seed_text`. The
+handler read `seed` only. A spec-following client sent `seed_text` and
+the handler silently stored `""`. The class: any "spec says X, handler
+reads Y" pair produces a runtime that appears to work but is quietly
+lossy. General mitigation: two-name accept during a spec-vs-handler
+drift (both names read, spec-name wins) is a bridge, not a fix — the
+right shape is to write a spec-parity test that fires the exact spec
+body and asserts each named field lands where the spec promises.
+
+**58. A malformed query parameter is a 400, not a 500.**
+`_session_events` parsed `since_seq` with `int(...)` inside `do_GET`; a
+`ValueError` on `?since_seq=abc` fell through to the generic 500 branch.
+The generic exception handler is a floor, not a router — every input-
+validation path should terminate with a typed 4xx before the floor sees
+it. Same class as finding 50 in piece-C: "green is not proven" applies to
+error paths too — the test suite happily exercised the happy path but no
+test fired a malformed query, so the 500-instead-of-400 lived until an
+adversarial reader looked at it.
+
+---
+
+
+
 ### 2026-06-12 (round 0) — Project bootstrap + Sprint 0 framing
 
 **What happened:** First session on a greenfield Substrate project that already had a mature four-document spec corpus (kernel v15, product DRAFT 7, technical DRAFT 5, design DRAFT 1) but zero kit scaffolding. Read the full sdd-kit-2 (AGENTS/CLAUDE, foundations 01–04, grammar PRINCIPLES + BOOTSTRAP, TECHNIQUES, all six templates, lib/sdd.py, process-not-prompt research, the full `example/`) and the four canonical specs in full. Bootstrapped BLACKBOARD (with COMPREHENSION_AFFIRMATION + proposed scope Decision), WORKING_AGREEMENT, this diary, and the Sprint-0 card. Architect directed: bootstrap + start the session; maximize parallel agent teams + worktrees; brief every agent on the actual techniques (originals, not summaries); do a real academic/best-practices research pass and re-ground in the originals before settling the grammar; strict validator-extras.
