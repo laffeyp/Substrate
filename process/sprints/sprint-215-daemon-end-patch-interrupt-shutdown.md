@@ -3,7 +3,7 @@
 ```yaml
 ---
 id: 215
-status: pending
+status: split-into-215a-b-c-d
 phase: daily-driver-piece-B
 pass_kind: functional
 ---
