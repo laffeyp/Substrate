@@ -497,12 +497,22 @@ def session_topology(
             policy=api.Once(),
         )
         b.trigger(
+            # Sprint 215d: the SessionEnded reason mirrors the requester's
+            # source when the source names a distinguishable path — today
+            # the only such value is "daemon_shutdown" (SIGTERM). Every
+            # other source (missing, "user_end", "cli_slash_exit", etc.)
+            # maps to reason="user_end". Fingerprint-neutral: input_builder
+            # is not serialized into TriggerReg (kernel/topology.py:97).
             "end-on-user-end",
             subscription=api.Subscription(kinds=frozenset({"SessionEndRequested"})),
             predicate=lambda ctx: True,
             starts="session_end",
             input_builder=lambda ctx: {
-                "reason": "user_end",
+                "reason": (
+                    "daemon_shutdown"
+                    if (ctx.event.payload or {}).get("source") == "daemon_shutdown"
+                    else "user_end"
+                ),
                 "total_turns": int(ctx.views["user_turns"].value()),
             },
             policy=api.Once(),
