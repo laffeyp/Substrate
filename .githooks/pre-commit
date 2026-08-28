@@ -12,5 +12,32 @@ echo "pre-commit: ruff format --check"
 "$RUFF" format --check || { echo "  -> run: ruff format"; fail=1; }
 echo "pre-commit: ruff check"
 "$RUFF" check || fail=1
+
+# Sprint 224h gate: `# noqa: BLE001` with no trailing rationale is banned.
+# Every wide `except Exception` catch must name the boundary (HTTP handler
+# top, background sweep, mid-write read) or the class(es) the wide catch
+# subsumes. Zero rationale-less BLE001 sites remain as of ee7054c6; this
+# gate makes drift loud rather than silent.
+echo "pre-commit: BLE001-rationale gate"
+if grep -rn 'noqa: BLE001[[:space:]]*$' src/ tests/ 2>/dev/null; then
+  echo "  ^^ BLE001 sites above have no rationale. Add '— <boundary or class list>' after the noqa."
+  fail=1
+fi
+
+# Sprint 224h gate: raw-status-string comparison ban. Substrate-ui exports
+# STATUS_RUNNING / STATUS_PARKED / STATUS_INTERRUPTED / STATUS_ENDED from
+# session_registry.py; any `== "ended"` / `== "parked"` etc. in the daemon
+# code is a drift point that would silently return False after a Literal
+# rename. Substrate (this repo) does not carry session status, so this
+# grep is a no-op here; the same hook shipped on substrate-ui catches
+# regressions on that side.
+echo "pre-commit: status-literal-comparison gate (substrate-ui side)"
+if [ -d ../substrate-ui ]; then
+  if grep -rn '== "ended"\|== "parked"\|== "interrupted"\|== "running"' ../substrate-ui/*.py 2>/dev/null; then
+    echo "  ^^ Compare against STATUS_ENDED / STATUS_PARKED / STATUS_INTERRUPTED / STATUS_RUNNING instead."
+    fail=1
+  fi
+fi
+
 [ "$fail" -ne 0 ] && echo "pre-commit FAILED — fix the above (or: git commit --no-verify to override deliberately)"
 exit $fail

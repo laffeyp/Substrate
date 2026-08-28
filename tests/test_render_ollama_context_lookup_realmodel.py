@@ -42,7 +42,7 @@ def _require(*models: str) -> None:
         import httpx
 
         ids = {m["id"] for m in httpx.get(_OLLAMA_V1 + "/models", timeout=4).json().get("data", [])}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 — httpx.get / json parse / connection reset: any failure means Ollama absent, which is a skip, not a test error.
         pytest.skip(
             f"realmodel context lookup skipped — Ollama not reachable ({type(exc).__name__})"
         )
