@@ -3,13 +3,35 @@
 ```yaml
 ---
 id: 217
-status: pending
+status: superseded
 phase: daily-driver-piece-B
 pass_kind: functional
 ---
 ```
 
-## scope
+## superseded by sprint 223e (2026-08-28)
+
+The `/api/agent` compat bridge shipped as sprint 223e (piece-B gap-fill
+batch) with a simpler naming rule than this card proposed. 223e uses
+the `?session=<name>` query param as the find-or-create key rather than
+`sha256(workspace + client_ip + first-user-agent-header)[:8]` — a bare
+name is clearer to callers, matches every other endpoint's session-name
+resolution, and drops the client-fingerprint dependency this card
+carried the review deferral note about. `?legacy=true` opts into the
+pre-bridge shape for one release; unregistered callers get 503 per
+sprint 224d.
+
+Test lives at `substrate-ui/tests/test_server_agent_compat.py`, per
+TECH-SPEC §7 line 700. The daemon prints no stderr deprecation notice
+today; that landed as `deprecated: true` on the legacy-shape response
+body instead of stderr — a machine-readable signal is more useful to
+the piece-G UI rewrite than a boot-time console line.
+
+Original scope below, kept for the audit trail.
+
+---
+
+## scope (original — not what shipped)
 
 Rewrite the existing `/api/agent` handler at `substrate-ui/server.py:554-687` as a thin adapter over `/api/session/*`. Naming rule (post-review 2026-08-25 — "client-fingerprint" was undefined): first request under a given `?workspace=<name>` creates a session named `agent-<sha256(workspace + client_ip + first-user-agent-header)[:8]>`. `client_ip` is `self.client_address[0]` from BaseHTTPRequestHandler; `first-user-agent-header` is the request's `User-Agent` at first-request time (subsequent requests may differ; only the first sets the name). Two browsers from the same host + workspace with the same User-Agent collide by design (that IS the same client for adapter purposes). Every subsequent request under the same workspace resolves the same session name → same session, and routes to `POST /api/session/<id>/turn`. Print a one-line stderr deprecation notice at daemon start: `"[deprecated] /api/agent is a compatibility adapter over /api/session; slated for removal after v1.1"`. Piece G's UI eventually retires `/api/agent`; this bridge lets the substrate-ui web app keep working during the piece-G rewrite.
 

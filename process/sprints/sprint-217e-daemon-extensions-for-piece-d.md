@@ -3,7 +3,7 @@
 ```yaml
 ---
 id: 217e
-status: pending
+status: closed
 phase: daily-driver-piece-B-to-D-bridge
 pass_kind: architecture
 ---

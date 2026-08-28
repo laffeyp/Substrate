@@ -3,7 +3,7 @@
 ```yaml
 ---
 id: 217c
-status: pending
+status: closed
 phase: substrate-kernel
 pass_kind: architecture
 ---
