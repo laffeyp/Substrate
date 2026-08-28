@@ -3,13 +3,32 @@
 ```yaml
 ---
 id: 225
-status: pending
+status: superseded
 phase: daily-driver-piece-E
 pass_kind: architecture
 ---
 ```
 
-## scope
+## superseded by 225a + 225b + 225c + 225d (2026-08-28)
+
+This card fused five concepts across two repos and depended on
+infrastructure the roadmap did not spell out separately
+(`POST /api/topology/<name>/run`, a SessionCompositeSpec type, a
+DaemonClient from piece F). Split per SDD rule 6:
+
+- **225a** — generic `POST /api/topology/<name>/run` for one-shot apps.
+- **225b** — `SessionManifest.composite_of` field + cascade lifecycle
+  infra (parent-child end/rm).
+- **225c** — the `pair_coding_composite.py` factory + manifest +
+  `runs = "session_composite"` dispatch branch.
+- **225d** — `GET /api/topology/<name>/status?run_id=<id>` for
+  225a's `await_completion=false` shape.
+
+Original scope kept below for the audit trail.
+
+---
+
+## scope (original — not what shipped)
 
 Author `substrate/src/substrate/topologies/applications/pair_coding_composite.py`. New `pair_coding_application(*, builder_driver, reviewer_driver, workspace, daemon_client) -> SessionCompositeSpec`. Opens two related sessions via the daemon: (1) a builder session with `session_topology`, driver `builder_driver`, name auto-generated as `pair-<uuid8>`; (2) a standing reviewer sub-agent with `session_topology`, driver `reviewer_driver`, name `f"{builder.name}-reviewer"`, role `"reviewer"`, tools `[read_file, grep, list_dir, web_fetch, delegate]`. Builder's seed instructs it to call `delegate(task="review the change I just made in <file>", child_session_name="<builder.name>-reviewer")` after every logical unit of work. Reviewer inherits builder's baseline on creation.
 
