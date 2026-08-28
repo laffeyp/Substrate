@@ -1,0 +1,166 @@
+"""Application registry — scan `applications/*.manifest.toml` at daemon boot.
+
+TECH-SPEC §7.6 (round 6) locks the flat manifest shape: one
+`<name>.manifest.toml` next to each application module, parsed at boot,
+served by the daemon at `GET /api/applications`. The daemon reads the
+`[inputs]` schema at `POST /api/topology/<name>/run` and resolves each
+`<role>_model` value into a Responder via the same registry
+`_agent_models` uses (spec line 1038).
+
+`load_manifests()` returns `{name: ApplicationSpec}`. An empty
+applications directory returns `{}` — a fresh install has no crash
+surface. A malformed manifest raises `ManifestError` naming the file
+and the parse failure; the daemon catches and logs, then boots without
+that entry.
+"""
+
+from __future__ import annotations
+
+import tomllib
+from importlib.resources import as_file, files
+from pathlib import Path
+from typing import Any
+
+from msgspec import Struct
+
+
+class ManifestError(Exception):
+    """A manifest file exists but does not parse or does not carry the
+    required fields. Carries the file path and the underlying cause."""
+
+    def __init__(self, path: Path, cause: str) -> None:
+        super().__init__(f"application manifest at {path}: {cause}")
+        self.path = path
+        self.cause = cause
+
+
+class ApplicationSpec(Struct, frozen=True):
+    """One parsed manifest. Fields match TECH-SPEC §7.6 line 1044.
+
+    - `name`: registry key + `POST /api/topology/<name>/run` slot.
+    - `description`: one-line human summary.
+    - `runs`: `"one-shot"` (topology runs to completion) or `"session"`
+      (composes a standing session). §7.3 pair_coding is a composite.
+    - `inputs_schema`: the `[inputs]` block verbatim as a dict. Each key
+      is either a primitive value spec `{type, default?, required?}` or
+      the roles-to-models binding shape `{type="string", default="<model>"}`
+      for `<role>_model` keys (§7.6 line 1038).
+    - `output_kind`: from `[output].kind`; a short tag the caller reads
+      to know what the topology emits (text, code, structured record).
+    - `default_bundle`: optional name — the piece-H bundle the app
+      composes with when the caller does not name one. `None` if absent.
+    - `slots`: the `[slots]` block verbatim (piece H sprint 230 owns
+      the binding-and-fallback algorithm; this registry just parses).
+    """
+
+    name: str
+    description: str
+    runs: str
+    inputs_schema: dict[str, Any]
+    output_kind: str
+    default_bundle: str | None
+    slots: dict[str, Any]
+
+
+_REQUIRED_TOP_LEVEL_KEYS = frozenset({"name", "description", "runs"})
+
+
+def _parse_one(path: Path) -> ApplicationSpec:
+    try:
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        raise ManifestError(path, f"TOML parse failed: {exc}") from exc
+    except OSError as exc:
+        raise ManifestError(path, f"could not read: {exc}") from exc
+    missing = _REQUIRED_TOP_LEVEL_KEYS - set(raw)
+    if missing:
+        raise ManifestError(path, f"missing top-level keys: {sorted(missing)}")
+    name = raw["name"]
+    if not isinstance(name, str) or not name:
+        raise ManifestError(path, "`name` must be a non-empty string")
+    runs = raw["runs"]
+    if runs not in ("one-shot", "session"):
+        raise ManifestError(path, f"`runs` must be 'one-shot' or 'session'; got {runs!r}")
+    inputs_schema = raw.get("inputs", {})
+    if not isinstance(inputs_schema, dict):
+        raise ManifestError(path, "`[inputs]` must be a table")
+    output_block = raw.get("output", {})
+    if not isinstance(output_block, dict):
+        raise ManifestError(path, "`[output]` must be a table")
+    output_kind = str(output_block.get("kind", "text"))
+    default_bundle = raw.get("default_bundle")
+    if default_bundle is not None and not isinstance(default_bundle, str):
+        raise ManifestError(path, "`default_bundle` must be a string or absent")
+    slots = raw.get("slots", {})
+    if not isinstance(slots, dict):
+        raise ManifestError(path, "`[slots]` must be a table")
+    return ApplicationSpec(
+        name=name,
+        description=str(raw["description"]),
+        runs=runs,
+        inputs_schema=inputs_schema,
+        output_kind=output_kind,
+        default_bundle=default_bundle,
+        slots=slots,
+    )
+
+
+def load_manifests(
+    root: Path | None = None, *, on_error: str = "skip"
+) -> dict[str, ApplicationSpec]:
+    """Scan `<root>/*.manifest.toml`; parse each; return `{name: spec}`.
+
+    `root` defaults to the installed `substrate.topologies.applications`
+    directory via `importlib.resources.files`. A caller can pass an
+    absolute path for tests or for a per-install override.
+
+    `on_error`:
+      - `"skip"` (default): a malformed manifest is skipped; the
+        rest load. The daemon logs and boots without that entry. This
+        matches the "no crash surface at boot" invariant.
+      - `"raise"`: the first `ManifestError` propagates. Useful for
+        tests that assert on the failure shape.
+    """
+    if root is None:
+        package_root = files("substrate.topologies.applications")
+        with as_file(package_root) as materialised:
+            return _scan(Path(materialised), on_error=on_error)
+    return _scan(root, on_error=on_error)
+
+
+def _scan(root: Path, *, on_error: str) -> dict[str, ApplicationSpec]:
+    specs: dict[str, ApplicationSpec] = {}
+    if not root.is_dir():
+        return specs
+    for manifest_path in sorted(root.glob("*.manifest.toml")):
+        try:
+            spec = _parse_one(manifest_path)
+        except ManifestError:
+            if on_error == "raise":
+                raise
+            continue
+        specs[spec.name] = spec
+    return specs
+
+
+def spec_to_wire(spec: ApplicationSpec) -> dict[str, Any]:
+    """Serialize one spec for `GET /api/applications`. Matches the response
+    shape at TECH-SPEC §7.6 line 1044: `{name, description, inputs_schema,
+    output_kind, runs}` — `slots` and `default_bundle` are excluded from
+    the wire response by design (they are internal to the registry's
+    binding step, not visible to a caller browsing the app catalog)."""
+    return {
+        "name": spec.name,
+        "description": spec.description,
+        "runs": spec.runs,
+        "inputs_schema": spec.inputs_schema,
+        "output_kind": spec.output_kind,
+    }
+
+
+__all__ = [
+    "ApplicationSpec",
+    "ManifestError",
+    "load_manifests",
+    "spec_to_wire",
+]
