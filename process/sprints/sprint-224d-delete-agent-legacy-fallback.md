@@ -5,7 +5,7 @@
 id: 224d
 status: closed
 phase: testing-discipline
-pass_kind: correctness
+pass_kind: functional
 ---
 ```
 

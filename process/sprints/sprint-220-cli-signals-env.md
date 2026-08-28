@@ -53,6 +53,11 @@ Manual: `substrate` bare, type `bash echo $SUBSTRATE_SESSION`; assistant runs th
 
 - `dual_contract_fail` if any of the four signals reaches a different path than documented.
 
+
+## signal contract
+
+Emits: (none — CLI signal handlers + subprocess env — no runtime emit sites).
+
 ## definition of done
 
 Three signals routed correctly; env inherited. Sprint 221 (slash-command router) can dispatch.

@@ -5,7 +5,7 @@
 id: 231
 status: closed
 phase: daily-driver-piece-H
-pass_kind: docs
+pass_kind: functional
 ---
 ```
 
@@ -61,6 +61,11 @@ Every `bundle.toml` in these directories references the correct slot files and d
 ## halt conditions
 
 - `vocabulary_change_required` if a bundle prose file needs a slot shape not covered by §9.
+
+
+## signal contract
+
+Emits: (none — shipped default-bundle prose files — no runtime emit sites).
 
 ## definition of done
 

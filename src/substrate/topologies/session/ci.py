@@ -30,6 +30,7 @@ from ... import api
 from ...adapters import DeterministicResponder
 from ..tool_loop.tools import CALCULATOR
 from . import UserMessage, session_topology
+from .vocabulary import PARK, SESSION_ENDED
 
 _CI_SESSION_ID = "s_CI"
 _CI_SEED = "you are a companion in a terminal session"
@@ -102,7 +103,7 @@ def ci_session_topology(
         b.initial("driver_stepper", input={"turn_index": 0})
         b.trigger(
             "advance-on-park",
-            subscription=api.Subscription(kinds=frozenset({"Park"})),
+            subscription=api.Subscription(kinds=frozenset({PARK})),
             predicate=lambda ctx: int(ctx.event.payload.get("turn_index", 0)) + 1 < len(turns),
             starts="driver_stepper",
             input_builder=lambda ctx: {
@@ -112,6 +113,6 @@ def ci_session_topology(
         )
         # Overwrite session_topology's pause_await_input termination: the CI run
         # drives itself turn-by-turn and finalises on the /exit-produced SessionEnded.
-        b.termination(api.threshold_count("SessionEnded", 1))
+        b.termination(api.threshold_count(SESSION_ENDED, 1))
 
     return topo

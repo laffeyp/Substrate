@@ -53,3 +53,7 @@ POST /api/session. §1.6.5 line 162 names its CLI counterpart
 
 - `dual_contract_fail` if `role` lands on the wire but not on the manifest.
 - `vocabulary_change_required` if the manifest schema needs a version bump.
+## signal contract
+
+Emits: (none — daemon POST body validation + manifest field — no runtime emit sites).
+

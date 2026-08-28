@@ -5,7 +5,7 @@
 id: 224f
 status: closed
 phase: testing-discipline
-pass_kind: test-add
+pass_kind: observation
 ---
 ```
 

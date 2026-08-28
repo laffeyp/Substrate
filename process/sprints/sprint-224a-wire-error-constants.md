@@ -5,7 +5,7 @@
 id: 224a
 status: closed
 phase: testing-discipline
-pass_kind: refactor
+pass_kind: functional
 ---
 ```
 

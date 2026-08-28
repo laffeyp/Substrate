@@ -69,6 +69,11 @@ the same `session_id`; the record shows two UserMessages.
 - `vocabulary_change_required` if the legacy console needs a response
   field the new shape does not carry.
 
+
+## signal contract
+
+Emits: (none — daemon compat bridge over existing endpoints — no new emit sites).
+
 ## definition of done
 
 All five piece-B gaps (223a-e) closed. Piece B rings the bell: every

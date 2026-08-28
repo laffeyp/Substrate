@@ -51,6 +51,11 @@ Manual/scripted: fire `substrate chat deterministic`, type `say hi`; assistant t
 
 - `comprehension_failed` if the REPL/SSE-thread ownership rules cannot be stated in one paragraph.
 
+
+## signal contract
+
+Emits: (none — CLI + SSE reader — reads envelopes, does not emit them).
+
 ## definition of done
 
 Streaming works. Sprint 220 (Ctrl+C/D/SIGHUP + env) can dispatch.

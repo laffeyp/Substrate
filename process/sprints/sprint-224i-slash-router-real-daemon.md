@@ -1,13 +1,20 @@
-# Sprint 224b — sprint 221 slash tests hit a real daemon
+# Sprint 224i — sprint 221 slash tests hit a real daemon
 
 ```yaml
 ---
-id: 224b
+id: 224i
 status: closed
 phase: testing-discipline
-pass_kind: test-refactor
+pass_kind: observation
 ---
 ```
+
+> **Renamed from sprint 224b to sprint 224i on 2026-08-28** (REVIEW F1 —
+> id collision with `sprint-224b-app-bundled-ci-factories.md`, which
+> also carried `id: 224b`). The old filename lives in git history; every
+> outside reference to "224b (slash router)" now resolves as "224i (slash
+> router)". `pass_kind` also corrected from the invented `test-refactor`
+> tag to `observation` per REVIEW F2. Body unchanged.
 
 ## scope
 

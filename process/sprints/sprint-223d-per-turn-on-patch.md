@@ -65,3 +65,7 @@ prefix in `assembled_prompt`.
   does not honor it on the next turn.
 - `vocabulary_change_required` if the session-topology signature needs a
   new field beyond `per_turn: str`.
+## signal contract
+
+Emits: (none — daemon PATCH + assembled_prompt prefix — no runtime emit sites).
+

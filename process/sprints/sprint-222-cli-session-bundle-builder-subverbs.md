@@ -69,6 +69,11 @@ Manual: `substrate` bare, `/exit`; then `substrate session ls` shows the just-en
 
 - `bridge_mapping_required` if `xdg-open` needs a mapping.
 
+
+## signal contract
+
+Emits: (none — CLI subverbs — HTTP calls only, no runtime emit sites in the CLI).
+
 ## definition of done
 
 Ten subverbs wired. Piece D closes. Pieces E, F, H unblock (E dispatches independently; F depends on A which is already done; H depends on E).

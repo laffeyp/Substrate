@@ -31,6 +31,12 @@ from ...adapters import DeterministicResponder, Responder
 from ...kernel.policies import TerminationPolicy
 from ..tool_loop import _tool_factory as _tool_loop_tool_factory
 from ..tool_loop.tools import Tool
+from .vocabulary import (
+    PARK,
+    SESSION_END_REQUESTED,
+    SESSION_ENDED,
+    USER_MESSAGE,
+)
 
 _ALL_COMPLETED_RE = re.compile(r"\ball_completed\b")
 
@@ -125,7 +131,7 @@ def _park_factory() -> Callable[[], Any]:
     async def _park(inp: Any) -> AsyncIterator[Park]:
         turn_index = int(inp.get("turn_index", 0)) if hasattr(inp, "get") else 0
         reason = str(inp.get("reason", "final_answer")) if hasattr(inp, "get") else "final_answer"
-        yield Park(awaiting="UserMessage", turn_index=turn_index, reason=reason)
+        yield Park(awaiting=USER_MESSAGE, turn_index=turn_index, reason=reason)
 
     return lambda: _park
 
@@ -428,7 +434,7 @@ def session_topology(
             )
             b.initial("session_open", input={})
         b.view("results", api.KindBuffer("ToolResult"))
-        b.view("user_turns", api.KindCount("UserMessage"))
+        b.view("user_turns", api.KindCount(USER_MESSAGE))
         b.view("model_failures", ModelFailures())
 
         b.trigger(
@@ -495,7 +501,7 @@ def session_topology(
         )
         b.trigger(
             "resume-on-user",
-            subscription=api.Subscription(kinds=frozenset({"UserMessage"})),
+            subscription=api.Subscription(kinds=frozenset({USER_MESSAGE})),
             predicate=lambda ctx: True,
             starts="model",
             input_builder=lambda ctx: {
@@ -509,7 +515,7 @@ def session_topology(
         )
         b.trigger(
             "end-on-exit",
-            subscription=api.Subscription(kinds=frozenset({"UserMessage"})),
+            subscription=api.Subscription(kinds=frozenset({USER_MESSAGE})),
             predicate=lambda ctx: str(ctx.event.payload.get("text", "")).strip() == "/exit",
             starts="session_end",
             input_builder=lambda ctx: {
@@ -525,7 +531,7 @@ def session_topology(
             # is what the tech spec §3 wording ("SessionEnded{reason: 'timeout'} on the 201st turn
             # for max_turns=200") actually names.
             "end-on-cap",
-            subscription=api.Subscription(kinds=frozenset({"UserMessage"})),
+            subscription=api.Subscription(kinds=frozenset({USER_MESSAGE})),
             predicate=lambda ctx: int(ctx.views["user_turns"].value()) > max_turns,
             starts="session_end",
             input_builder=lambda ctx: {
@@ -542,7 +548,7 @@ def session_topology(
             # maps to reason="user_end". Fingerprint-neutral: input_builder
             # is not serialized into TriggerReg (kernel/topology.py:97).
             "end-on-user-end",
-            subscription=api.Subscription(kinds=frozenset({"SessionEndRequested"})),
+            subscription=api.Subscription(kinds=frozenset({SESSION_END_REQUESTED})),
             predicate=lambda ctx: True,
             starts="session_end",
             input_builder=lambda ctx: {
@@ -557,10 +563,10 @@ def session_topology(
         )
         termination = api.any_of(
             api.pause_await_input(
-                when=lambda tctx: tctx.event is not None and tctx.event.kind == "Park",
-                resume_condition="UserMessage",
+                when=lambda tctx: tctx.event is not None and tctx.event.kind == PARK,
+                resume_condition=USER_MESSAGE,
             ),
-            api.threshold_count("SessionEnded", 1),
+            api.threshold_count(SESSION_ENDED, 1),
         )
         _refuse_all_completed(termination)
         b.termination(termination)

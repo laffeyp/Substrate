@@ -56,3 +56,7 @@ returns the session; subsequent `/turn` sees only `grep` in the builder.
 
 - `dual_contract_fail` if the wire accepts `tools` but the built topology
   does not honor it.
+## signal contract
+
+Emits: (none — daemon POST body validation — no runtime emit sites).
+

@@ -71,6 +71,11 @@ Open the substrate-ui web app; drive a two-turn agent conversation as today; ver
 
 - `dual_contract_fail` if the existing web app breaks — halt and preserve the compatibility contract.
 
+
+## signal contract
+
+Emits: (none — adapter deferred/superseded — no runtime emit sites).
+
 ## definition of done
 
 `/api/agent` routes through the session API. Web app unaffected. Piece B closes.

@@ -60,6 +60,11 @@ Add `chat` verb to `substrate/src/substrate/cli.py`. Bare `substrate` (no subcom
 
 - `bridge_mapping_required` if socket handling needs a mapping (stdlib `socket` should suffice).
 
+
+## signal contract
+
+Emits: (none — CLI wiring — no runtime emit sites in the CLI diff).
+
 ## definition of done
 
 `substrate` bare works. Config defaults respected. Daemon auto-launches. Sprint 219 (REPL + SSE streaming) can dispatch.

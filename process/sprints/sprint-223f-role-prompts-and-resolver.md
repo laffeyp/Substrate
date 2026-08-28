@@ -69,3 +69,7 @@ shipped default prompt.
 
 - `dual_contract_fail` if resolver returns bytes not present on disk.
 - `vocabulary_change_required` if folder-shape needs a manifest.
+## signal contract
+
+Emits: (none — role-prompt resolver — filesystem read only, no runtime emit sites).
+

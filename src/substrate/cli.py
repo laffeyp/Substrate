@@ -1021,7 +1021,7 @@ def _sse_stream(session_id: str, stop_event: Any, *, verbose: bool = False) -> N
                     except ValueError:
                         continue
                     _render_stream_line(env, verbose=verbose)
-                    if str(env.get("kind", "")) == "substrate.RunFinalised":
+                    if str(env.get("kind", "")) == api.RUN_FINALISED:
                         stop_event.set()
                         return
     finally:

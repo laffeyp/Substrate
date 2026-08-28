@@ -5,7 +5,7 @@
 id: 224h
 status: closed
 phase: testing-discipline
-pass_kind: infra
+pass_kind: architecture
 ---
 ```
 

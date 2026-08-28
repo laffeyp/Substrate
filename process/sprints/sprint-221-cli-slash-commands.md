@@ -73,6 +73,11 @@ Manual: `substrate chat deterministic`, type `/model kimi`, `/tools read_file,gr
 - `dual_contract_fail` if any non-/exit slash reaches the model.
 - `vocabulary_change_required` if `/context` needs a payload field not covered by the delegate schema.
 
+
+## signal contract
+
+Emits: (none — CLI slash router — client-side dispatch, no runtime emit sites).
+
 ## definition of done
 
 Nine slashes routed correctly. Sprint 222 (session/bundle/builder subverbs) can dispatch.

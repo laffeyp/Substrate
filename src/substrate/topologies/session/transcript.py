@@ -35,6 +35,12 @@ from ...adapters import (
     Responder,
 )
 from ...record.record import read_record
+from .vocabulary import (
+    MODEL_REPLY as _KIND_MODEL_REPLY,
+    PARK as _KIND_PARK,
+    TRANSCRIPT_COMPACTED as _KIND_TRANSCRIPT_COMPACTED,
+    USER_MESSAGE as _KIND_USER_MESSAGE,
+)
 
 _CONTEXT_CACHE_TTL_SECONDS = 60.0
 _CLI_CONTEXT_DEFAULT_TOKENS = 100_000
@@ -49,13 +55,11 @@ _context_cache: dict[tuple[str, str], tuple[float, int]] = {}
 _CHARS_PER_TOKEN = 4  # coarse conservative estimator; see module docstring
 _AVG_TURN_TOKENS_DEFAULT = 800  # heuristic per TECH-SPEC §3a K-calculation
 
-_KIND_USER_MESSAGE = "UserMessage"
-_KIND_MODEL_REPLY = "ModelReply"
+# _KIND_USER_MESSAGE, _KIND_MODEL_REPLY, _KIND_PARK, _KIND_TRANSCRIPT_COMPACTED
+# imported above from `.vocabulary` (single source of truth per REVIEW F5).
 _KIND_TOOL_CALL = "ToolCall"
 _KIND_TOOL_RESULT = "ToolResult"
 _KIND_FINAL_ANSWER = "FinalAnswer"
-_KIND_PARK = "Park"
-_KIND_TRANSCRIPT_COMPACTED = "TranscriptCompacted"
 # `TranscriptCompacted` rides a turn because the `model` producer yields it at the start
 # of a firing (session/__init__.py::_model_factory). `SessionWarning` fires at session-open
 # via the `session_warning` initial and never rides a turn, so it stays out of this set.

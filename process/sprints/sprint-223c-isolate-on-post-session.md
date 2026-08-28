@@ -59,3 +59,7 @@ exists.
 
 - `dual_contract_fail` if a Mode-3 session's tool writes reach the caller's
   workspace (a live tool-loop test in the observation contract catches this).
+## signal contract
+
+Emits: (none — daemon POST body + workspace_shape plumbing — no runtime emit sites).
+

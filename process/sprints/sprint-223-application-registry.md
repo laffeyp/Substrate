@@ -50,6 +50,11 @@ Fire `GET /api/applications` against a daemon with three fixture manifests; asse
 
 - `vocabulary_change_required` if the manifest schema needs a field not covered by round-6 §7.6.
 
+
+## signal contract
+
+Emits: (none — registry parser + GET endpoint — reads manifests, does not emit).
+
 ## definition of done
 
 Registry scans + loads. Sprint 224 (four shipped manifests + BUNDLED registration) can dispatch.
