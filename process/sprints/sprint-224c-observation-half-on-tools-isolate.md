@@ -3,7 +3,7 @@
 ```yaml
 ---
 id: 224c
-status: pending
+status: closed
 phase: testing-discipline
 pass_kind: test-add
 ---

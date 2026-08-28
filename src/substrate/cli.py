@@ -1025,10 +1025,13 @@ def _sse_stream(session_id: str, stop_event: Any, *, verbose: bool = False) -> N
                         stop_event.set()
                         return
     finally:
+        # Connection already torn by the daemon or by network — the close is
+        # a cleanup, not a state-changing operation. Swallow OSError only so
+        # a secondary failure never masks whatever raised in the try body.
         try:
             resp.close()
             conn.close()
-        except Exception:  # noqa: BLE001
+        except OSError:
             pass
 
 
@@ -1170,11 +1173,13 @@ def _slash_route(
                         _err.print(n)
                 else:
                     _err.print("[repl] /list topologies: bundled registry has no names()")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 — importlib on a caller-supplied bundle path can raise anything the bundle's __init__ does; the router's job is to surface, not classify.
                 _err.print(f"[repl] /list topologies failed: {type(exc).__name__}: {exc}")
         elif target == "records":
             _err.print("[repl] /list records — reads the record dir; not implemented yet")
         elif target == "applications":
+            # Typed marker (sprint 224f): see /run above.
+            pending_context["_deferred"] = "list_applications"
             _err.print(
                 "[repl] /list applications — GET /api/applications is a piece-E endpoint; "
                 "not yet shipped"
@@ -1190,11 +1195,15 @@ def _slash_route(
         try:
             api.assert_replayable(Path(args[0]), "3a")
             _err.print(f"[repl] {args[0]}: byte-identical replay at Level-3(a)")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — api.assert_replayable raises AssertionError, RecordGapError, CRCMismatchError, or any I/O error; the router surfaces the class name to the REPL.
             _err.print(f"[repl] /replay failed: {type(exc).__name__}: {exc}")
         return True
 
     if slash == "/run":
+        # Typed marker (sprint 224f): the deferral is the wire contract, the
+        # stderr line is UI. Tests assert on the marker so a spelling drift
+        # in the hint text cannot fool a substring-in-body match.
+        pending_context["_deferred"] = "run"
         _err.print(
             "[repl] /run — POST /api/topology/<name>/run is a piece-E endpoint; "
             "not yet shipped. Sprint 221's card notes this deferral."

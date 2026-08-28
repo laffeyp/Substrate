@@ -3,7 +3,7 @@
 ```yaml
 ---
 id: 224b
-status: pending
+status: closed
 phase: testing-discipline
 pass_kind: test-refactor
 ---
