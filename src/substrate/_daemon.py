@@ -211,6 +211,57 @@ def by_name(name: str) -> dict[str, Any] | None:
     return payload
 
 
+def run_topology(
+    application_name: str,
+    inputs: dict[str, Any],
+    *,
+    bundle: str | None = None,
+    baseline: dict[str, Any] | None = None,
+    context: dict[str, Any] | None = None,
+    await_completion: bool = True,
+    timeout_seconds: float = 600.0,
+) -> dict[str, Any]:
+    """Sprint 226: POST /api/topology/<name>/run.
+
+    Fires a one-shot application dispatch (sprint 225a). Session-shape
+    manifests refuse this endpoint — use `create_session` for `daily`,
+    or a specialised composite dispatch for `session_composite` apps.
+
+    `await_completion=True` blocks; response carries
+    `{run_id, record_root, status: "finalised", final_seq, application}`.
+    `await_completion=False` returns immediately with
+    `{run_id, record_root, status: "running", application}` and the
+    caller polls via `topology_status(run_id)`.
+    """
+    body: dict[str, Any] = {"inputs": inputs, "await_completion": await_completion}
+    if bundle is not None:
+        body["bundle"] = bundle
+    if baseline is not None:
+        body["baseline"] = baseline
+    if context is not None:
+        body["context"] = context
+    status, payload = _request(
+        "POST", f"/api/topology/{application_name}/run", body, timeout=timeout_seconds
+    )
+    if status != 200:
+        raise DaemonError(status, payload)
+    return payload
+
+
+def topology_status(application_name: str, run_id: str) -> dict[str, Any]:
+    """Sprint 226: GET /api/topology/<name>/status?run_id=<id> (piece E
+    sprint 225d). Returns `{run_id, status, record_root,
+    elapsed_seconds, application, output?}`. Raises `DaemonError` on
+    unknown run_id (404) or malformed request (400)."""
+    from urllib.parse import quote
+
+    path = f"/api/topology/{quote(application_name)}/status?run_id={quote(run_id)}"
+    status, payload = _request("GET", path, None)
+    if status != 200:
+        raise DaemonError(status, payload)
+    return payload
+
+
 __all__ = [
     "DaemonError",
     "DaemonNotRunning",
@@ -222,5 +273,7 @@ __all__ = [
     "is_running",
     "list_sessions",
     "patch_session",
+    "run_topology",
+    "topology_status",
     "turn",
 ]

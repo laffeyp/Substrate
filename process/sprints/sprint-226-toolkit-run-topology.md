@@ -3,7 +3,7 @@
 ```yaml
 ---
 id: 226
-status: pending
+status: closed
 phase: daily-driver-piece-F
 pass_kind: architecture
 ---
