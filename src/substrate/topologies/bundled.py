@@ -18,6 +18,9 @@ from pathlib import Path
 from .. import api
 from ..adapters import DeterministicResponder
 from .adversarial_pair import adversarial_pair_topology
+from .applications.best_of_n_verified import best_of_n_verified_topology
+from .applications.fanout_review import fanout_review_topology
+from .applications.research_sweep import research_sweep_topology
 from .code_review import DEFAULT_ROLES, code_review_topology
 from .debate import debate_topology
 from .intel_asymmetry import intel_asymmetry_topology
@@ -62,6 +65,82 @@ def _recursive() -> _Topo:
     )
 
 
+# ── sprint 224b: CI-mode factories for the four shipped applications ────
+
+
+def _fanout_review_ci() -> _Topo:
+    """`fanout_review_topology` needs a git repo at `HEAD~1`. Use a
+    per-import temp repo under `~/.substrate/ci-fixtures/fanout_review/`
+    seeded with one file + two commits (initial + a diff)."""
+    import subprocess
+
+    fixture = Path.home() / ".substrate" / "ci-fixtures" / "fanout_review_repo"
+    if not (fixture / ".git").is_dir():
+        fixture.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init", "-q", str(fixture)], check=True)
+        subprocess.run(
+            ["git", "-C", str(fixture), "config", "user.email", "ci@substrate"], check=True
+        )
+        subprocess.run(["git", "-C", str(fixture), "config", "user.name", "ci"], check=True)
+        (fixture / "app.py").write_text("def f(x):\n    return x\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(fixture), "add", "app.py"], check=True)
+        subprocess.run(["git", "-C", str(fixture), "commit", "-qm", "initial"], check=True)
+        (fixture / "app.py").write_text("def f(x):\n    return x / 0\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(fixture), "add", "app.py"], check=True)
+        subprocess.run(["git", "-C", str(fixture), "commit", "-qm", "divide-by-zero"], check=True)
+    return fanout_review_topology(
+        repo=str(fixture),
+        ref="HEAD~1",
+        responders={role: DeterministicResponder(seed=i) for i, role in enumerate(DEFAULT_ROLES)},
+        judge=DeterministicResponder(seed=99),
+        quorum=3,
+    )
+
+
+def _has_answer_six(response: str) -> tuple[bool, str]:
+    """Deterministic Check for best_of_n_verified: passes iff the
+    response contains a `6`. Trivial; the point of the CI factory is
+    that the loop runs end-to-end on the record, not that the check
+    is realistic."""
+    if "6" in response:
+        return True, "found 6"
+    return False, "did not find 6"
+
+
+def _best_of_n_verified_ci() -> _Topo:
+    return best_of_n_verified_topology(
+        task="double 3 to produce 6",
+        drafter=DeterministicResponder(seed=11),
+        verify=_has_answer_six,
+        n=2,
+        max_rounds=1,
+        deterministic=True,
+    )
+
+
+def _research_sweep_ci() -> _Topo:
+    documents = [
+        ("doc_a", "The answer to 40 plus 2 is 42, per the arithmetic table."),
+        ("doc_b", "42 is the sum of 40 and 2."),
+        ("doc_c", "See doc_a for the sum of 40 and 2."),
+    ]
+    return research_sweep_topology(
+        question="what is 40 plus 2?",
+        documents=documents,
+        reader=DeterministicResponder(seed=21),
+        critic=DeterministicResponder(seed=22),
+        synthesizer=DeterministicResponder(seed=23),
+        deterministic=True,
+    )
+
+
+def _daily_ci() -> _Topo:
+    """`daily` wraps session_topology. The CI variant reuses the
+    scripted opener sprint 209 shipped for `session` — a three-turn
+    walk ending in /exit that finalises the record cleanly."""
+    return ci_session_topology()
+
+
 # name -> a zero-arg factory returning the CI-default configured topology.
 BUNDLED: dict[str, Callable[[], _Topo]] = {
     "code_review": _code_review,
@@ -92,6 +171,13 @@ BUNDLED: dict[str, Callable[[], _Topo]] = {
     # so the CI record finalises cleanly. Everything else — Structs, triggers, Views — comes
     # from `session_topology` unchanged.
     "session": ci_session_topology,
+    # Sprint 224b: CI-mode factories for the four shipped applications.
+    # Every entry runs deterministic (no network), finalises cleanly, and
+    # `substrate demo replay <name>` walks the committed record.
+    "fanout_review": _fanout_review_ci,
+    "best_of_n_verified": _best_of_n_verified_ci,
+    "research_sweep": _research_sweep_ci,
+    "daily": _daily_ci,
 }
 
 # Sprint 224: `pair_coding` name collision. Sprint 225 adds
