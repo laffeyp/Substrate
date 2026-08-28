@@ -79,8 +79,15 @@ def _parse_one(path: Path) -> ApplicationSpec:
     if not isinstance(name, str) or not name:
         raise ManifestError(path, "`name` must be a non-empty string")
     runs = raw["runs"]
-    if runs not in ("one-shot", "session"):
-        raise ManifestError(path, f"`runs` must be 'one-shot' or 'session'; got {runs!r}")
+    # Sprint 225c added `session_composite` for apps that open two or more
+    # related sessions together (e.g. pair_coding — a builder + a
+    # standing reviewer sub-agent). Sprint 225b's cascade lifecycle ties
+    # them together via SessionManifest.composite_of.
+    if runs not in ("one-shot", "session", "session_composite"):
+        raise ManifestError(
+            path,
+            f"`runs` must be 'one-shot' | 'session' | 'session_composite'; got {runs!r}",
+        )
     inputs_schema = raw.get("inputs", {})
     if not isinstance(inputs_schema, dict):
         raise ManifestError(path, "`[inputs]` must be a table")

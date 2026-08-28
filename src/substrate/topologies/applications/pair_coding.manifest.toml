@@ -1,0 +1,17 @@
+# Application manifest — pair_coding (composite).
+# Two related sessions per TECH-SPEC §7.3: a builder session and a
+# standing reviewer sub-agent. The reviewer's manifest.composite_of
+# points at the builder's session_id; sprint 225b's cascade end/rm
+# tears both down together.
+
+name = "pair_coding"
+description = "Builder session paired with a standing reviewer sub-agent."
+runs = "session_composite"
+
+[inputs]
+builder_driver_model = {type = "string", default = "kimi-k2.6:cloud"}
+reviewer_driver_model = {type = "string", default = "claude"}
+workspace = {type = "string", default = "."}
+
+[output]
+kind = "session"
