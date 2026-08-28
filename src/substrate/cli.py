@@ -1391,5 +1391,270 @@ def daemon(foreground: bool) -> None:
     _err.print(f"[daemon] launched {server_path}")
 
 
+# ── piece D sprint 222: session / bundle / builder subverbs ─────────────
+
+
+_RECENT_ACTIVE_SECONDS = 24 * 60 * 60  # `session rm` --force threshold
+
+
+def _resolve_session(name_or_id: str) -> dict[str, Any]:
+    """Resolve a `<name>` or `<session_id>` to a session dict from the daemon.
+
+    Session ids start with `s_`; anything else routes through the by-name
+    index. Raises SystemExit(EXIT_CONFIG) with a message if the name misses
+    or the daemon is unreachable.
+    """
+    from substrate import _daemon
+
+    try:
+        if name_or_id.startswith("s_"):
+            return {"session_id": name_or_id}
+        record = _daemon.by_name(name_or_id)
+        if record is None:
+            _err.print(f"[config] no session named {name_or_id!r}")
+            raise SystemExit(EXIT_CONFIG)
+        return record
+    except _daemon.DaemonNotRunning as exc:
+        _err.print(f"[config] daemon unreachable: {exc}")
+        raise SystemExit(EXIT_CONFIG) from exc
+
+
+@main.group("session")
+def session_group() -> None:
+    """Session-scoped subverbs: `ls`, `end`, `rm`, `set-name`."""
+
+
+@session_group.command("ls")
+def session_ls() -> None:
+    """List every session bucketed by status. One row per session."""
+    from substrate import _daemon
+
+    try:
+        buckets = _daemon.list_sessions()
+    except _daemon.DaemonNotRunning as exc:
+        _err.print(f"[config] daemon unreachable: {exc}")
+        raise SystemExit(EXIT_CONFIG) from exc
+    header = f"{'name':<24} {'session_id':<28} {'driver':<20} {'status':<12} {'shape':<10}"
+    click.echo(header)
+    click.echo("-" * len(header))
+    import time as _time
+
+    now = _time.time()
+    for bucket_name in ("live", "parked", "interrupted", "ended"):
+        for entry in buckets.get(bucket_name, []):
+            elapsed = int(now - float(entry.get("created_at", now)))
+            row = (
+                f"{(entry.get('name') or '-')!s:<24} "
+                f"{entry['session_id']:<28} "
+                f"{entry.get('driver', '-'):<20} "
+                f"{bucket_name:<12} "
+                f"{entry.get('workspace_shape', '-'):<10} "
+                f"{elapsed}s ago"
+            )
+            click.echo(row)
+
+
+@session_group.command("end")
+@click.argument("name_or_id")
+def session_end(name_or_id: str) -> None:
+    """End a session — inject SessionEndRequested{user_end} via POST /end."""
+    from substrate import _daemon
+
+    resolved = _resolve_session(name_or_id)
+    sid = resolved["session_id"]
+    try:
+        _daemon.end_session(sid, source="user_end")
+        _err.print(f"[session] {name_or_id} ended")
+    except _daemon.DaemonError as exc:
+        _err.print(f"[session] end failed: HTTP {exc.status}: {exc.body}")
+        raise SystemExit(EXIT_FAILED) from exc
+
+
+@session_group.command("rm")
+@click.argument("name_or_id")
+@click.option("--force", is_flag=True, help="Delete even if session was active in the last 24h.")
+def session_rm(name_or_id: str, force: bool) -> None:
+    """Delete a session (`DELETE /api/session/<id>`).
+
+    Refuses if the session's `created_at` is within the last 24 hours
+    without `--force`. Rule 12 preserves the record dir on disk; only
+    the manifest + by-name entry are dropped.
+    """
+    import time as _time
+
+    from substrate import _daemon
+
+    resolved = _resolve_session(name_or_id)
+    sid = resolved["session_id"]
+    if not force:
+        try:
+            buckets = _daemon.list_sessions()
+        except _daemon.DaemonNotRunning as exc:
+            _err.print(f"[config] daemon unreachable: {exc}")
+            raise SystemExit(EXIT_CONFIG) from exc
+        created_at: float | None = None
+        for entries in buckets.values():
+            for entry in entries:
+                if entry["session_id"] == sid:
+                    created_at = float(entry.get("created_at", 0.0))
+                    break
+            if created_at is not None:
+                break
+        if created_at is not None and _time.time() - created_at < _RECENT_ACTIVE_SECONDS:
+            hours = int((_time.time() - created_at) / 3600)
+            _err.print(
+                f"[session] {name_or_id} was active {hours}h ago (< 24h). "
+                f"Pass --force to delete anyway."
+            )
+            raise SystemExit(EXIT_CONFIG)
+    try:
+        _daemon.delete_session(sid)
+        _err.print(f"[session] {name_or_id} removed (record dir preserved on disk)")
+    except _daemon.DaemonError as exc:
+        _err.print(f"[session] rm failed: HTTP {exc.status}: {exc.body}")
+        raise SystemExit(EXIT_FAILED) from exc
+
+
+@session_group.command("set-name")
+@click.argument("session_id")
+@click.argument("new_name")
+def session_set_name(session_id: str, new_name: str) -> None:
+    """Rename a session in the by-name.json index (PATCH /api/session/<id>)."""
+    from substrate import _daemon
+
+    try:
+        _daemon.patch_session(session_id, name=new_name)
+        _err.print(f"[session] {session_id} renamed to {new_name}")
+    except _daemon.DaemonError as exc:
+        _err.print(f"[session] rename failed: HTTP {exc.status}: {exc.body}")
+        raise SystemExit(EXIT_FAILED) from exc
+
+
+# ── bundle subverbs (CLI-side filesystem only; piece H owns the loader) ──
+
+
+_BUNDLES_ROOT = Path.home() / ".substrate" / "bundles"
+
+
+_BUNDLE_TEMPLATE_TOML = """# bundle.toml — see TECH-SPEC §9 for slot semantics.
+
+name = "{name}"
+description = ""
+schema_version = 1
+extends = []
+
+[tools]
+enabled = []
+"""
+
+_BUNDLE_SLOTS = ("methodology.md", "personality.md", "per-turn.md")
+
+
+@main.group("bundle")
+def bundle_group() -> None:
+    """Bundle scaffolding subverbs: `create`, `ls`, `show`, `edit`.
+
+    Piece H (sprint 229) ships `bundles.py` with the real loader; these
+    subverbs are CLI-side filesystem operations only. `create` writes a
+    valid directory skeleton the piece-H loader will accept.
+    """
+
+
+@bundle_group.command("create")
+@click.argument("name")
+def bundle_create(name: str) -> None:
+    """Scaffold `~/.substrate/bundles/<name>/` with empty slots."""
+    target = _BUNDLES_ROOT / name
+    if target.exists():
+        _err.print(f"[bundle] {target} already exists")
+        raise SystemExit(EXIT_CONFIG)
+    target.mkdir(parents=True)
+    for slot in _BUNDLE_SLOTS:
+        (target / slot).write_text("", encoding="utf-8")
+    (target / "corpus").mkdir()
+    (target / "bundle.toml").write_text(_BUNDLE_TEMPLATE_TOML.format(name=name), encoding="utf-8")
+    _err.print(f"[bundle] scaffolded {target}")
+
+
+@bundle_group.command("ls")
+def bundle_ls() -> None:
+    """List directories under `~/.substrate/bundles/`."""
+    if not _BUNDLES_ROOT.exists():
+        return
+    for entry in sorted(_BUNDLES_ROOT.iterdir()):
+        if entry.is_dir():
+            click.echo(entry.name)
+
+
+@bundle_group.command("show")
+@click.argument("name")
+def bundle_show(name: str) -> None:
+    """Print bundle.toml + methodology + corpus tree for a bundle."""
+    target = _BUNDLES_ROOT / name
+    if not target.exists():
+        _err.print(f"[bundle] no bundle named {name!r} at {target}")
+        raise SystemExit(EXIT_CONFIG)
+    click.echo(f"# {target}")
+    click.echo()
+    for slot in ("bundle.toml", *_BUNDLE_SLOTS):
+        path = target / slot
+        if path.is_file():
+            click.echo(f"── {slot} ──")
+            click.echo(path.read_text(encoding="utf-8").rstrip())
+            click.echo()
+    corpus = target / "corpus"
+    if corpus.is_dir():
+        click.echo("── corpus ──")
+        for path in sorted(corpus.rglob("*")):
+            if path.is_file():
+                click.echo(f"  {path.relative_to(target)}")
+
+
+@bundle_group.command("edit")
+@click.argument("name")
+def bundle_edit(name: str) -> None:
+    """Open the bundle dir in $EDITOR."""
+    import os as _os
+    import subprocess
+
+    target = _BUNDLES_ROOT / name
+    if not target.exists():
+        _err.print(f"[bundle] no bundle named {name!r} at {target}")
+        raise SystemExit(EXIT_CONFIG)
+    editor = _os.environ.get("EDITOR", "vi")
+    subprocess.run([editor, str(target)], check=False)
+
+
+# ── builder verb: open the studio in a browser ──────────────────────────
+
+
+@main.command("builder")
+def builder() -> None:
+    """Open the substrate studio in the default browser.
+
+    Looks for `~/.substrate/studio.html` first; if absent, prints the URL
+    the running daemon serves at `/studio.html` (piece G ships the file).
+    """
+    import subprocess
+    import sys as _sys
+
+    studio = Path.home() / ".substrate" / "studio.html"
+    if studio.exists():
+        opener = "open" if _sys.platform == "darwin" else "xdg-open"
+        subprocess.run([opener, str(studio)], check=False)
+        _err.print(f"[builder] opened {studio}")
+        return
+    from substrate import _daemon
+
+    try:
+        _host, _port = _daemon._tcp_host_port()
+        _err.print(
+            f"[builder] no {studio} on disk; if the daemon is running, "
+            f"open http://{_host}:{_port}/studio.html in your browser"
+        )
+    except Exception:  # noqa: BLE001 — env-var read for daemon TCP tuple; any failure means no daemon config.
+        _err.print(f"[builder] no {studio} on disk; start the daemon and open /studio.html")
+
+
 if __name__ == "__main__":
     main()
