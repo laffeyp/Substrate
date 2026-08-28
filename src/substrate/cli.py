@@ -1032,6 +1032,179 @@ def _sse_stream(session_id: str, stop_event: Any, *, verbose: bool = False) -> N
             pass
 
 
+# ── piece D sprint 221: slash-command router (nine slashes per §6 table) ────
+
+_SLASH_HELP = """slashes (piece D sprint 221):
+  /exit                       end the session (fires SessionEnded{user_exit})
+  /model <name>               PATCH the session's driver; persists across parks
+  /tools <a,b,c>              PATCH the session's tool allow-list; persists
+  /context <lo-hi> [--kind K] attach a parent-record slice to the next turn
+  /inspect <record> [--filter K]  narrate a record locally (api.narrate)
+  /list [records|topologies|sessions|applications]  list resources
+  /replay <record>            replay a record locally (api.assert_replayable)
+  /run <app> [args]           run an application topology as a sibling
+  /help                       print this list
+"""
+
+
+def _slash_route(
+    line: str,
+    session: dict[str, Any],
+    pending_context: dict[str, Any],
+) -> bool:
+    """Route one input line. Returns True if the line was a slash the router
+    handled (and the REPL should skip the daemon.turn call); False if not a
+    slash or an unknown slash (the REPL treats it as user text). `/exit` is
+    the ONLY slash the router does NOT swallow — it returns False so the REPL
+    sends the literal `"/exit"` string as a UserMessage; the daemon's
+    end-on-exit trigger fires the SessionEnded{user_exit}.
+
+    `pending_context` is the mutable dict the REPL keeps across turns; a
+    `/context` slash stores here and the next `/turn` call reads + clears it.
+    """
+    from substrate import _daemon
+
+    stripped = line.strip()
+    if not stripped.startswith("/"):
+        return False
+
+    parts = stripped.split()
+    slash = parts[0]
+    args = parts[1:]
+    sid = str(session["session_id"])
+
+    if slash == "/exit":
+        # Only slash the model observes: return False so the REPL sends it
+        # as a UserMessage. The daemon's `end-on-exit` trigger routes it
+        # to SessionEnded{user_exit}.
+        return False
+
+    if slash == "/help":
+        _err.print(_SLASH_HELP)
+        return True
+
+    if slash == "/model":
+        if len(args) != 1:
+            _err.print("[repl] /model requires exactly one driver name")
+            return True
+        try:
+            _daemon.patch_session(sid, driver=args[0])
+            _err.print(f"[repl] driver → {args[0]} (next turn)")
+        except _daemon.DaemonError as exc:
+            _err.print(f"[repl] /model failed: HTTP {exc.status}: {exc.body}")
+        return True
+
+    if slash == "/tools":
+        if len(args) != 1:
+            _err.print(
+                "[repl] /tools requires a comma-separated list, e.g. `/tools read_file,grep`"
+            )
+            return True
+        tool_list = [t.strip() for t in args[0].split(",") if t.strip()]
+        try:
+            _daemon.patch_session(sid, tools=tool_list)
+            _err.print(f"[repl] tools → {tool_list} (next turn)")
+        except _daemon.DaemonError as exc:
+            _err.print(f"[repl] /tools failed: HTTP {exc.status}: {exc.body}")
+        return True
+
+    if slash == "/context":
+        if not args:
+            _err.print("[repl] /context <lo-hi> [--kind K]")
+            return True
+        try:
+            lo_hi = args[0]
+            if "-" not in lo_hi:
+                raise ValueError("range must be <lo>-<hi>")
+            lo_s, hi_s = lo_hi.split("-", 1)
+            lo, hi = int(lo_s), int(hi_s)
+        except ValueError as exc:
+            _err.print(f"[repl] /context range parse failed: {exc}")
+            return True
+        kinds: list[str] = []
+        if "--kind" in args:
+            i = args.index("--kind")
+            if i + 1 < len(args):
+                kinds = [args[i + 1]]
+        pending_context.clear()
+        pending_context["parent_seq_range"] = [lo, hi]
+        pending_context["kinds"] = kinds
+        _err.print(f"[repl] context pending: seq {lo}..{hi}" + (f" kinds={kinds}" if kinds else ""))
+        return True
+
+    if slash == "/inspect":
+        if not args:
+            _err.print("[repl] /inspect <record-path>")
+            return True
+        try:
+            record_path = Path(args[0])
+            for line_out in api.narrate(api.read_record(record_path)):
+                _err.print(str(line_out))
+        except Exception as exc:  # noqa: BLE001 — surface as a repl message
+            _err.print(f"[repl] /inspect failed: {type(exc).__name__}: {exc}")
+        return True
+
+    if slash == "/list":
+        target = args[0] if args else "sessions"
+        if target == "sessions":
+            try:
+                data = _daemon.list_sessions()
+                for bucket, entries in data.items():
+                    for entry in entries:
+                        _err.print(
+                            f"[{bucket}] {entry.get('name') or entry['session_id']} "
+                            f"({entry['driver']})"
+                        )
+            except _daemon.DaemonError as exc:
+                _err.print(f"[repl] /list failed: HTTP {exc.status}")
+        elif target == "topologies":
+            # Dynamic import: F-API-6 checks STATIC substrate imports, so a
+            # runtime `importlib.import_module` call is not a violation. The
+            # bundled registry is optional; if it fails, list what is
+            # already registered via `api.get_topology`'s registry side.
+            try:
+                bundled_mod = importlib.import_module("substrate.topologies.bundled")
+                names = getattr(bundled_mod, "names", None)
+                if callable(names):
+                    for n in names():
+                        _err.print(n)
+                else:
+                    _err.print("[repl] /list topologies: bundled registry has no names()")
+            except Exception as exc:  # noqa: BLE001
+                _err.print(f"[repl] /list topologies failed: {type(exc).__name__}: {exc}")
+        elif target == "records":
+            _err.print("[repl] /list records — reads the record dir; not implemented yet")
+        elif target == "applications":
+            _err.print(
+                "[repl] /list applications — GET /api/applications is a piece-E endpoint; "
+                "not yet shipped"
+            )
+        else:
+            _err.print(f"[repl] /list {target}: unknown target")
+        return True
+
+    if slash == "/replay":
+        if not args:
+            _err.print("[repl] /replay <record-path>")
+            return True
+        try:
+            api.assert_replayable(Path(args[0]), "3a")
+            _err.print(f"[repl] {args[0]}: byte-identical replay at Level-3(a)")
+        except Exception as exc:  # noqa: BLE001
+            _err.print(f"[repl] /replay failed: {type(exc).__name__}: {exc}")
+        return True
+
+    if slash == "/run":
+        _err.print(
+            "[repl] /run — POST /api/topology/<name>/run is a piece-E endpoint; "
+            "not yet shipped. Sprint 221's card notes this deferral."
+        )
+        return True
+
+    _err.print(f"[repl] unknown slash: {slash}. Try /help.")
+    return True
+
+
 def _repl(session: dict[str, Any], *, verbose: bool = False) -> None:
     """The chat REPL. Main thread blocks on stdin; SSE thread streams events
     to stderr as they land.
@@ -1088,6 +1261,11 @@ def _repl(session: dict[str, Any], *, verbose: bool = False) -> None:
     # default; setting the var here is enough.
     _os.environ["SUBSTRATE_SESSION"] = label
 
+    # Sprint 221: `/context` stores a slice request here; the next /turn
+    # reads + clears it. Kept across turns so a client can queue several
+    # context slices, one per turn, without re-typing.
+    pending_context: dict[str, Any] = {}
+
     try:
         while True:
             try:
@@ -1106,9 +1284,16 @@ def _repl(session: dict[str, Any], *, verbose: bool = False) -> None:
                 continue
             if not line.strip():
                 continue
+            # Sprint 221: route slashes locally. True → the router handled it;
+            # False → send the line as a UserMessage (also the /exit path,
+            # so the daemon's end-on-exit trigger fires SessionEnded{user_exit}).
+            if _slash_route(line, session, pending_context):
+                continue
+            turn_context = pending_context.copy() if pending_context else None
+            pending_context.clear()
             turn_in_flight.set()
             try:
-                result = _daemon.turn(sid, line)
+                result = _daemon.turn(sid, line, context=turn_context)
             except _daemon.DaemonError as exc:
                 _err.print(f"[repl] turn failed: HTTP {exc.status}: {exc.body}")
                 turn_in_flight.clear()

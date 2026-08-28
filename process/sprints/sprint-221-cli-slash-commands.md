@@ -3,7 +3,7 @@
 ```yaml
 ---
 id: 221
-status: pending
+status: closed
 phase: daily-driver-piece-D
 pass_kind: functional
 ---
@@ -76,3 +76,27 @@ Manual: `substrate chat deterministic`, type `/model kimi`, `/tools read_file,gr
 ## definition of done
 
 Nine slashes routed correctly. Sprint 222 (session/bundle/builder subverbs) can dispatch.
+
+## closure note 2026-08-28
+
+Closed as one file (`substrate/src/substrate/cli.py`) + one test file
+(`substrate/tests/test_cli_slash_221.py`, 10 tests, all green). The test
+names in this card's "Tests" section were superseded by one consolidated
+file at review time; the assertions moved into that file verbatim:
+
+- `test_exit_returns_false_so_repl_sends_as_user_message` — `/exit` is the
+  only slash returning False from `_slash_route`, so the REPL sends the
+  literal `"/exit"` as a UserMessage.
+- `test_context_stores_pending_range_and_kinds` — `/context 3-9 --kind
+  ToolResult` stores `{parent_seq_range: [3,9], kinds: ["ToolResult"]}`
+  in the REPL's `pending_context`; the next `_daemon.turn` reads and
+  clears it.
+- `test_model_calls_patch_session_driver`, `test_tools_calls_patch_session_tools_list`
+  — PATCH wiring against the daemon client.
+- `test_list_sessions_calls_daemon`, `test_list_applications_prints_piece_e_deferral`,
+  `test_run_prints_piece_e_deferral` — daemon + deferral shapes.
+- `test_help_prints_slash_list_and_returns_true`, `test_unknown_slash_returns_true_with_hint`,
+  `test_non_slash_returns_false`, `test_model_missing_arg_prints_error` — router shape.
+
+The observation contract (manual smoke) still stands and will run once the
+daemon build path is exercised end-to-end at the piece-D bundle test.
