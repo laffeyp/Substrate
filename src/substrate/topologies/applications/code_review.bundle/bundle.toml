@@ -1,0 +1,5 @@
+[bundle]
+name = "code_review"
+description = "Reviewer methodology + rubric for the code_review app."
+schema_version = 1
+extends = []

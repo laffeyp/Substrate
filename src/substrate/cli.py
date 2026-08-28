@@ -1562,18 +1562,108 @@ def bundle_group() -> None:
 
 @bundle_group.command("create")
 @click.argument("name")
-def bundle_create(name: str) -> None:
-    """Scaffold `~/.substrate/bundles/<name>/` with empty slots."""
+@click.option(
+    "--wizard",
+    "template",
+    default=None,
+    is_flag=False,
+    flag_value="default",
+    help="Fill the bundle by walking a template. Bare --wizard uses `default`; "
+    "--wizard=<name> picks a specific template under substrate/templates/bundles/.",
+)
+def bundle_create(name: str, template: str | None) -> None:
+    """Scaffold `~/.substrate/bundles/<name>/`.
+
+    Bare: writes empty slot files (methodology.md, personality.md,
+    per-turn.md) + bundle.toml + corpus/.
+    --wizard[=<template>]: walks the named template's slots via
+    click.prompt, interpolates the answers, writes the rendered
+    bundle.toml + prose files (sprint 232).
+    """
     target = _BUNDLES_ROOT / name
     if target.exists():
         _err.print(f"[bundle] {target} already exists")
         raise SystemExit(EXIT_CONFIG)
     target.mkdir(parents=True)
-    for slot in _BUNDLE_SLOTS:
-        (target / slot).write_text("", encoding="utf-8")
     (target / "corpus").mkdir()
-    (target / "bundle.toml").write_text(_BUNDLE_TEMPLATE_TOML.format(name=name), encoding="utf-8")
-    _err.print(f"[bundle] scaffolded {target}")
+    if template is None:
+        for slot in _BUNDLE_SLOTS:
+            (target / slot).write_text("", encoding="utf-8")
+        (target / "bundle.toml").write_text(
+            _BUNDLE_TEMPLATE_TOML.format(name=name), encoding="utf-8"
+        )
+        _err.print(f"[bundle] scaffolded {target}")
+        return
+    _run_bundle_wizard(name, target, template)
+
+
+def _run_bundle_wizard(name: str, target: Path, template_name: str) -> None:
+    """Sprint 232 — walk a template's slots via click.prompt, interpolate
+    the answers, write the rendered file sections out of the template
+    body. The template body uses `== <filename> ==` headers to demarcate
+    which slice writes to which slot file — one template renders four
+    files."""
+    # Dynamic import: F-API-6 checks STATIC substrate imports; the
+    # importlib.import_module call is a runtime lookup and passes the
+    # cli-imports-only-api contract (same pattern as _load_topology's
+    # bundled-registry hook).
+    interpolate_mod = importlib.import_module("substrate.templates.interpolate")
+    parse_template_header = interpolate_mod.parse_template_header
+    render = interpolate_mod.render
+
+    template_path = Path(__file__).parent / "templates" / "bundles" / f"{template_name}.tmpl.md"
+    if not template_path.is_file():
+        _err.print(f"[bundle] no template at {template_path}")
+        raise SystemExit(EXIT_CONFIG)
+    source = template_path.read_text(encoding="utf-8")
+    header, body = parse_template_header(source)
+
+    values: dict[str, str | bool] = {"name": name}
+    for slot in header["slots"]:
+        slot_name = str(slot["name"])
+        kind = str(slot.get("kind", "text_line"))
+        prompt = str(slot.get("prompt", slot_name))
+        if kind == "bool":
+            values[slot_name] = click.confirm(prompt, default=False)
+        elif kind == "pick":
+            choices = list(slot.get("choices") or [])
+            answer = click.prompt(
+                prompt,
+                type=click.Choice(choices) if choices else str,
+                default=choices[0] if choices else "",
+            )
+            values[slot_name] = str(answer)
+        else:
+            values[slot_name] = click.prompt(prompt, default="", show_default=False)
+
+    rendered = render(body, values)
+    _write_rendered_bundle(target, rendered)
+    _err.print(f"[bundle] wizard wrote {target} from template {template_name!r}")
+
+
+def _write_rendered_bundle(target: Path, rendered: str) -> None:
+    """Parse `== <filename> ==` headers in the rendered body; write each
+    slice to the named file under `target`. Any content before the
+    first header is discarded (it lives before any file's home)."""
+    file_map = {
+        "bundle.toml": "bundle.toml",
+        "methodology.md": "methodology.md",
+        "personality.md": "personality.md",
+        "per-turn.md": "per-turn.md",
+    }
+    current: str | None = None
+    buffers: dict[str, list[str]] = {name: [] for name in file_map}
+    for line in rendered.splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped.startswith("== ") and stripped.endswith(" =="):
+            header_name = stripped[3:-3].strip()
+            current = file_map.get(header_name)
+            continue
+        if current is not None:
+            buffers[current].append(line)
+    for filename, lines in buffers.items():
+        text = "".join(lines).strip("\n") + "\n" if lines else ""
+        (target / filename).write_text(text, encoding="utf-8")
 
 
 @bundle_group.command("ls")

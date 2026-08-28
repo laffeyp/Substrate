@@ -1,0 +1,5 @@
+[bundle]
+name = "best_of_n_verified"
+description = "Solver + verifier roles for the best-of-N app."
+schema_version = 1
+extends = []

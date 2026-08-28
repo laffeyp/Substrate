@@ -34,23 +34,58 @@ class ManifestError(Exception):
         self.cause = cause
 
 
+class SlotSpec(Struct, frozen=True):
+    """Sprint 230: one entry in a manifest's `[slots]` block per §9.
+
+    `kind`: `"prose" | "line" | "bool" | "int" | "choice"`.
+    `required`: `True` → binding raises `SlotUnfilledError` when neither
+    a caller value nor a resolvable default exists.
+    `default`: a literal (bool, int, str), the marker `"bundle:<field>"`
+    (falls back to the loaded bundle's field), or `"none"` (required=true
+    → raise; required=false → resolved value is None).
+    `choices`: for `kind = "choice"`, the tuple of allowed values.
+    """
+
+    kind: str
+    required: bool = False
+    default: Any = None
+    choices: tuple[str, ...] = ()
+
+
+def _parse_slot_spec(raw: Any, slot_name: str, path: Path) -> SlotSpec:
+    if not isinstance(raw, dict):
+        raise ManifestError(path, f"[slots].{slot_name} must be a table")
+    kind = str(raw.get("kind", "prose"))
+    if kind not in ("prose", "line", "bool", "int", "choice"):
+        raise ManifestError(
+            path, f"[slots].{slot_name}.kind must be prose|line|bool|int|choice; got {kind!r}"
+        )
+    choices_raw = raw.get("choices") or ()
+    if kind == "choice" and not choices_raw:
+        raise ManifestError(path, f"[slots].{slot_name}: kind='choice' requires `choices`")
+    return SlotSpec(
+        kind=kind,
+        required=bool(raw.get("required", False)),
+        default=raw.get("default"),
+        choices=tuple(str(v) for v in choices_raw)
+        if isinstance(choices_raw, (list, tuple))
+        else (),
+    )
+
+
 class ApplicationSpec(Struct, frozen=True):
     """One parsed manifest. Fields match TECH-SPEC §7.6 line 1044.
 
     - `name`: registry key + `POST /api/topology/<name>/run` slot.
     - `description`: one-line human summary.
-    - `runs`: `"one-shot"` (topology runs to completion) or `"session"`
-      (composes a standing session). §7.3 pair_coding is a composite.
-    - `inputs_schema`: the `[inputs]` block verbatim as a dict. Each key
-      is either a primitive value spec `{type, default?, required?}` or
-      the roles-to-models binding shape `{type="string", default="<model>"}`
-      for `<role>_model` keys (§7.6 line 1038).
-    - `output_kind`: from `[output].kind`; a short tag the caller reads
-      to know what the topology emits (text, code, structured record).
-    - `default_bundle`: optional name — the piece-H bundle the app
-      composes with when the caller does not name one. `None` if absent.
-    - `slots`: the `[slots]` block verbatim (piece H sprint 230 owns
-      the binding-and-fallback algorithm; this registry just parses).
+    - `runs`: `"one-shot"` | `"session"` | `"session_composite"`.
+    - `inputs_schema`: `[inputs]` verbatim.
+    - `output_kind`: `[output].kind`.
+    - `default_bundle`: optional bundle name for piece-H binding.
+    - `slots`: parsed `[slots]` block — every value is a `SlotSpec`
+      per sprint 230 (was `dict[str, Any]` in sprint 223; the round-6
+      spec always wanted typed slots but 223 punted until 230 shipped
+      the binding algorithm).
     """
 
     name: str
@@ -59,7 +94,7 @@ class ApplicationSpec(Struct, frozen=True):
     inputs_schema: dict[str, Any]
     output_kind: str
     default_bundle: str | None
-    slots: dict[str, Any]
+    slots: dict[str, "SlotSpec"]
 
 
 _REQUIRED_TOP_LEVEL_KEYS = frozenset({"name", "description", "runs"})
@@ -98,9 +133,10 @@ def _parse_one(path: Path) -> ApplicationSpec:
     default_bundle = raw.get("default_bundle")
     if default_bundle is not None and not isinstance(default_bundle, str):
         raise ManifestError(path, "`default_bundle` must be a string or absent")
-    slots = raw.get("slots", {})
-    if not isinstance(slots, dict):
+    slots_raw = raw.get("slots", {})
+    if not isinstance(slots_raw, dict):
         raise ManifestError(path, "`[slots]` must be a table")
+    slots = {name: _parse_slot_spec(spec, name, path) for name, spec in slots_raw.items()}
     return ApplicationSpec(
         name=name,
         description=str(raw["description"]),
@@ -168,6 +204,7 @@ def spec_to_wire(spec: ApplicationSpec) -> dict[str, Any]:
 __all__ = [
     "ApplicationSpec",
     "ManifestError",
+    "SlotSpec",
     "load_manifests",
     "spec_to_wire",
 ]
