@@ -19,6 +19,20 @@
 
 ---
 
+### 2026-08-28 — Piece-B closure red-team: scope claims read from the spec verbatim, not from a summary
+
+**Findings 64-67.** The piece-B close carried three "still open" items in the closure summary. The first — "five missing endpoints belong to pieces E and H" — was wrong on the count. Red-team of the tech spec resolved it. Lessons:
+
+**64. A parenthetical marker in a tech-spec endpoint list attaches to a CLUSTER, not to a single line.** Tech-spec §4's endpoint block reads `POST /api/topology/<name>/run    run a topology to completion (piece E)` on one line and `GET /api/topology/<name>/status?run_id=<id>   poll (for await_completion=false)` on the next with no parenthetical. The natural read is that only the first line is piece E and the second belongs to piece B by default. Wrong. Tech-spec §7 (piece E) at lines 144-146 explicitly lists all three topology / applications endpoints under piece E's scope. The parenthetical was a cluster marker; the sibling lines inherit it. Class: never infer scope from the absence of a marker; go to the section that OWNS the piece and read its verbatim endpoint list.
+
+**65. A "still open" list is a decision queue, not a status report.** Every item on the piece-B closure's "still open" list resolved to either "already closed by another section of the spec" (the five endpoints), "theoretical debt with zero on-disk evidence" (legacy session records, zero `s_*` dirs under `~/.substrate/sessions/`), or "accept-or-card decision" (finding 10 and F11). None was actually open in the SDD sense of "halt or unresolved." A closure summary that reads as "still open" without a card behind each item is ceremony. Class: every entry on a "still open" list either has a card owning it, a halt naming it, or the entry should be closed with a decision in the closure summary itself.
+
+**66. Do not ship endpoints in response to a closure-check question.** The right move when a scope question arises is: read the spec, write cards if the spec assigns work here, get them ruled on, then execute. Two exchanges ago I proposed to ship the three endpoints directly on the assumption piece B owed them — before verifying against the spec, before writing cards. The user's correction ("no we will close all open items and finish this stage") named the right posture; the wrong inference was mine. Card-first is the SDD contract; even for a "small" endpoint the contract holds. Class: `feedback-report-do-not-prescribe` extends to `do not skip the SDD dispatch when the code looks small`.
+
+**67. Verify infrastructure claims against the box before writing them into a review.** The piece-B closure summary claimed "legacy session records from sprints 214a-216 still open with UserMessage at seq 0." `ls ~/.substrate/sessions/ | grep '^s_'` returned zero — no such records exist. The debt was theoretical from the outset. Class: `feedback-check-the-box-before-asserting-infra` (Docker + Ollama + models) generalizes — every claim about on-disk state gets a `ls` / `find` / `grep` before landing in a summary that a future reader will trust.
+
+---
+
 ### 2026-08-26 (evening) — Piece-B daemon-side close: sprints 215a, 215c, 215d, 216 + halt on 215b
 
 **Findings 59-63.**
