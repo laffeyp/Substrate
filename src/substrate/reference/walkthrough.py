@@ -81,7 +81,7 @@ async def _run_r1(root: Path) -> None:
             print(f"  Candidate {e['payload']['member']}: {e['payload']['answer']!r}")
         elif e["kind"] == "Verdict":
             print(f"  VERDICT: {e['payload']['chosen']} -> {e['payload']['answer']!r}")
-        elif e["kind"] == "substrate.ProducerCancelled":
+        elif e["kind"] == api.PRODUCER_CANCELLED:
             print(f"  CANCELLED (lingering loser): {e['payload']['producer']['kind']}")
     print(
         f"  distinct answers among candidates: {len(set(a.lower() for a in answers))} of {len(answers)}"
@@ -116,11 +116,11 @@ async def _run_r2(root: Path) -> None:
             print(
                 f"  Transformed row={e['payload']['row']} attempt={e['payload']['attempt']}: {e['payload']['out']!r}"
             )
-        elif k == "substrate.ProducerEmittedInvalidEvent":
+        elif k == api.PRODUCER_EMITTED_INVALID:
             print(
                 f"  INVALID-EMISSION row={(e['payload'].get('raw_payload') or {}).get('row')} reason={e['payload']['reason']}"
             )
-        elif k == "substrate.InputBuildFailed":
+        elif k == api.INPUT_BUILD_FAILED:
             print(
                 f"  INPUT-BUILD-FAILED trigger={e['payload'].get('trigger_id')}: {e['payload'].get('error')}"
             )
@@ -128,7 +128,7 @@ async def _run_r2(root: Path) -> None:
             print(
                 f"  RETRY-EXHAUSTED row={e['payload']['row']} after {e['payload']['attempts']} attempt(s)"
             )
-        elif k == "substrate.TerminationMatched":
+        elif k == api.TERMINATION_MATCHED:
             print(
                 f"  TERMINATION: {e['payload']['decision']} (resume_condition={e['payload'].get('resume_condition')})"
             )

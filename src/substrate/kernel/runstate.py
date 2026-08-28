@@ -68,6 +68,9 @@ class RunState:
     # live Producer instance_id -> its task, so a cancel-others policy can spare the subject
     # and cancel the rest (kernel §8 cancel-others).
     task_by_instance: dict[str, asyncio.Task[None]] = field(default_factory=dict)
+    # Reverse map: instance_id -> producer kind name. Populated alongside task_by_instance
+    # in _flush_scheduled; read by Runtime.cancel_producers to target by kind.
+    kind_by_instance: dict[str, str] = field(default_factory=dict)
 
     next_seq: int = 0
     in_cycle: bool = False

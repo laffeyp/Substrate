@@ -29,16 +29,27 @@ from typing import Any
 
 from msgspec import Struct
 
+from ..constants import (
+    PRODUCER_CANCELLED,
+    PRODUCER_COMPLETED,
+    PRODUCER_FAILED,
+    PRODUCER_STARTED,
+    RUN_FINALISED,
+    RUN_STARTED,
+    TERMINATION_MATCHED,
+    TRIGGER_FIRED,
+)
+from ..kernel.policies import Decision
 from ..errors import RecordIncompleteError
 from ..record.record import read_record
 
-_RUN_STARTED = "substrate.RunStarted"
-_TRIGGER_FIRED = "substrate.TriggerFired"
+_RUN_STARTED = RUN_STARTED
+_TRIGGER_FIRED = TRIGGER_FIRED
 _INITIAL = "__initial__"
 _END_KINDS = {
-    "substrate.ProducerCompleted": "completed",
-    "substrate.ProducerFailed": "failed",
-    "substrate.ProducerCancelled": "cancelled",
+    PRODUCER_COMPLETED: "completed",
+    PRODUCER_FAILED: "failed",
+    PRODUCER_CANCELLED: "cancelled",
 }
 # RunFinalised reasons that mean the RUN ITSELF failed (RunResult.status == "failed"), as opposed
 # to a clean finalise that nonetheless had Producer-level failures inside it (finished != worked).
@@ -241,7 +252,7 @@ def run_graph(record: Any) -> RunGraph:
             inst = payload.get("instance")
             if isinstance(inst, str):
                 fired[inst] = {**payload, "_seq": seq}
-        elif kind == "substrate.ProducerStarted":
+        elif kind == PRODUCER_STARTED:
             ref = payload.get("producer")
             if isinstance(ref, dict) and isinstance(ref.get("instance"), str):
                 started[ref["instance"]] = {"ref": ref, "seq": seq}
@@ -249,13 +260,13 @@ def run_graph(record: Any) -> RunGraph:
             ref = payload.get("producer")
             if isinstance(ref, dict) and isinstance(ref.get("instance"), str):
                 ended[ref["instance"]] = (_END_KINDS[kind], seq)
-        elif kind == "substrate.RunFinalised":
+        elif kind == RUN_FINALISED:
             finalised = True
             reason = payload.get("reason")
             final_reason = str(reason) if reason else None
         elif (
-            kind == "substrate.TerminationMatched"
-            and payload.get("decision") == "pause-await-input"
+            kind == TERMINATION_MATCHED
+            and payload.get("decision") == Decision.PAUSE_AWAIT_INPUT.value
         ):
             paused = True
             rc = payload.get("resume_condition")

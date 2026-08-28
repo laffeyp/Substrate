@@ -1,0 +1,1 @@
+{"instance_id": "django__django-12113", "model_name_or_path": "substrate-coding-flow", "model_patch": "diff --git a/test_other.sqlite3 b/test_other.sqlite3\nnew file mode 100644\nindex 0000000000..4e1e9a8a2e\nBinary files /dev/null and b/test_other.sqlite3 differ\n"}

@@ -87,7 +87,7 @@ def _reference_topology(burst: int) -> object:
                     policy=api.PerEvent(),
                 )
         b.initial("beater", input=None)  # type: ignore[attr-defined]
-        b.termination(api.threshold_count("substrate.ProducerCompleted", 1))  # type: ignore[attr-defined]
+        b.termination(api.threshold_count(api.PRODUCER_COMPLETED, 1))  # type: ignore[attr-defined]
 
     return topo
 

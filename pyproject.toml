@@ -56,8 +56,8 @@ openai-compat = ["httpx"]           # optional extra; kernel imports none of the
 swebench = ["datasets", "swebench"]
 
 [project.urls]
-Repository = "https://github.com/laffeyp/Substrate"
-Changelog = "https://github.com/laffeyp/Substrate/blob/main/CHANGELOG.md"
+Repository = "https://github.com/laffeyp/substrate"
+Changelog = "https://github.com/laffeyp/substrate/blob/main/CHANGELOG.md"
 
 [project.scripts]
 substrate = "substrate.cli:main"

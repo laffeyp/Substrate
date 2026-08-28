@@ -36,19 +36,32 @@ VOCAB_VERSION = "0.2"
 # ── reserved namespace + the twelve lifecycle kinds (kernel v15 lifecycle table) ──
 RESERVED_PREFIX = "substrate."
 
+RUN_STARTED = "substrate.RunStarted"
+TRIGGER_FIRED = "substrate.TriggerFired"
+INPUT_BUILD_FAILED = "substrate.InputBuildFailed"
+PRODUCER_STARTED = "substrate.ProducerStarted"
+PRODUCER_EMITTED_INVALID = "substrate.ProducerEmittedInvalidEvent"
+PRODUCER_COMPLETED = "substrate.ProducerCompleted"
+PRODUCER_FAILED = "substrate.ProducerFailed"
+PRODUCER_CANCELLED = "substrate.ProducerCancelled"
+INJECTION_APPLIED = "substrate.InjectionApplied"
+PREDICATE_QUARANTINED = "substrate.PredicateQuarantined"
+TERMINATION_MATCHED = "substrate.TerminationMatched"
+RUN_FINALISED = "substrate.RunFinalised"
+
 LIFECYCLE_KINDS: tuple[str, ...] = (
-    "substrate.RunStarted",
-    "substrate.TriggerFired",
-    "substrate.InputBuildFailed",
-    "substrate.ProducerStarted",
-    "substrate.ProducerEmittedInvalidEvent",
-    "substrate.ProducerCompleted",
-    "substrate.ProducerFailed",
-    "substrate.ProducerCancelled",
-    "substrate.InjectionApplied",
-    "substrate.PredicateQuarantined",
-    "substrate.TerminationMatched",
-    "substrate.RunFinalised",
+    RUN_STARTED,
+    TRIGGER_FIRED,
+    INPUT_BUILD_FAILED,
+    PRODUCER_STARTED,
+    PRODUCER_EMITTED_INVALID,
+    PRODUCER_COMPLETED,
+    PRODUCER_FAILED,
+    PRODUCER_CANCELLED,
+    INJECTION_APPLIED,
+    PREDICATE_QUARANTINED,
+    TERMINATION_MATCHED,
+    RUN_FINALISED,
 )
 
 

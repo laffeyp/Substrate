@@ -25,7 +25,21 @@ from msgspec import Struct
 from ulid import ULID
 
 from ..record import locking
-from ..constants import BUDGET_US, HYSTERESIS_K, VOCAB_VERSION, is_reserved
+from ..constants import (
+    BUDGET_US,
+    HYSTERESIS_K,
+    INPUT_BUILD_FAILED,
+    PRODUCER_CANCELLED,
+    PRODUCER_COMPLETED,
+    PRODUCER_FAILED,
+    PRODUCER_STARTED,
+    RUN_FINALISED,
+    RUN_STARTED,
+    TERMINATION_MATCHED,
+    TRIGGER_FIRED,
+    VOCAB_VERSION,
+    is_reserved,
+)
 from ..encoding import content_hash, to_canonical_builtins, try_canonical
 from ..errors import FsyncError, ReentrantAppendError
 from .policies import Decision, TermContext, quiescence_with_watchdog
@@ -316,8 +330,8 @@ class Runtime:
             record.append(
                 {
                     "seq": seq,
-                    "kind": "substrate.RunFinalised",
-                    "schema": "substrate.RunFinalised@1",
+                    "kind": RUN_FINALISED,
+                    "schema": f"{RUN_FINALISED}@1",
                     "producer": None,
                     "t": time.time(),
                     "payload": {"reason": "kernel_error", "error": repr(exc)},
@@ -351,8 +365,8 @@ class Runtime:
                 self._record.append(
                     {
                         "seq": seq,
-                        "kind": "substrate.RunFinalised",
-                        "schema": "substrate.RunFinalised@1",
+                        "kind": RUN_FINALISED,
+                        "schema": f"{RUN_FINALISED}@1",
                         "producer": None,
                         "t": time.time(),
                         "payload": {"reason": "stuck_quiescent", "policy": policy, "error": msg},
@@ -364,7 +378,7 @@ class Runtime:
 
     # ── bootstrap ────────────────────────────────────────────────────────────--
     def _bootstrap(self, reg: Registration) -> None:
-        self._cyc.cycle(_Lifecycle("substrate.RunStarted", self._manifest(reg)))  # seq 0
+        self._cyc.cycle(_Lifecycle(RUN_STARTED, self._manifest(reg)))  # seq 0
         for init in reg.initials:
             instance = str(ULID())
             # Guard initial-input canonicalization/sealing: a non-canonical or non-sealable
@@ -382,7 +396,7 @@ class Runtime:
             except Exception as exc:
                 self._cyc.cycle(
                     _Lifecycle(
-                        "substrate.InputBuildFailed",
+                        INPUT_BUILD_FAILED,
                         {
                             "trigger_id": "__initial__",
                             "firing_key": "__initial__",
@@ -393,7 +407,7 @@ class Runtime:
                 continue
             self._cyc.cycle(
                 _Lifecycle(
-                    "substrate.TriggerFired",
+                    TRIGGER_FIRED,
                     {
                         "trigger_id": "__initial__",
                         "firing_key": "__initial__",
@@ -420,19 +434,19 @@ class Runtime:
             seq = int(env.get("seq", -1))
             max_seq = max(max_seq, seq)
             kind = str(env.get("kind", ""))
-            if kind == "substrate.RunStarted":
+            if kind == RUN_STARTED:
                 # restore the ORIGINAL run_id so the resumed manifest/RunResult keep the run's
                 # identity (the freshly-minted st.run_id from _new_run_state is discarded).
                 rid = env.get("payload", {})
                 if isinstance(rid, dict) and isinstance(rid.get("run_id"), str):
                     st.run_id = rid["run_id"]
             st.counts[kind] = st.counts.get(kind, 0) + 1
-            if kind == "substrate.ProducerStarted":
+            if kind == PRODUCER_STARTED:
                 st.started_total += 1
             elif kind in (
-                "substrate.ProducerCompleted",
-                "substrate.ProducerFailed",
-                "substrate.ProducerCancelled",
+                PRODUCER_COMPLETED,
+                PRODUCER_FAILED,
+                PRODUCER_CANCELLED,
             ):
                 st.ended_total += 1
             for vname, view in reg.views.items():
@@ -540,17 +554,19 @@ class Runtime:
             task = asyncio.create_task(self._producer_task(kind, inp, instance, parent))
             st.tasks.add(task)
             st.task_by_instance[instance] = task
+            st.kind_by_instance[instance] = kind
 
             def _done(t: asyncio.Task[None], inst: str = instance) -> None:
                 st.tasks.discard(t)
                 st.task_by_instance.pop(inst, None)
+                st.kind_by_instance.pop(inst, None)
 
             task.add_done_callback(_done)
 
     async def _producer_task(self, kind: str, inp: Any, instance: str, parent: str | None) -> None:
         ref = {"kind": kind, "instance": instance, "parent": parent}
         inbox = self._st.inbox
-        inbox.put_nowait(_Lifecycle("substrate.ProducerStarted", {"producer": ref}))
+        inbox.put_nowait(_Lifecycle(PRODUCER_STARTED, {"producer": ref}))
         # Sprint 199 (roadmap v2 S1b fold-in): `Budget.wall_seconds` enforcement. If the
         # producer_kind declared a wall-clock cap, wrap the async-for consumer in
         # `asyncio.wait_for`. On timeout we synthesise the exception path — ProducerFailed
@@ -572,9 +588,9 @@ class Runtime:
                 await asyncio.wait_for(_consume(), timeout=float(wall_cap.limit))
             else:
                 await _consume()
-            inbox.put_nowait(_Lifecycle("substrate.ProducerCompleted", {"producer": ref}))
+            inbox.put_nowait(_Lifecycle(PRODUCER_COMPLETED, {"producer": ref}))
         except asyncio.CancelledError:
-            inbox.put_nowait(_Lifecycle("substrate.ProducerCancelled", {"producer": ref}))
+            inbox.put_nowait(_Lifecycle(PRODUCER_CANCELLED, {"producer": ref}))
             raise
         except asyncio.TimeoutError:
             assert wall_cap is not None  # only reachable when the budget wrapped _consume
@@ -587,7 +603,7 @@ class Runtime:
                     "reason": wall_cap.reason,
                 },
             }
-            inbox.put_nowait(_Lifecycle("substrate.ProducerFailed", payload))
+            inbox.put_nowait(_Lifecycle(PRODUCER_FAILED, payload))
         except Exception as exc:
             payload = {"producer": ref, "error": repr(exc)}
             # Composition (§20): an embedded substrate's inner-run failure surfaces as ONE
@@ -595,7 +611,7 @@ class Runtime:
             inner = getattr(exc, "inner_run_id", None)
             if isinstance(inner, str) and inner:
                 payload["inner_run_id"] = inner
-            inbox.put_nowait(_Lifecycle("substrate.ProducerFailed", payload))
+            inbox.put_nowait(_Lifecycle(PRODUCER_FAILED, payload))
 
     async def _submit_emission(self, ref: dict[str, Any], obj: Any) -> None:
         st = self._st
@@ -698,7 +714,7 @@ class Runtime:
         if decision is Decision.FINALISE_RUN:
             self._cyc.cycle(
                 _Lifecycle(
-                    "substrate.TerminationMatched",
+                    TERMINATION_MATCHED,
                     {"policy": self._termination.name, "decision": decision.value},
                 )
             )
@@ -723,14 +739,14 @@ class Runtime:
                     drop_reason = f"finalisation payload not canonical: {sc.reason} at {sc.at_path}"
             if drop_reason is not None:
                 payload["finalisation_payload_dropped"] = drop_reason
-            self._cyc.cycle(_Lifecycle("substrate.RunFinalised", payload))
+            self._cyc.cycle(_Lifecycle(RUN_FINALISED, payload))
             # A view-failure mid-cascade may already have set FAILED; do not override it.
             if st.phase is RunPhase.RUNNING:
                 st.phase = RunPhase.FINALISED
         elif decision is Decision.PAUSE_AWAIT_INPUT:
             self._cyc.cycle(
                 _Lifecycle(
-                    "substrate.TerminationMatched",
+                    TERMINATION_MATCHED,
                     {
                         "policy": self._termination.name,
                         "decision": decision.value,
@@ -771,12 +787,30 @@ class Runtime:
             return  # nothing left to cancel — do not emit a vacuous TerminationMatched
         self._cyc.cycle(
             _Lifecycle(
-                "substrate.TerminationMatched",
+                TERMINATION_MATCHED,
                 {"policy": self._termination.name, "decision": Decision.CANCEL_OTHERS.value},
             )
         )
         for _inst, task in victims:
             task.cancel()  # the task's CancelledError handler enqueues ProducerCancelled
+
+    def cancel_producers(self, kind: str) -> int:
+        """Cancel every live Producer whose kind matches `kind`. The writer loop stays
+        alive; each cancelled task's CancelledError handler enqueues ProducerCancelled,
+        which drains normally. A session topology trigger subscribing to ProducerCancelled
+        (e.g. park-on-interrupt) fires on the resulting event.
+
+        Returns the number of tasks cancelled (0 if no matching producers are running).
+        Safe to call from the event loop thread via `loop.call_soon_threadsafe`."""
+        st = self._st
+        victims = [
+            (inst, task)
+            for inst, task in list(st.task_by_instance.items())
+            if st.kind_by_instance.get(inst) == kind and not task.done()
+        ]
+        for _inst, task in victims:
+            task.cancel()
+        return len(victims)
 
 
 # ── resume helpers (fold the existing record into the registered Views, §4 Level-1) ──────

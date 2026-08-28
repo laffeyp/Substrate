@@ -1,0 +1,25 @@
+{
+  "arm_name": "swebench_solver",
+  "arms_mode": "pass1",
+  "assay_kind": "swebench",
+  "batch_grade": false,
+  "config_fp": "15c3abae4099",
+  "control_arm": "n_drafts_repair_ensemble",
+  "dataset": "princeton-nlp/SWE-bench_Lite",
+  "ensemble": [
+    "deepseek-v4-flash:cloud"
+  ],
+  "k_calls": 0,
+  "limit": 10,
+  "margin": 0.1,
+  "models": [
+    "deepseek-v4-flash:cloud"
+  ],
+  "n": 3,
+  "role": "full",
+  "run_id": "run-1786412265",
+  "run_timeout": 2400.0,
+  "skip_base_pytest": false,
+  "split": "test",
+  "trials": 1
+}

@@ -29,14 +29,15 @@ from typing import Any
 
 from msgspec import Struct
 
+from ..constants import PRODUCER_STARTED, RUN_STARTED, TRIGGER_FIRED
 from ..encoding import content_hash
 from ..errors import ProducerNotFound, SequenceOutOfRange
 from ..protocols import View
 from ..record.record import read_record
 
 # Producer-creating causes (F-OBS-2): a Producer traces to one of these.
-_TRIGGER_FIRED = "substrate.TriggerFired"
-_RUN_STARTED = "substrate.RunStarted"
+_TRIGGER_FIRED = TRIGGER_FIRED
+_RUN_STARTED = RUN_STARTED
 _INITIAL = "__initial__"  # the synthetic trigger_id for topology-declared initial Producers
 
 
@@ -112,7 +113,7 @@ def _started_index(envelopes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]
     """Map a Producer instance -> its ProducerStarted producer ref {kind,instance,parent}."""
     index: dict[str, dict[str, Any]] = {}
     for env in envelopes:
-        if env.get("kind") == "substrate.ProducerStarted":
+        if env.get("kind") == PRODUCER_STARTED:
             ref = (env.get("payload") or {}).get("producer")
             if isinstance(ref, dict) and isinstance(ref.get("instance"), str):
                 index[ref["instance"]] = ref

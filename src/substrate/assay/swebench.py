@@ -36,6 +36,7 @@ from typing import Any
 
 from msgspec import Struct
 
+from ..constants import PRODUCER_FAILED
 from .oracle import EXTERNAL_GRADER, LOG_PROJECTION, ExternalGraderOracle, Result, Verdict
 
 # Default grader_error_band for SWE-bench Lite (Xia & Chen 2025, arxiv 2503.15223). Rides on every
@@ -905,7 +906,7 @@ class SwebenchLogProjectionOracle:
             producer_failures = [
                 e["payload"]
                 for e in events
-                if e["kind"] == "substrate.ProducerFailed"
+                if e["kind"] == PRODUCER_FAILED
                 and e["payload"].get("producer", {}).get("kind") in self._ESSENTIAL_PRODUCER_KINDS
             ]
             if producer_failures:

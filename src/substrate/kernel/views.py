@@ -10,6 +10,12 @@ from __future__ import annotations
 from types import MappingProxyType
 from typing import Any
 
+from ..constants import (
+    PRODUCER_CANCELLED,
+    PRODUCER_COMPLETED,
+    PRODUCER_FAILED,
+    PRODUCER_STARTED,
+)
 from ..types import Event, Subscription
 
 
@@ -101,10 +107,10 @@ class StartedCompletedCounts:
         self.subscription = Subscription(
             kinds=frozenset(
                 {
-                    "substrate.ProducerStarted",
-                    "substrate.ProducerCompleted",
-                    "substrate.ProducerFailed",
-                    "substrate.ProducerCancelled",
+                    PRODUCER_STARTED,
+                    PRODUCER_COMPLETED,
+                    PRODUCER_FAILED,
+                    PRODUCER_CANCELLED,
                 }
             )
         )
@@ -117,7 +123,7 @@ class StartedCompletedCounts:
         kind = ref.get("kind") if isinstance(ref, dict) else None
         if kind is None:
             return
-        bucket = self._started if event.kind == "substrate.ProducerStarted" else self._ended
+        bucket = self._started if event.kind == PRODUCER_STARTED else self._ended
         bucket[kind] = bucket.get(kind, 0) + 1
 
     def value(self) -> Any:

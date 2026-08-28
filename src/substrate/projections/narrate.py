@@ -34,14 +34,28 @@ from typing import Any
 
 from msgspec import Struct
 
+from ..constants import (
+    INJECTION_APPLIED,
+    INPUT_BUILD_FAILED,
+    PREDICATE_QUARANTINED,
+    PRODUCER_CANCELLED,
+    PRODUCER_COMPLETED,
+    PRODUCER_EMITTED_INVALID,
+    PRODUCER_FAILED,
+    PRODUCER_STARTED,
+    RUN_FINALISED,
+    RUN_STARTED,
+    TERMINATION_MATCHED,
+    TRIGGER_FIRED,
+)
 from ..record.record import read_record
 
 # Lifecycle bracketing suppressed by default — implied by the trigger beat + the work event.
 _LIFECYCLE_NOISE = frozenset(
     {
-        "substrate.ProducerStarted",
-        "substrate.ProducerCompleted",
-        "substrate.InjectionApplied",
+        PRODUCER_STARTED,
+        PRODUCER_COMPLETED,
+        INJECTION_APPLIED,
     }
 )
 
@@ -54,10 +68,10 @@ _ELIDE = frozenset({"topology", "schemas", "baseline", "config", "raw_payload", 
 # is legible as broken (mirrors cli._FAILURE_KINDS).
 _FAILURE_KINDS = frozenset(
     {
-        "substrate.ProducerFailed",
-        "substrate.InputBuildFailed",
-        "substrate.PredicateQuarantined",
-        "substrate.ProducerEmittedInvalidEvent",
+        PRODUCER_FAILED,
+        INPUT_BUILD_FAILED,
+        PREDICATE_QUARANTINED,
+        PRODUCER_EMITTED_INVALID,
     }
 )
 
@@ -199,18 +213,18 @@ def _injection_applied(p: dict[str, Any], ref: Any) -> str:
 
 
 _BEATS: dict[str, Callable[[dict[str, Any], Any], str]] = {
-    "substrate.RunStarted": _run_started,
-    "substrate.TriggerFired": _trigger_fired,
-    "substrate.ProducerCancelled": _producer_cancelled,
-    "substrate.ProducerFailed": _producer_failed,
-    "substrate.InputBuildFailed": _input_build_failed,
-    "substrate.PredicateQuarantined": _predicate_quarantined,
-    "substrate.ProducerEmittedInvalidEvent": _invalid_emission,
-    "substrate.TerminationMatched": _termination_matched,
-    "substrate.RunFinalised": _run_finalised,
-    "substrate.ProducerStarted": _producer_started,
-    "substrate.ProducerCompleted": _producer_completed,
-    "substrate.InjectionApplied": _injection_applied,
+    RUN_STARTED: _run_started,
+    TRIGGER_FIRED: _trigger_fired,
+    PRODUCER_CANCELLED: _producer_cancelled,
+    PRODUCER_FAILED: _producer_failed,
+    INPUT_BUILD_FAILED: _input_build_failed,
+    PREDICATE_QUARANTINED: _predicate_quarantined,
+    PRODUCER_EMITTED_INVALID: _invalid_emission,
+    TERMINATION_MATCHED: _termination_matched,
+    RUN_FINALISED: _run_finalised,
+    PRODUCER_STARTED: _producer_started,
+    PRODUCER_COMPLETED: _producer_completed,
+    INJECTION_APPLIED: _injection_applied,
 }
 
 
@@ -249,13 +263,13 @@ def narration_summary(record: Any) -> NarrationSummary:
     tally is a finalised-but-broken run — the count makes that legible."""
     counts = dict.fromkeys(
         (
-            "substrate.ProducerStarted",
-            "substrate.ProducerCompleted",
-            "substrate.ProducerCancelled",
-            "substrate.ProducerFailed",
-            "substrate.InputBuildFailed",
-            "substrate.PredicateQuarantined",
-            "substrate.ProducerEmittedInvalidEvent",
+            PRODUCER_STARTED,
+            PRODUCER_COMPLETED,
+            PRODUCER_CANCELLED,
+            PRODUCER_FAILED,
+            INPUT_BUILD_FAILED,
+            PREDICATE_QUARANTINED,
+            PRODUCER_EMITTED_INVALID,
         ),
         0,
     )
@@ -268,7 +282,7 @@ def narration_summary(record: Any) -> NarrationSummary:
         kind = str(env.get("kind", ""))
         if kind in counts:
             counts[kind] += 1
-        elif kind == "substrate.RunFinalised":
+        elif kind == RUN_FINALISED:
             finalised = True
             reason = (env.get("payload") or {}).get("reason")
             final_reason = str(reason) if reason else None
@@ -278,12 +292,12 @@ def narration_summary(record: Any) -> NarrationSummary:
         finalised=finalised,
         final_reason=final_reason,
         total_events=total,
-        producers_started=counts["substrate.ProducerStarted"],
-        producers_completed=counts["substrate.ProducerCompleted"],
-        producers_cancelled=counts["substrate.ProducerCancelled"],
-        producers_failed=counts["substrate.ProducerFailed"],
-        input_build_failures=counts["substrate.InputBuildFailed"],
-        predicate_quarantines=counts["substrate.PredicateQuarantined"],
-        invalid_emissions=counts["substrate.ProducerEmittedInvalidEvent"],
+        producers_started=counts[PRODUCER_STARTED],
+        producers_completed=counts[PRODUCER_COMPLETED],
+        producers_cancelled=counts[PRODUCER_CANCELLED],
+        producers_failed=counts[PRODUCER_FAILED],
+        input_build_failures=counts[INPUT_BUILD_FAILED],
+        predicate_quarantines=counts[PREDICATE_QUARANTINED],
+        invalid_emissions=counts[PRODUCER_EMITTED_INVALID],
         application_events=app,
     )

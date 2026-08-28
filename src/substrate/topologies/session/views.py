@@ -10,9 +10,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from ...constants import PRODUCER_FAILED
 from ...types import Event, Subscription
 
-_PRODUCER_FAILED = "substrate.ProducerFailed"
+_PRODUCER_FAILED = PRODUCER_FAILED
 
 
 def producer_kind_from_lifecycle_payload(payload: Any) -> str | None:

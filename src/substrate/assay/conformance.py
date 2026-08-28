@@ -28,7 +28,7 @@ def _has_committed_record(root: str) -> bool:
     `substrate.RunFinalised` on the log. The guard dereferences the root rather than trusting the
     CaseResult object: a result without a real finalised record on disk is not a run that happened."""
     try:
-        return any(e["kind"] == "substrate.RunFinalised" for e in api.read_record(Path(root)))
+        return any(e["kind"] == api.RUN_FINALISED for e in api.read_record(Path(root)))
     except Exception:  # noqa: BLE001 - any unreadable/absent record means "did not run"
         return False
 

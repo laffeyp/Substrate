@@ -46,6 +46,7 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
 
+from ..constants import RUN_FINALISED, RUN_STARTED
 from ..projections.attach import LiveRecord
 from ..errors import SubstrateError
 from .runtime import Runtime
@@ -78,7 +79,7 @@ def _default_transform(outer_type: type) -> Callable[[dict[str, Any]], Any]:
     return _t
 
 
-_RUN_FINALISED = "substrate.RunFinalised"
+_RUN_FINALISED = RUN_FINALISED
 
 
 def embedded_substrate(
@@ -144,7 +145,7 @@ def embedded_substrate(
             nonlocal inner_run_id
             for env in follower.read_new():
                 kind = str(env.get("kind", ""))
-                if kind == "substrate.RunStarted":
+                if kind == RUN_STARTED:
                     rid = (env.get("payload") or {}).get("run_id")
                     if isinstance(rid, str):
                         inner_run_id = rid

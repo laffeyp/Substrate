@@ -435,7 +435,7 @@ def session_topology(
         )
         b.trigger(
             "park-on-model-error",
-            subscription=api.Subscription(kinds=frozenset({"substrate.ProducerFailed"})),
+            subscription=api.Subscription(kinds=frozenset({api.PRODUCER_FAILED})),
             predicate=lambda ctx: _producer_kind_from_ref(ctx) == "model",
             starts="park",
             input_builder=lambda ctx: {
@@ -446,7 +446,7 @@ def session_topology(
         )
         b.trigger(
             "park-on-interrupt",
-            subscription=api.Subscription(kinds=frozenset({"substrate.ProducerCancelled"})),
+            subscription=api.Subscription(kinds=frozenset({api.PRODUCER_CANCELLED})),
             predicate=lambda ctx: _producer_kind_from_ref(ctx) == "model",
             starts="park",
             input_builder=lambda ctx: {

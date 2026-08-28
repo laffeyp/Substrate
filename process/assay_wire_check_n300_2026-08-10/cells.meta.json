@@ -1,0 +1,27 @@
+{
+  "arm_name": "swebench_solver",
+  "arms_mode": "matrix",
+  "assay_kind": "swebench",
+  "batch_grade": false,
+  "config_fp": "d8452b83f2a2",
+  "control_arm": "single_draft_baseline",
+  "dataset": "princeton-nlp/SWE-bench_Lite",
+  "ensemble": [
+    "deepseek-v4-flash:cloud",
+    "deepseek-v4-flash:cloud",
+    "deepseek-v4-flash:cloud"
+  ],
+  "k_calls": 9,
+  "limit": 300,
+  "margin": 0.1,
+  "models": [
+    "deepseek-v4-flash:cloud"
+  ],
+  "n": 3,
+  "role": "full",
+  "run_id": "run-1786413881",
+  "run_timeout": 7200.0,
+  "skip_base_pytest": true,
+  "split": "test",
+  "trials": 1
+}

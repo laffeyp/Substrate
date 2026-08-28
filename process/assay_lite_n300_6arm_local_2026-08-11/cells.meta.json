@@ -1,0 +1,27 @@
+{
+  "arm_name": "swebench_solver",
+  "arms_mode": "matrix",
+  "assay_kind": "swebench",
+  "batch_grade": false,
+  "config_fp": "50dd704210bb",
+  "control_arm": "single_draft_baseline",
+  "dataset": "princeton-nlp/SWE-bench_Lite",
+  "ensemble": [
+    "qwen2.5-coder:7b",
+    "deepseek-r1:8b",
+    "llama3:8b"
+  ],
+  "k_calls": 9,
+  "limit": 300,
+  "margin": 0.1,
+  "models": [
+    "qwen2.5-coder:7b"
+  ],
+  "n": 3,
+  "role": "full",
+  "run_id": "run-1786474983",
+  "run_timeout": 7200.0,
+  "skip_base_pytest": true,
+  "split": "test",
+  "trials": 1
+}

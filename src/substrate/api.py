@@ -18,6 +18,21 @@ truly needed."""
 
 from __future__ import annotations
 
+from .constants import (
+    INJECTION_APPLIED,
+    INPUT_BUILD_FAILED,
+    LIFECYCLE_KINDS,
+    PREDICATE_QUARANTINED,
+    PRODUCER_CANCELLED,
+    PRODUCER_COMPLETED,
+    PRODUCER_EMITTED_INVALID,
+    PRODUCER_FAILED,
+    PRODUCER_STARTED,
+    RUN_FINALISED,
+    RUN_STARTED,
+    TERMINATION_MATCHED,
+    TRIGGER_FIRED,
+)
 from .projections.attach import LiveRecord, attach
 from .kernel.composition import EmbeddedRunFailed, embedded_substrate
 from .conformance.conformance import CheckResult, ConformanceReport, Status, run_conformance
@@ -83,6 +98,20 @@ from .types import BlobRef, Event, ProducerRef, Subscription
 from .kernel.views import BufferView, KindBuffer, KindCount, PerKindLatest, StartedCompletedCounts
 
 __all__ = [
+    # lifecycle kind constants (the locked vocabulary)
+    "LIFECYCLE_KINDS",
+    "RUN_STARTED",
+    "TRIGGER_FIRED",
+    "INPUT_BUILD_FAILED",
+    "PRODUCER_STARTED",
+    "PRODUCER_EMITTED_INVALID",
+    "PRODUCER_COMPLETED",
+    "PRODUCER_FAILED",
+    "PRODUCER_CANCELLED",
+    "INJECTION_APPLIED",
+    "PREDICATE_QUARANTINED",
+    "TERMINATION_MATCHED",
+    "RUN_FINALISED",
     # data
     "Event",
     "BlobRef",

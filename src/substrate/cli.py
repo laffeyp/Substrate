@@ -91,10 +91,10 @@ def _load_attr(spec: str) -> Callable[..., Any]:
 
 
 _FAILURE_KINDS = (
-    "substrate.ProducerFailed",
-    "substrate.InputBuildFailed",
-    "substrate.PredicateQuarantined",
-    "substrate.ProducerEmittedInvalidEvent",
+    api.PRODUCER_FAILED,
+    api.INPUT_BUILD_FAILED,
+    api.PREDICATE_QUARANTINED,
+    api.PRODUCER_EMITTED_INVALID,
 )
 
 

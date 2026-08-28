@@ -23,7 +23,20 @@ from typing import TYPE_CHECKING, Any
 from msgspec import Struct
 from ulid import ULID
 
-from ..constants import BLOB_THRESHOLD_BYTES, is_reserved
+from ..constants import (
+    BLOB_THRESHOLD_BYTES,
+    INPUT_BUILD_FAILED,
+    INJECTION_APPLIED,
+    PREDICATE_QUARANTINED,
+    PRODUCER_CANCELLED,
+    PRODUCER_COMPLETED,
+    PRODUCER_EMITTED_INVALID,
+    PRODUCER_FAILED,
+    PRODUCER_STARTED,
+    RUN_FINALISED,
+    TRIGGER_FIRED,
+    is_reserved,
+)
 from ..encoding import SafeCanonical, content_hash, safe_raw, try_canonical
 from ..protocols import TriggerContext
 from .runstate import RunPhase, RunState
@@ -185,8 +198,8 @@ class AppendCycle:
         if at_path is not None:
             wrapper["at_path"] = at_path
         return (
-            "substrate.ProducerEmittedInvalidEvent",
-            "substrate.ProducerEmittedInvalidEvent@1",
+            PRODUCER_EMITTED_INVALID,
+            f"{PRODUCER_EMITTED_INVALID}@1",
             None,
             wrapper,
         )
@@ -223,12 +236,12 @@ class AppendCycle:
 
     def _track_lifecycle(self, event: Event) -> None:
         st = self._st
-        if event.kind == "substrate.ProducerStarted":
+        if event.kind == PRODUCER_STARTED:
             st.started_total += 1
         elif event.kind in (
-            "substrate.ProducerCompleted",
-            "substrate.ProducerFailed",
-            "substrate.ProducerCancelled",
+            PRODUCER_COMPLETED,
+            PRODUCER_FAILED,
+            PRODUCER_CANCELLED,
         ):
             st.ended_total += 1
             st.inflight = max(0, st.inflight - 1)
@@ -243,10 +256,11 @@ class AppendCycle:
         st.next_seq += 1
         now = time.time()
         payload = {"reason": "view_failure", "view": view_name, "seq": seq, "error": repr(exc)}
+        schema = f"{RUN_FINALISED}@1"
         envelope = {
             "seq": fseq,
-            "kind": "substrate.RunFinalised",
-            "schema": "substrate.RunFinalised@1",
+            "kind": RUN_FINALISED,
+            "schema": schema,
             "producer": None,
             "t": now,
             "payload": payload,
@@ -254,14 +268,14 @@ class AppendCycle:
         self._record.append(envelope)
         st.final_event = Event(
             seq=fseq,
-            kind="substrate.RunFinalised",
-            schema="substrate.RunFinalised@1",
+            kind=RUN_FINALISED,
+            schema=schema,
             producer=None,
             t=now,
             payload=payload,
         )
         st.last_event = st.final_event
-        st.counts["substrate.RunFinalised"] = st.counts.get("substrate.RunFinalised", 0) + 1
+        st.counts[RUN_FINALISED] = st.counts.get(RUN_FINALISED, 0) + 1
         st.control.clear()  # abandon any queued control events: nothing follows RunFinalised
         st.phase = RunPhase.FAILED
 
@@ -275,7 +289,7 @@ class AppendCycle:
             except Exception as exc:  # design §6.3: route transform raises -> InputBuildFailed
                 st.control.append(
                     _Lifecycle(
-                        "substrate.InputBuildFailed",
+                        INPUT_BUILD_FAILED,
                         {"route_id": r.id, "firing_key": None, "error": repr(exc)},
                     )
                 )
@@ -283,7 +297,7 @@ class AppendCycle:
             st.staged[r.slot] = message
             st.control.append(
                 _Lifecycle(
-                    "substrate.InjectionApplied",
+                    INJECTION_APPLIED,
                     {
                         "route_id": r.id,
                         "target_input_slot": r.slot,
@@ -359,7 +373,7 @@ class AppendCycle:
             except Exception as exc:
                 st.control.append(
                     _Lifecycle(
-                        "substrate.InputBuildFailed",
+                        INPUT_BUILD_FAILED,
                         {"trigger_id": t.id, "firing_key": None, "error": repr(exc)},
                     )
                 )
@@ -380,7 +394,7 @@ class AppendCycle:
             except Exception as exc:
                 st.control.append(
                     _Lifecycle(
-                        "substrate.InputBuildFailed",
+                        INPUT_BUILD_FAILED,
                         {"trigger_id": t.id, "firing_key": firing_key, "error": repr(exc)},
                     )
                 )
@@ -389,7 +403,7 @@ class AppendCycle:
             parent = event.producer.instance if event.producer else None
             st.control.append(
                 _Lifecycle(
-                    "substrate.TriggerFired",
+                    TRIGGER_FIRED,
                     {
                         "trigger_id": t.id,
                         "firing_key": firing_key,
@@ -424,4 +438,4 @@ class AppendCycle:
         }
         if error is not None:
             payload["error"] = error
-        st.control.append(_Lifecycle("substrate.PredicateQuarantined", payload))
+        st.control.append(_Lifecycle(PREDICATE_QUARANTINED, payload))

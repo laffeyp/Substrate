@@ -146,7 +146,7 @@ def ensemble_topology(
                 api.cancel_all_others(
                     lambda c: (
                         c.event is not None
-                        and getattr(c.event, "kind", "") == "substrate.ProducerCompleted"
+                        and getattr(c.event, "kind", "") == api.PRODUCER_COMPLETED
                         and isinstance(getattr(c.event, "payload", None), dict)
                         and c.event.payload.get("producer", {}).get("kind") == "adjudicator"
                     )

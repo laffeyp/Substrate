@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from ..record import framing
-from ..constants import POLL_INTERVAL_MS
+from ..constants import POLL_INTERVAL_MS, RUN_FINALISED
 
 
 def _sealed_segments(root: Path) -> list[Path]:
@@ -118,7 +118,7 @@ class LiveRecord:
             new = self.read_new()
             for env in new:
                 yield env
-                if until_finalised and env.get("kind") == "substrate.RunFinalised":
+                if until_finalised and env.get("kind") == RUN_FINALISED:
                     return
             time.sleep(self._poll_s)
 

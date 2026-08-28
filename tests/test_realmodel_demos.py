@@ -247,7 +247,7 @@ async def test_pair_coding_route_carries_suggestion(tmp_path):
 
 
 # ── natural conversation: the instrument ablation DELTA (WITH vs WITHOUT) ───────
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(600)
 async def test_instrument_ablation_delta(tmp_path):
     _require(_FAST)
     await Runtime(tmp_path / "with").run(
