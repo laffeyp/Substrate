@@ -1,0 +1,18 @@
+# Application manifest — daily.
+# Wraps session_topology (session/__init__.py:286). `runs = "session"` per
+# §7.6: a daily-driver run opens as a standing session the user drives
+# through /turn calls, NOT a one-shot topology that terminates. Every
+# session-shaped input (workspace_shape, tools, per_turn, bundle) already
+# lives on POST /api/session; `daily` reuses those, exposing only the
+# `driver_model` here so the application catalog surfaces a working
+# default the daemon can dispatch without additional configuration.
+
+name = "daily"
+description = "Open a standing driver session — the CLI's default `substrate` verb."
+runs = "session"
+
+[inputs]
+driver_model = {type = "string", default = "kimi-k2.6:cloud"}
+
+[output]
+kind = "session"

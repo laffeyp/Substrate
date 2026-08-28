@@ -94,6 +94,23 @@ BUNDLED: dict[str, Callable[[], _Topo]] = {
     "session": ci_session_topology,
 }
 
+# Sprint 224: `pair_coding` name collision. Sprint 225 adds
+# `applications/pair_coding_composite.py` — a session-composite that owns
+# the name unambiguously in the application catalog. The existing
+# BUNDLED entry (the chunked-writer demo topology) renames to
+# `pair_coding_chunked` here. The Python function name at
+# `topologies/pair_coding/__init__.py:87` stays the same for source
+# compatibility; only the BUNDLED key changes. The module directory
+# at `topologies/pair_coding/` also stays (renaming a Python package
+# for a naming decision would ripple through imports everywhere and
+# is not what the collision-fix asked for).
+_KEY_RENAMES: dict[str, str] = {"pair_coding": "pair_coding_chunked"}
+BUNDLED = {_KEY_RENAMES.get(k, k): v for k, v in BUNDLED.items()}
+
+# Map a BUNDLED key back to the directory where its committed CI record
+# lives. Populated only for renamed keys; the default is `key == dirname`.
+_KEY_TO_RECORD_DIR: dict[str, str] = {"pair_coding_chunked": "pair_coding"}
+
 _registered = False
 
 
@@ -113,5 +130,17 @@ def names() -> list[str]:
 
 
 def record_path(name: str) -> Path:
-    """The committed CI-mode record path for a bundled topology (for `demo replay <name>`)."""
-    return Path(__file__).resolve().parent / name / "records" / "ci_mode.record"
+    """The committed CI-mode record path for a bundled topology (for `demo replay <name>`).
+
+    A renamed BUNDLED key (e.g. `pair_coding_chunked`) maps back to its
+    original module directory via `_KEY_TO_RECORD_DIR`. Old callers
+    passing the pre-rename key still resolve via the same lookup — the
+    old name is a valid alias for record lookup purposes only.
+    """
+    directory = _KEY_TO_RECORD_DIR.get(name, name)
+    # Backwards-compat: a caller passing the pre-rename key (e.g.
+    # `pair_coding`) resolves to the same directory the new key does.
+    for renamed_from, renamed_to in _KEY_RENAMES.items():
+        if name == renamed_from:
+            directory = _KEY_TO_RECORD_DIR.get(renamed_to, renamed_to)
+    return Path(__file__).resolve().parent / directory / "records" / "ci_mode.record"

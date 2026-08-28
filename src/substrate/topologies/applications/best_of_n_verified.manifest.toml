@@ -1,0 +1,23 @@
+# Application manifest — best_of_n_verified.
+# Wraps best_of_n_verified_topology (best_of_n_verified.py:116). Generates
+# N candidate answers, verifies each, retries up to `max_rounds` if all
+# fail. Composes the `best_of_n_correction` primitive per §7.2.
+
+name = "best_of_n_verified"
+description = "Best-of-N generation with verification and retry loop."
+runs = "one-shot"
+
+[inputs]
+task = {type = "string"}
+n = {type = "integer", default = 3}
+max_rounds = {type = "integer", default = 2}
+watchdog_seconds = {type = "number", default = 30.0}
+# Two roles-to-models bindings per §7.6 line 1038. `verify_model` may
+# alternatively point at a deterministic Check function name (the
+# topology's `verify: Check | Responder` union); the wire input is
+# always a string — the daemon's resolver decides which shape to build.
+drafter_model = {type = "string", default = "kimi-k2.6:cloud"}
+verify_model = {type = "string", default = "claude"}
+
+[output]
+kind = "verified-answer"

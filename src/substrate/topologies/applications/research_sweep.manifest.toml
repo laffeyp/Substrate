@@ -1,0 +1,24 @@
+# Application manifest — research_sweep.
+# Wraps research_sweep_topology (research_sweep.py:155). Fans a reader
+# over each document, runs a completeness critic over the findings, then
+# synthesizes an answer to `question`. Empty document set fails at build
+# time (§7.4 refuses silent no-answer).
+
+name = "research_sweep"
+description = "Fan reader across documents, critique, synthesize answer to a question."
+runs = "one-shot"
+
+[inputs]
+question = {type = "string"}
+# The `documents` input is a list of {label, text} objects — passed
+# through as-is to research_sweep_topology(documents=[(label, text)]).
+# The daemon converts the JSON list-of-objects into the tuple shape the
+# topology expects at POST /api/topology/research_sweep/run time.
+documents = {type = "array"}
+watchdog_seconds = {type = "number", default = 30.0}
+reader_model = {type = "string", default = "kimi-k2.6:cloud"}
+critic_model = {type = "string", default = "claude"}
+synthesizer_model = {type = "string", default = "claude"}
+
+[output]
+kind = "synthesis"
