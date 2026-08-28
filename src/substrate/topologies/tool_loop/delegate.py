@@ -46,6 +46,15 @@ from ... import api
 from ...adapters import DeterministicResponder, OllamaResponder, Responder
 from .tools import Tool, full_suite
 
+
+# Sprint 224a — wire-error contract constant. The delegate raises a
+# ValueError containing this tag when the reviewer session ended between
+# the caller's resolve and the reach into `turn_sync`. tool_loop reads
+# the string and shapes `ToolResult(ok=false, error=...)`. The daemon
+# (substrate-ui/server.py) writes the same tag on `/turn` responses via
+# its `session_errors.py` import. One string, one place.
+SESSION_ENDED_MID_DELEGATE = "session_ended_mid_delegate"
+
 _CONTEXT_SLICE_CAP_BYTES = 8192  # TECH-SPEC §1.6.5 explicit cap
 
 # What the child IS, given a subtask and its WORKSPACE root (where its tools operate — distinct from the
@@ -483,7 +492,7 @@ def make_delegate(
                 # the substrate-ui side must be paired with an update here.
                 if type(exc).__name__ == "SessionEndedMidTurn":
                     raise ValueError(
-                        f"delegate: session_ended_mid_delegate ({per_call_session_name!r}): {exc}"
+                        f"delegate: {SESSION_ENDED_MID_DELEGATE} ({per_call_session_name!r}): {exc}"
                     ) from exc
                 raise
             # The reviewer's tail FinalAnswer for THIS TURN — scoped to seqs
