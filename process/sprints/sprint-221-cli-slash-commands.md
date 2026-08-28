@@ -23,9 +23,18 @@ Author `_slash_route(line, session) -> bool` and wire it into the REPL. Nine sla
 - `/run <application> [args]` — DAEMON: `POST /api/topology/<name>/run`; runs as sibling to session; streams events via existing SSE thread.
 - `/help` — LOCAL: print the slash list.
 
+**Scope amendment folded 2026-08-28.** Two of the nine slashes depend on sprint 217e's daemon extensions (PATCH-tools and POST-/turn-context); the third defers to piece E.
+
+- **`/tools`** — works after sprint 217e lands (PATCH admits `tools`). This sprint's prerequisites now include 217e.
+- **`/context`** — works after sprint 217e lands (POST /turn body parses `context`). Same prerequisite.
+- **`/run <application>`** — depends on `POST /api/topology/<name>/run`, which the tech spec §7 explicitly assigns to piece E (sprints 223-225). This sprint ships the `/run` handler as `_slash_route` returns True with a helpful `[not yet: piece E ships /api/topology/<name>/run]` printed to stderr; the model does not see the input. The full behaviour lands with piece E.
+
+The other six slashes (`/exit`, `/model`, `/inspect`, `/list`, `/replay`, `/help`) work today.
+
 ## prerequisites
 
 - Sprint 220 closed.
+- Sprint 217e closed (PATCH-tools + POST-/turn-context).
 
 ## context_files
 

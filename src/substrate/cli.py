@@ -199,11 +199,17 @@ def _resolve_version() -> str:
         return "0.0.0"
 
 
-@click.group()
+@click.group(invoke_without_command=True)
+@click.pass_context
 @click.version_option(version=_resolve_version(), message="substrate %(version)s")
-def main() -> None:
+def main(ctx: click.Context) -> None:
     """Substrate — a concurrent streaming dataflow runtime. Read the run record; never the
-    runtime's mind. Every command cites sequence numbers."""
+    runtime's mind. Every command cites sequence numbers.
+
+    Bare `substrate` (no subcommand) dispatches to `chat` with defaults from
+    `~/.substrate/config.toml [defaults]` — piece D sprint 218."""
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(chat)
 
 
 @main.command()
@@ -823,6 +829,372 @@ def score(root: str, rule_name: str) -> None:
     for spk in sorted(by_speaker):
         vals = by_speaker[spk]
         click.echo(f"  {spk}: mean={sum(vals) / len(vals):.4f}  n={len(vals)}")
+
+
+# ── piece D (sprint 218): chat + daemon verbs; config loader ────────────────────
+
+_CONFIG_PATH_DEFAULT = Path.home() / ".substrate" / "config.toml"
+
+
+def _load_config(path: Path | None = None) -> dict[str, Any]:
+    """Read `~/.substrate/config.toml`. Missing file → empty dict; malformed
+    TOML → empty dict with a stderr warning. The CLI applies section-specific
+    defaults on top of whatever this returns."""
+    import tomllib
+
+    p = path if path is not None else _CONFIG_PATH_DEFAULT
+    if not p.exists():
+        return {}
+    try:
+        with p.open("rb") as fp:
+            return tomllib.load(fp)
+    except tomllib.TOMLDecodeError as exc:
+        _err.print(f"[config] {p}: {type(exc).__name__}: {exc}; using defaults")
+        return {}
+
+
+def _defaults() -> dict[str, Any]:
+    """`[defaults]` block from the config, with baked-in fallbacks matching
+    templates/config.toml."""
+    section = _load_config().get("defaults", {})
+    if not isinstance(section, dict):
+        section = {}
+    return {
+        "driver": str(section.get("driver", "deterministic")),
+        "role": str(section.get("role", "default")),
+        "bundle": section.get("bundle") or None,
+        "workspace": str(section.get("workspace", ".")),
+        "isolate": bool(section.get("isolate", False)),
+    }
+
+
+def _daemon_server_path() -> str | None:
+    """`[daemon] server_path` — the absolute path to `substrate-ui/server.py`
+    the CLI auto-launches. Returns None if unset."""
+    section = _load_config().get("daemon", {})
+    if not isinstance(section, dict):
+        return None
+    path = section.get("server_path")
+    if not path or not isinstance(path, str):
+        return None
+    return path
+
+
+def _double_fork_daemon(server_path: str) -> None:
+    """POSIX daemonize: fork, setsid, fork, exec `python server_path`. The
+    grandchild inherits stdin/stdout/stderr redirected to /dev/null so the
+    parent shell is not held open."""
+    import os as _os
+
+    pid = _os.fork()
+    if pid != 0:
+        _os.waitpid(pid, 0)
+        return
+    _os.setsid()
+    pid2 = _os.fork()
+    if pid2 != 0:
+        _os._exit(0)
+    devnull = _os.open(_os.devnull, _os.O_RDWR)
+    _os.dup2(devnull, 0)
+    _os.dup2(devnull, 1)
+    _os.dup2(devnull, 2)
+    _os.execv(sys.executable, [sys.executable, server_path])
+
+
+def _ensure_daemon_running() -> None:
+    """Try to connect to the daemon; if neither UDS nor TCP is up, auto-launch
+    per `[daemon] server_path` and wait up to 3 s. Exit 64 on any failure to
+    reach a running daemon after the launch attempt."""
+    from substrate import _daemon
+
+    if _daemon.is_running(timeout=1.0):
+        return
+    server_path = _daemon_server_path()
+    if not server_path:
+        _err.print(
+            "[config] daemon not running and [daemon] server_path is empty in "
+            f"{_CONFIG_PATH_DEFAULT} — set it to the absolute path of "
+            "substrate-ui/server.py, or start the daemon manually."
+        )
+        raise SystemExit(EXIT_CONFIG)
+    if not Path(server_path).exists():
+        _err.print(f"[config] [daemon] server_path {server_path!r} does not exist")
+        raise SystemExit(EXIT_CONFIG)
+    _double_fork_daemon(server_path)
+    import time as _time
+
+    for _ in range(30):
+        if _daemon.is_running(timeout=0.5):
+            return
+        _time.sleep(0.1)
+    _err.print("[config] daemon failed to start; try `substrate daemon --foreground`")
+    raise SystemExit(EXIT_CONFIG)
+
+
+# ── piece D sprint 219: REPL loop + SSE streaming during a blocked turn ─────
+
+
+def _readline_with_interrupt(prompt: str = "> ") -> str:
+    """Cooked-mode readline. Raises `EOFError` on Ctrl+D and lets
+    `KeyboardInterrupt` propagate on Ctrl+C. Python's built-in `input()`
+    already delivers both signals; wrapped here so the REPL loop reads as
+    "readline that surfaces the two exits."
+    """
+    return input(prompt)
+
+
+def _render_stream_line(env: dict[str, Any], *, verbose: bool = False) -> None:
+    """Format one record envelope for the REPL's stderr stream.
+
+    ModelReply text prints to stdout as it lands (the assistant's voice).
+    ToolCall renders as `→ tool(args)`; ToolResult as `← ok (N bytes)` or
+    `← FAIL: <error>`. `substrate.*` events are suppressed unless `verbose`
+    is set. FinalAnswer is skipped — its text has already streamed as
+    ModelReply, and re-emitting it would duplicate.
+    """
+    import json as _json
+
+    kind = str(env.get("kind", ""))
+    payload = env.get("payload") or {}
+    if not isinstance(payload, dict):
+        return
+    if kind == "ModelReply":
+        text = str(payload.get("text", ""))
+        if text:
+            click.echo(text)
+    elif kind == "FinalAnswer":
+        return  # already streamed via ModelReply
+    elif kind == "ToolCall":
+        tool_name = str(payload.get("tool", "?"))
+        args = payload.get("args", [])
+        args_str = ", ".join(repr(a) for a in args) if isinstance(args, list) else str(args)
+        _err.print(f"→ {tool_name}({args_str})")
+    elif kind == "ToolResult":
+        ok = bool(payload.get("ok", True))
+        if ok:
+            output = payload.get("output", "")
+            try:
+                size = len(_json.dumps(output))
+            except (TypeError, ValueError):
+                size = len(str(output))
+            _err.print(f"← ok ({size} bytes)")
+        else:
+            _err.print(f"← FAIL: {payload.get('error', 'unknown')}")
+    elif kind.startswith("substrate.") and verbose:
+        _err.print(f"[substrate] {kind}")
+
+
+def _sse_stream(session_id: str, stop_event: Any, *, verbose: bool = False) -> None:
+    """Background thread body: open `GET /api/session/<id>/events?since_seq=-1`
+    against the daemon and format each frame via `_render_stream_line`. The
+    thread exits when `stop_event` is set, when the daemon writes
+    `substrate.RunFinalised`, or on any transport error. Uses `read1(N)` so
+    a partial SSE frame does not block past its bytes."""
+    import json as _json
+
+    from substrate import _daemon
+
+    try:
+        conn = _daemon._connect(timeout=None)
+        conn.request("GET", f"/api/session/{session_id}/events?since_seq=-1")
+        resp = conn.getresponse()
+    except Exception:  # noqa: BLE001 — daemon dropped; end the stream quietly
+        return
+    buf = b""
+    try:
+        while not stop_event.is_set():
+            try:
+                chunk = resp.read1(65536)
+            except Exception:  # noqa: BLE001 — connection dropped mid-read
+                break
+            if not chunk:
+                break
+            buf += chunk
+            while b"\n\n" in buf:
+                block, buf = buf.split(b"\n\n", 1)
+                for line in block.splitlines():
+                    if not line.startswith(b"data: "):
+                        continue
+                    raw = line[len(b"data: ") :]
+                    try:
+                        env = _json.loads(raw)
+                    except ValueError:
+                        continue
+                    _render_stream_line(env, verbose=verbose)
+                    if str(env.get("kind", "")) == "substrate.RunFinalised":
+                        stop_event.set()
+                        return
+    finally:
+        try:
+            resp.close()
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _repl(session: dict[str, Any], *, verbose: bool = False) -> None:
+    """The chat REPL. Main thread blocks on stdin; SSE thread streams events
+    to stderr as they land.
+
+    Sprint 220 wires:
+      - SIGINT during a turn → POST /interrupt. SIGINT idle → hint + continue.
+      - Ctrl+D (EOF) → POST /end{source=user_end}; session ends; REPL exits.
+      - SIGHUP → exit clean; session stays parked (POSTs nothing).
+      - `SUBSTRATE_SESSION` env var set before every /turn so the daemon's
+        bash-tool subprocesses inherit the session identity.
+    """
+    import os as _os
+    import signal as _signal
+    import threading as _threading
+
+    from substrate import _daemon
+
+    sid = str(session["session_id"])
+    label = str(session.get("name") or sid)
+    stop_event = _threading.Event()
+    stream_thread = _threading.Thread(
+        target=_sse_stream, args=(sid, stop_event), kwargs={"verbose": verbose}, daemon=True
+    )
+    stream_thread.start()
+
+    # Sprint 220: SIGINT dispatch depends on whether a turn is in flight.
+    turn_in_flight = _threading.Event()
+
+    def _sigint_handler(_signum: int, _frame: Any) -> None:
+        if turn_in_flight.is_set():
+            try:
+                _daemon.interrupt(sid, max_wait_ms=3000)
+            except _daemon.DaemonError as exc:
+                _err.print(f"[repl] interrupt failed: HTTP {exc.status}: {exc.body}")
+            except _daemon.DaemonNotRunning as exc:
+                _err.print(f"[repl] daemon unreachable: {exc}")
+        else:
+            _err.print("(no turn in flight; type /exit or press Ctrl+D to end)")
+
+    def _sighup_handler(_signum: int, _frame: Any) -> None:
+        # SIGHUP: exit cleanly. Session stays parked; the daemon keeps holding
+        # its manifest at "parked" and every follow-up `substrate resume <name>`
+        # continues where the REPL left off.
+        stop_event.set()
+        _err.print(f"[repl] SIGHUP; {label} stays parked")
+        raise SystemExit(EXIT_OK)
+
+    _signal.signal(_signal.SIGINT, _sigint_handler)
+    if hasattr(_signal, "SIGHUP"):
+        _signal.signal(_signal.SIGHUP, _sighup_handler)
+
+    # Sprint 220: expose the session identity to child subprocesses (bash tool,
+    # etc.). The daemon's bash tool inherits the parent env by subprocess.run
+    # default; setting the var here is enough.
+    _os.environ["SUBSTRATE_SESSION"] = label
+
+    try:
+        while True:
+            try:
+                line = _readline_with_interrupt("> ")
+            except EOFError:
+                # Ctrl+D → end the session cleanly.
+                try:
+                    _daemon.end_session(sid, source="user_end")
+                except _daemon.DaemonError as exc:
+                    _err.print(f"[repl] end failed: HTTP {exc.status}: {exc.body}")
+                except _daemon.DaemonNotRunning as exc:
+                    _err.print(f"[repl] daemon unreachable at end: {exc}")
+                break
+            except KeyboardInterrupt:
+                # The signal handler already ran; loop and read the next line.
+                continue
+            if not line.strip():
+                continue
+            turn_in_flight.set()
+            try:
+                result = _daemon.turn(sid, line)
+            except _daemon.DaemonError as exc:
+                _err.print(f"[repl] turn failed: HTTP {exc.status}: {exc.body}")
+                turn_in_flight.clear()
+                continue
+            except _daemon.DaemonNotRunning as exc:
+                _err.print(f"[repl] daemon unreachable: {exc}")
+                break
+            finally:
+                turn_in_flight.clear()
+            status = result.get("status")
+            if status == "ended":
+                break
+    finally:
+        stop_event.set()
+
+
+@main.command()
+@click.argument("driver", required=False)
+@click.option("--name", default=None, help="name for the standing session (optional)")
+@click.option("--workspace", default=None, help="workspace path (overrides config default)")
+@click.option("--seed", default=None, help="seed_text for the first turn (optional)")
+@click.option(
+    "--verbose",
+    is_flag=True,
+    help="stream substrate.* lifecycle events too (default: application events only)",
+)
+def chat(
+    driver: str | None,
+    name: str | None,
+    workspace: str | None,
+    seed: str | None,
+    verbose: bool = False,
+) -> None:
+    """Open a session against the daemon and drive it from a REPL. Reads
+    defaults from `~/.substrate/config.toml [defaults]` for any option not
+    passed. Piece D: sprint 218 shipped the create step; sprint 219 wires
+    the REPL + SSE streaming."""
+    from substrate import _daemon
+
+    defaults = _defaults()
+    driver = driver or defaults["driver"]
+    workspace_val = workspace or defaults["workspace"]
+    _ensure_daemon_running()
+    try:
+        session = _daemon.create_session(
+            driver=driver,
+            name=name,
+            workspace=workspace_val,
+            seed_text=seed,
+        )
+    except _daemon.DaemonError as exc:
+        _err.print(f"[config] create session failed: HTTP {exc.status}: {exc.body}")
+        raise SystemExit(EXIT_CONFIG) from exc
+    except _daemon.DaemonNotRunning as exc:
+        _err.print(f"[config] daemon unreachable after auto-launch: {exc}")
+        raise SystemExit(EXIT_CONFIG) from exc
+    click.echo(session["session_id"])
+    label = session.get("name") or session["session_id"]
+    _err.print(f"[session] {label} record={session['record']}")
+    _repl(session, verbose=verbose)
+
+
+@main.command()
+@click.option("--foreground", is_flag=True, help="run the daemon in the foreground (blocks)")
+def daemon(foreground: bool) -> None:
+    """Start the substrate daemon. Reads `[daemon] server_path` from
+    `~/.substrate/config.toml` for the executable path. `--foreground`
+    execs into the daemon process; without it, the CLI double-forks and
+    exits after the child is up.
+    """
+    server_path = _daemon_server_path()
+    if not server_path:
+        _err.print(
+            f"[config] [daemon] server_path not set in {_CONFIG_PATH_DEFAULT}; "
+            "set it to the absolute path of substrate-ui/server.py"
+        )
+        raise SystemExit(EXIT_CONFIG)
+    if not Path(server_path).exists():
+        _err.print(f"[config] [daemon] server_path {server_path!r} does not exist")
+        raise SystemExit(EXIT_CONFIG)
+    if foreground:
+        import os as _os
+
+        _os.execv(sys.executable, [sys.executable, server_path])
+    _double_fork_daemon(server_path)
+    _err.print(f"[daemon] launched {server_path}")
 
 
 if __name__ == "__main__":

@@ -153,6 +153,19 @@ def test_api_exposes_exception_hierarchy_by_type():
 
 
 # ── F-API-6: the CLI imports only substrate.api among substrate modules ────────
+# Piece D sprint 218 added `substrate._daemon` — a thin HTTP client for the
+# substrate-ui daemon. F-API-6's intent is that the CLI cannot reach kernel /
+# record / projections internals; `_daemon` touches none of those (it uses
+# stdlib http.client + socket only). The exception is explicit and audited:
+# any addition here needs its own rationale.
+_CLI_ALLOWED_SUBSTRATE_IMPORTS: frozenset[str] = frozenset(
+    {
+        "api",  # the public re-export module
+        "_daemon",  # CLI-adjacent HTTP client for the daemon; sprint 218
+    }
+)
+
+
 def test_cli_imports_only_substrate_api():
     cli_path = Path(__file__).parent.parent / "src" / "substrate" / "cli.py"
     tree = ast.parse(cli_path.read_text())
@@ -161,16 +174,23 @@ def test_cli_imports_only_substrate_api():
         if isinstance(node, ast.ImportFrom):
             mod = node.module or ""
             if mod == "substrate":
-                # `from substrate import api` — the one allowed substrate import
+                # `from substrate import api` — or one of the audited allowances
                 names = {a.name for a in node.names}
-                if names - {"api"}:
-                    offenders.append(f"from substrate import {sorted(names)}")
-            elif mod.startswith("substrate.") and mod != "substrate.api":
-                offenders.append(f"from {mod} import ...")
+                bad = names - _CLI_ALLOWED_SUBSTRATE_IMPORTS
+                if bad:
+                    offenders.append(f"from substrate import {sorted(bad)}")
+            elif mod.startswith("substrate."):
+                # `from substrate.<sub> import ...` — only substrate.api or an
+                # audited sub-module is allowed.
+                sub = mod.split(".", 1)[1].split(".", 1)[0]
+                if sub not in _CLI_ALLOWED_SUBSTRATE_IMPORTS:
+                    offenders.append(f"from {mod} import ...")
         elif isinstance(node, ast.Import):
             for a in node.names:
-                if a.name.startswith("substrate.") and a.name != "substrate.api":
-                    offenders.append(f"import {a.name}")
+                if a.name.startswith("substrate."):
+                    sub = a.name.split(".", 1)[1].split(".", 1)[0]
+                    if sub not in _CLI_ALLOWED_SUBSTRATE_IMPORTS:
+                        offenders.append(f"import {a.name}")
     assert not offenders, f"cli.py imports non-api substrate modules (F-API-6): {offenders}"
 
 

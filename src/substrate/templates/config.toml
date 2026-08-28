@@ -1,0 +1,45 @@
+# ~/.substrate/config.toml — shipped defaults for piece D's CLI (sprint 218).
+#
+# Every key is optional; the CLI falls back to the values listed here when the
+# file (or a section within it) is missing. This template documents the shape
+# with sane defaults; a real user config overrides any subset.
+
+[defaults]
+# Driver identifier the bare `substrate` command opens a session against.
+# "deterministic" runs the pure calculator stub with no network — safe first
+# session. Real driver tags land on OllamaResponder / CliResponder per the
+# daemon's driver resolver.
+driver = "deterministic"
+
+# Role identifier — reserved for §1.6.5 role resolution (piece E).
+role = "default"
+
+# Bundle identifier — empty means no bundle (§9 piece H). Set to a bundle
+# name under ~/.substrate/bundles/ to seed the session's methodology +
+# personality + per-turn text.
+bundle = ""
+
+# Workspace path — the directory tools operate in for this session. Relative
+# paths resolve against the CLI's cwd; absolute paths go where named.
+workspace = "."
+
+# Mode-3 isolate opt-in (§9c). False keeps the session in the workspace path;
+# true asks the daemon for an isolated per-session workspace.
+isolate = false
+
+[daemon]
+# Absolute path to `substrate-ui/server.py`, the daemon executable this CLI
+# auto-launches when neither UDS nor TCP is reachable. Piece D's initial
+# packaging story: the user sets this once. A follow-up card (post-piece-D)
+# can replace this with proper packaging so the daemon runs via a console
+# script and this key can be dropped.
+#
+# Example:
+# server_path = "/Users/you/repos/substrate-ui/server.py"
+server_path = ""
+
+[session]
+# Per-session /turn queue cap. The daemon's fast-path check refuses the
+# (cap+1)th caller with HTTP 429 immediately (sprint 216). Default 4 matches
+# `delegate.py`'s per-parent fan-out cap.
+turn_queue_cap = 4

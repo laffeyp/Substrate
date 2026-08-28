@@ -26,6 +26,12 @@ Add CLI subverbs to `substrate/src/substrate/cli.py`:
 
 The `--wizard` variant of `bundle create` defers to sprint 232.
 
+**Scope amendment folded 2026-08-28.** Two changes to the original card:
+
+1. **`substrate daemon [--foreground]` subverb removed.** Sprint 218's amendment now ships the `daemon` verb (needed there for auto-launch). This card drops it.
+
+2. **Bundle subverb scope narrows to CLI-side scaffolding only.** The card's assertion at line 49 references `bundles.load_bundle("test-bundle")` (piece H, sprint 229) which does not exist. `substrate bundle create`, `ls`, `show`, `edit` ship as CLI file-system operations (create directory + template files; list directories; print file contents; open in `$EDITOR`). No dependency on `bundles.py`. The load-round-trip assertion moves to piece H's sprint 229 tests.
+
 ## prerequisites
 
 - Sprint 221 closed.

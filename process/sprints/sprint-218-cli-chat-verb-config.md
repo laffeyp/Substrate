@@ -13,6 +13,12 @@ pass_kind: architecture
 
 Add `chat` verb to `substrate/src/substrate/cli.py`. Bare `substrate` (no subcommand) dispatches to `chat` with defaults from `~/.substrate/config.toml` `[defaults]` block (`driver`, `role`, `bundle`, `workspace`, `isolate`). Daemon auto-launch when socket + TCP both fail to connect: double-fork POSIX (`os.setsid`), start `substrate daemon` in background, wait up to 3s for socket, then try again. If still no daemon: `[config] daemon failed to start; try `substrate daemon --foreground`` and exit 64.
 
+**Scope amendment folded 2026-08-28.** Two changes to the original card:
+
+1. **`substrate daemon [--foreground]` verb moves in from sprint 222.** The card as written auto-launches "substrate daemon" without shipping that verb — chicken-and-egg. This sprint now ships the `daemon` verb alongside `chat`. Card 222 drops it from its subverb list.
+
+2. **Daemon-launch mechanism reads `~/.substrate/config.toml [daemon] server_path` for the substrate-ui/server.py path.** The CLI (in the `substrate` package) does not know where `substrate-ui/server.py` lives on disk (different repo, no shared packaging today). The `daemon` verb reads `server_path` from config and shells `python <server_path>`. Missing config or missing file → exit 64 with a clear message naming the config key. Piece D's initial demo path: user sets `[daemon] server_path` once, then `substrate chat` auto-launches through the config-resolved path. A follow-up card (post-piece-D) can replace this with proper packaging.
+
 ## prerequisites
 
 - Sprint 217 closed (piece B done).

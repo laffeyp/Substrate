@@ -1,0 +1,226 @@
+"""HTTP client for the substrate daemon. Piece D sprint 218.
+
+Every CLI verb POSTs to `~/.substrate/daemon.sock` (UDS) with fallback to
+TCP `127.0.0.1:8765` (TECH-SPEC §6). Tries UDS first, falls back cleanly
+on any of: missing socket file, ECONNREFUSED, permission denied. TCP host
++ port are overridable via `SUBSTRATE_DAEMON_HOST` and `SUBSTRATE_DAEMON_PORT`.
+
+`DaemonNotRunning` fires when both transports fail. The `chat` and `builder`
+verbs auto-launch the daemon per the tech-spec table; other verbs surface
+the error and exit 64 with a message pointing at `substrate daemon`.
+
+F-API-6 posture: this module is CLI-internal (leading underscore in the file
+name; not re-exported from `substrate.api`). It talks HTTP to the daemon;
+it does not touch the kernel. The daemon is a substrate-ui-side process,
+outside substrate's public surface — the CLI reaches it over the wire, not
+by import.
+"""
+
+from __future__ import annotations
+
+import http.client
+import json
+import os
+import socket
+from pathlib import Path
+from typing import Any
+
+
+class DaemonNotRunning(Exception):
+    """Neither UDS nor TCP could connect to a running daemon."""
+
+
+class DaemonError(Exception):
+    """The daemon answered but with a non-2xx status. Carries status + body."""
+
+    def __init__(self, status: int, body: dict[str, Any]) -> None:
+        super().__init__(f"daemon returned {status}: {body}")
+        self.status = status
+        self.body = body
+
+
+class _UnixHTTPConnection(http.client.HTTPConnection):
+    """http.client over a Unix socket."""
+
+    def __init__(self, socket_path: str, timeout: float | None = None) -> None:
+        super().__init__("localhost", timeout=timeout)
+        self._socket_path = socket_path
+
+    def connect(self) -> None:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        if self.timeout is not None:
+            s.settimeout(self.timeout)
+        s.connect(self._socket_path)
+        self.sock = s
+
+
+def _uds_path() -> Path:
+    return Path(
+        os.environ.get("SUBSTRATE_DAEMON_SOCK", str(Path.home() / ".substrate" / "daemon.sock"))
+    )
+
+
+def _tcp_host_port() -> tuple[str, int]:
+    return (
+        os.environ.get("SUBSTRATE_DAEMON_HOST", "127.0.0.1"),
+        int(os.environ.get("SUBSTRATE_DAEMON_PORT", "8765")),
+    )
+
+
+def _connect(timeout: float = 5.0) -> http.client.HTTPConnection:
+    """Return a connected HTTPConnection. UDS first, TCP second. Never returns
+    an unconnected connection — every path calls `.connect()` and raises
+    `DaemonNotRunning` if neither transport is up."""
+    uds = _uds_path()
+    if uds.exists():
+        try:
+            conn = _UnixHTTPConnection(str(uds), timeout=timeout)
+            conn.connect()
+            return conn
+        except (OSError, ConnectionRefusedError):
+            pass
+    host, port = _tcp_host_port()
+    try:
+        conn = http.client.HTTPConnection(host, port, timeout=timeout)
+        conn.connect()
+        return conn
+    except (OSError, ConnectionRefusedError):
+        pass
+    raise DaemonNotRunning(f"neither UDS ({uds}) nor TCP ({host}:{port}) accepted a connection")
+
+
+def is_running(timeout: float = 1.0) -> bool:
+    try:
+        conn = _connect(timeout=timeout)
+        conn.close()
+        return True
+    except DaemonNotRunning:
+        return False
+
+
+def _request(
+    method: str, path: str, body: dict[str, Any] | None = None, timeout: float = 30.0
+) -> tuple[int, dict[str, Any]]:
+    conn = _connect(timeout=timeout)
+    try:
+        data = json.dumps(body).encode() if body is not None else b""
+        headers = {"Content-Type": "application/json"} if body is not None else {}
+        conn.request(method, path, body=data, headers=headers)
+        resp = conn.getresponse()
+        raw = resp.read()
+        try:
+            payload = json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            payload = {"raw": raw.decode(errors="replace")}
+        return resp.status, payload
+    finally:
+        conn.close()
+
+
+# ── endpoint wrappers (one thin function per endpoint) ───────────────────────
+
+
+def create_session(
+    driver: str,
+    *,
+    name: str | None = None,
+    workspace: str | None = None,
+    workspace_shape: str | None = None,
+    seed_text: str | None = None,
+    bundle: str | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {"driver": driver}
+    if name is not None:
+        body["name"] = name
+    if workspace is not None:
+        body["workspace"] = workspace
+    if workspace_shape is not None:
+        body["workspace_shape"] = workspace_shape
+    if seed_text is not None:
+        body["seed_text"] = seed_text
+    if bundle is not None:
+        body["bundle"] = bundle
+    status, payload = _request("POST", "/api/session", body)
+    if status != 200:
+        raise DaemonError(status, payload)
+    return payload
+
+
+def turn(
+    session_id: str,
+    text: str,
+    *,
+    context: dict[str, Any] | None = None,
+    timeout: float = 600.0,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {"text": text}
+    if context is not None:
+        body["context"] = context
+    status, payload = _request("POST", f"/api/session/{session_id}/turn", body, timeout=timeout)
+    # The daemon returns 200 on parked; 410 on ended session; 429 on queue full.
+    # Callers inspect status to distinguish; do not raise on non-200 by default.
+    payload["_status"] = status
+    return payload
+
+
+def interrupt(session_id: str, *, max_wait_ms: int = 3000) -> dict[str, Any]:
+    status, payload = _request(
+        "POST", f"/api/session/{session_id}/interrupt?max_wait_ms={max_wait_ms}", None
+    )
+    if status != 200:
+        raise DaemonError(status, payload)
+    return payload
+
+
+def end_session(session_id: str, *, source: str = "user_end") -> dict[str, Any]:
+    status, payload = _request("POST", f"/api/session/{session_id}/end", {"source": source})
+    if status not in (200, 410):
+        raise DaemonError(status, payload)
+    return payload
+
+
+def patch_session(session_id: str, **fields: Any) -> dict[str, Any]:
+    status, payload = _request("PATCH", f"/api/session/{session_id}", dict(fields))
+    if status not in (200, 409):
+        raise DaemonError(status, payload)
+    payload["_status"] = status
+    return payload
+
+
+def delete_session(session_id: str) -> None:
+    status, payload = _request("DELETE", f"/api/session/{session_id}", None)
+    if status not in (204, 404):
+        raise DaemonError(status, payload)
+
+
+def list_sessions() -> dict[str, Any]:
+    status, payload = _request("GET", "/api/session", None)
+    if status != 200:
+        raise DaemonError(status, payload)
+    return payload
+
+
+def by_name(name: str) -> dict[str, Any] | None:
+    from urllib.parse import quote
+
+    status, payload = _request("GET", f"/api/session/by-name/{quote(name)}", None)
+    if status == 404:
+        return None
+    if status != 200:
+        raise DaemonError(status, payload)
+    return payload
+
+
+__all__ = [
+    "DaemonError",
+    "DaemonNotRunning",
+    "by_name",
+    "create_session",
+    "delete_session",
+    "end_session",
+    "interrupt",
+    "is_running",
+    "list_sessions",
+    "patch_session",
+    "turn",
+]
