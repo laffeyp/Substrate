@@ -31,7 +31,7 @@ JSON_SAFE_INT_MIN = -(2**53 - 1)
 # v0.2 ratified the TriggerFired instance/factory fields + the $blob->input_blob rename
 # (process/signals/0.2-rationale.md). Recorded in RunStarted.config.vocab_version so a record
 # self-describes the vocabulary it was written against, for replay/inspection.
-VOCAB_VERSION = "0.2"
+VOCAB_VERSION = "0.3"
 
 # ── reserved namespace + the twelve lifecycle kinds (kernel v15 lifecycle table) ──
 RESERVED_PREFIX = "substrate."

@@ -139,6 +139,26 @@ def _session_end_factory() -> Callable[[], Any]:
     return lambda: _session_end
 
 
+def _session_open_factory(user_message: "UserMessage") -> Callable[[], Any]:
+    """Sprint 217a: the fresh-record opener. Emits exactly one UserMessage
+    (the daemon's first-turn text) and completes, so `resume-on-user` fires
+    the model producer for the first turn from a `Runtime.run(topology)` call
+    (rather than the previous shape's `Runtime.resume(topology, resume_event=UserMessage)`
+    on an empty record, which skipped the `substrate.RunStarted` envelope
+    because `_resume_bootstrap` sees `max_seq == -1` and does not open the run).
+
+    Registered as an initial when `session_topology(first_turn_user_message=...)`
+    is set (the daemon path); absent when None (the delegate path, the CI
+    wrapper's driver_stepper path, and every path where the first UserMessage
+    already rides on the resume-event channel).
+    """
+
+    async def _open(_inp: Any) -> AsyncIterator["UserMessage"]:
+        yield user_message
+
+    return lambda: _open
+
+
 def _model_factory(
     *,
     driver: Responder,
@@ -280,6 +300,7 @@ def session_topology(
     script: list[tuple[str, list[Any]]] | None = None,
     record_root: Path | None = None,
     driver_headroom_frac: float = 0.6,
+    first_turn_user_message: "UserMessage | None" = None,
 ) -> Callable[[api.TopologyBuilder], None]:
     """Build the session topology.
 
@@ -389,6 +410,23 @@ def session_topology(
         )
         if seed_alone_exceeds:
             b.initial("session_warning", input={})
+        # Sprint 217a: register the session_open producer + initial only when the
+        # daemon path calls session_topology(first_turn_user_message=...). The
+        # producer emits that one UserMessage on Runtime.run(), and
+        # `resume-on-user` fires the model producer downstream. When
+        # `first_turn_user_message` is None (delegate path; CI wrapper's
+        # `driver_stepper` path; every path whose first UserMessage already
+        # rides on the resume-event channel) the producer + initial are absent
+        # and the topology's turn-1 shape is unchanged.
+        if first_turn_user_message is not None:
+            b.producer_kind(
+                "session_open",
+                schemas=[UserMessage],
+                schema_version=1,
+                factory=_session_open_factory(first_turn_user_message),
+                deterministic=True,
+            )
+            b.initial("session_open", input={})
         b.view("results", api.KindBuffer("ToolResult"))
         b.view("user_turns", api.KindCount("UserMessage"))
         b.view("model_failures", ModelFailures())

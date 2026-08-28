@@ -560,6 +560,7 @@ class Runtime:
                 st.tasks.discard(t)
                 st.task_by_instance.pop(inst, None)
                 st.kind_by_instance.pop(inst, None)
+                st.cancel_reasons.pop(inst, None)
 
             task.add_done_callback(_done)
 
@@ -590,7 +591,20 @@ class Runtime:
                 await _consume()
             inbox.put_nowait(_Lifecycle(PRODUCER_COMPLETED, {"producer": ref}))
         except asyncio.CancelledError:
-            inbox.put_nowait(_Lifecycle(PRODUCER_CANCELLED, {"producer": ref}))
+            # v0.3 vocabulary: ProducerCancelled payload carries `cause` and `caller`
+            # when the cancel site set them. `cancel_producer` writes the annotation
+            # synchronously before task.cancel() dispatches, so it is visible here.
+            # `_cancel_others` writes "cause": "policy". A CancelledError with no
+            # entry in `cancel_reasons` (task-cascade on run teardown) leaves the
+            # fields absent — additive, non-breaking for readers who key on `producer`.
+            cancel_payload: dict[str, Any] = {"producer": ref}
+            reason = self._st.cancel_reasons.get(instance)
+            if reason is not None:
+                if "cause" in reason:
+                    cancel_payload["cause"] = reason["cause"]
+                if reason.get("caller") is not None:
+                    cancel_payload["caller"] = reason["caller"]
+            inbox.put_nowait(_Lifecycle(PRODUCER_CANCELLED, cancel_payload))
             raise
         except asyncio.TimeoutError:
             assert wall_cap is not None  # only reachable when the budget wrapped _consume
@@ -791,26 +805,51 @@ class Runtime:
                 {"policy": self._termination.name, "decision": Decision.CANCEL_OTHERS.value},
             )
         )
-        for _inst, task in victims:
+        for inst, task in victims:
+            # v0.3: annotate the ProducerCancelled envelope with policy provenance
+            # BEFORE task.cancel() dispatches, so the CancelledError handler reads
+            # the annotation when it fires.
+            st.cancel_reasons[inst] = {"cause": "policy", "caller": self._termination.name}
             task.cancel()  # the task's CancelledError handler enqueues ProducerCancelled
 
-    def cancel_producers(self, kind: str) -> int:
-        """Cancel every live Producer whose kind matches `kind`. The writer loop stays
-        alive; each cancelled task's CancelledError handler enqueues ProducerCancelled,
-        which drains normally. A session topology trigger subscribing to ProducerCancelled
-        (e.g. park-on-interrupt) fires on the resulting event.
+    def cancel_producer(
+        self,
+        instance: str,
+        *,
+        cause: str = "external",
+        caller: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Cancel one live Producer by instance id. Records `cause` and `caller` on
+        the producer's `substrate.ProducerCancelled` envelope so the record carries
+        who cancelled and why (v0.3 vocabulary extension).
 
-        Returns the number of tasks cancelled (0 if no matching producers are running).
-        Safe to call from the event loop thread via `loop.call_soon_threadsafe`."""
-        st = self._st
-        victims = [
-            (inst, task)
-            for inst, task in list(st.task_by_instance.items())
-            if st.kind_by_instance.get(inst) == kind and not task.done()
-        ]
-        for _inst, task in victims:
-            task.cancel()
-        return len(victims)
+        Returns the ProducerRef dict of the cancelled instance, or `None` if the
+        instance is unknown / already completed. Never raises for "not found";
+        interrupting an idle session is a no-op, not an error.
+
+        Thread safety: call from the event-loop thread. From another thread use
+        `loop.call_soon_threadsafe(runtime.cancel_producer, instance)`; Python's
+        `asyncio.Task.cancel()` refuses cross-thread calls.
+
+        Composition: replaces the shipped `cancel_producers(kind)` shape (sprint
+        217c). A caller wanting kind-scoped batch cancels iterates
+        `[cancel_producer(inst) for inst, k in st.kind_by_instance.items() if k == kind]`.
+        """
+        st = getattr(self, "_st", None)
+        if st is None:
+            raise RuntimeError("cancel_producer called before Runtime.run/.resume; no live state")
+        task = st.task_by_instance.get(instance)
+        kind = st.kind_by_instance.get(instance)
+        if task is None or kind is None or task.done():
+            return None
+        # Write the annotation BEFORE task.cancel() dispatches so the CancelledError
+        # handler in `_producer_task` reads it before enqueueing ProducerCancelled.
+        reason: dict[str, Any] = {"cause": cause}
+        if caller is not None:
+            reason["caller"] = caller
+        st.cancel_reasons[instance] = reason
+        task.cancel()
+        return {"kind": kind, "instance": instance, "parent": None}
 
 
 # ── resume helpers (fold the existing record into the registered Views, §4 Level-1) ──────

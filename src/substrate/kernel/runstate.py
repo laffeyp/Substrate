@@ -69,8 +69,14 @@ class RunState:
     # and cancel the rest (kernel §8 cancel-others).
     task_by_instance: dict[str, asyncio.Task[None]] = field(default_factory=dict)
     # Reverse map: instance_id -> producer kind name. Populated alongside task_by_instance
-    # in _flush_scheduled; read by Runtime.cancel_producers to target by kind.
+    # in _flush_scheduled; read by cancel bookkeeping to look up a task's kind.
     kind_by_instance: dict[str, str] = field(default_factory=dict)
+    # instance_id -> {"cause": str, "caller": str | None}. Written synchronously by
+    # `Runtime.cancel_producer` and by the `_cancel_others` policy path BEFORE the
+    # target task's `task.cancel()` fires. Read by `_producer_task`'s CancelledError
+    # handler and threaded into the `substrate.ProducerCancelled` payload so the
+    # record carries who cancelled the producer and why (v0.3 vocabulary extension).
+    cancel_reasons: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     next_seq: int = 0
     in_cycle: bool = False
