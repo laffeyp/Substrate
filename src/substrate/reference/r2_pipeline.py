@@ -93,9 +93,7 @@ class _InvalidByRow:
     deterministic = True
 
     def __init__(self) -> None:
-        self.subscription = api.Subscription(
-            kinds=frozenset({"substrate.ProducerEmittedInvalidEvent"})
-        )
+        self.subscription = api.Subscription(kinds=frozenset({api.PRODUCER_EMITTED_INVALID}))
         self._by_row: dict[int, int] = {}
 
     def update(self, event: Event) -> None:
@@ -264,9 +262,7 @@ def pipeline_topology(
         # event into the "failure" slot, so the retry/escalation input_builders can enrich.
         b.route(
             "failure-context",
-            subscription=api.Subscription(
-                kinds=frozenset({"substrate.ProducerEmittedInvalidEvent"})
-            ),
+            subscription=api.Subscription(kinds=frozenset({api.PRODUCER_EMITTED_INVALID})),
             slot="failure",
             transform=lambda event: {
                 "reason": event.payload.get("reason", ""),
@@ -278,9 +274,7 @@ def pipeline_topology(
         # the retry cap, re-fire the transform (attempt=2) enriched with the staged reason.
         b.trigger(
             "retry",
-            subscription=api.Subscription(
-                kinds=frozenset({"substrate.ProducerEmittedInvalidEvent"})
-            ),
+            subscription=api.Subscription(kinds=frozenset({api.PRODUCER_EMITTED_INVALID})),
             predicate=lambda ctx: _under_cap(ctx.event, ctx.views),
             starts="transform",
             input_builder=_retry_input,
@@ -290,9 +284,7 @@ def pipeline_topology(
         # which emits RetryExhausted.
         b.trigger(
             "escalate",
-            subscription=api.Subscription(
-                kinds=frozenset({"substrate.ProducerEmittedInvalidEvent"})
-            ),
+            subscription=api.Subscription(kinds=frozenset({api.PRODUCER_EMITTED_INVALID})),
             predicate=lambda ctx: not _under_cap(ctx.event, ctx.views),
             starts="escalator",
             input_builder=_escalate_input,

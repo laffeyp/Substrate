@@ -31,6 +31,17 @@ from msgspec import Struct
 
 # Direct concrete-module imports (NOT via substrate.api): conformance is an internal module,
 # and importing api here would form a cycle (api re-exports run_conformance for the CLI).
+from ..constants import (
+    INPUT_BUILD_FAILED,
+    PREDICATE_QUARANTINED,
+    PRODUCER_COMPLETED,
+    PRODUCER_EMITTED_INVALID,
+    PRODUCER_FAILED,
+    PRODUCER_STARTED,
+    RUN_FINALISED,
+    TERMINATION_MATCHED,
+    TRIGGER_FIRED,
+)
 from ..kernel.composition import embedded_substrate
 from ..errors import BusLockedError, ProducerNotFound
 from ..projections.inspect import first_divergence, trace_ancestry, view_at
@@ -111,7 +122,7 @@ async def _counter(_input: Any) -> Any:
 def _basic_topo(b: Any) -> None:
     b.producer_kind("counter", schemas=[CountReached], schema_version=1, factory=lambda: _counter)
     b.initial("counter", input=None)
-    b.termination(threshold_count("substrate.ProducerCompleted", 1))
+    b.termination(threshold_count(PRODUCER_COMPLETED, 1))
 
 
 # ── the checks (each returns a CheckResult) ─────────────────────────────────────
@@ -130,7 +141,7 @@ async def _check_1_retry_enrichment(root: Path) -> CheckResult:
         b.initial("p", input=None)
         b.trigger(
             "on-fail",
-            subscription=Subscription(kinds=frozenset({"substrate.ProducerFailed"})),
+            subscription=Subscription(kinds=frozenset({PRODUCER_FAILED})),
             predicate=lambda ctx: True,
             starts="retry",
             input_builder=lambda ctx: {"reason": ctx.event.payload.get("error", "")},
@@ -140,11 +151,11 @@ async def _check_1_retry_enrichment(root: Path) -> CheckResult:
 
     await Runtime(root).run(topo)
     envs = list(read_record(root))
-    failed = [e for e in envs if e["kind"] == "substrate.ProducerFailed"]
+    failed = [e for e in envs if e["kind"] == PRODUCER_FAILED]
     fired = [
         e
         for e in envs
-        if e["kind"] == "substrate.TriggerFired" and e["payload"].get("trigger_id") == "on-fail"
+        if e["kind"] == TRIGGER_FIRED and e["payload"].get("trigger_id") == "on-fail"
     ]
     # §7 check 1: the retry Trigger must see the failure reason STAGED FROM THE SAME EVENT —
     # not merely fire. The input_builder reads event.payload["error"]; assert that the failed
@@ -196,9 +207,7 @@ async def _check_2_single_cascade(root: Path) -> CheckResult:
     envs = list(read_record(root))
     seqs = [e["seq"] for e in envs]
     fired = [
-        e
-        for e in envs
-        if e["kind"] == "substrate.TriggerFired" and e["payload"].get("trigger_id") == "double"
+        e for e in envs if e["kind"] == TRIGGER_FIRED and e["payload"].get("trigger_id") == "double"
     ]
     if seqs == list(range(len(seqs))) and len(fired) == 1 and "input_sha256" in fired[0]["payload"]:
         return CheckResult(
@@ -232,7 +241,7 @@ async def _check_4_invalid_emission(root: Path) -> CheckResult:
 
     await Runtime(root).run(topo)
     envs = list(read_record(root))
-    inv = [e for e in envs if e["kind"] == "substrate.ProducerEmittedInvalidEvent"]
+    inv = [e for e in envs if e["kind"] == PRODUCER_EMITTED_INVALID]
     if (
         inv
         and inv[0]["payload"]["reason"] == "unknown_kind"
@@ -248,7 +257,7 @@ async def _check_5_quiescence(root: Path) -> CheckResult:
     # A logical-cooldown run finalises via quiescence-with-watchdog.
     result = await Runtime(root).run(_basic_topo)
     envs = list(read_record(root))
-    if result.status == "finalised" and envs[-1]["kind"] == "substrate.RunFinalised":
+    if result.status == "finalised" and envs[-1]["kind"] == RUN_FINALISED:
         return CheckResult(
             5, "Quiescence", Status.PASS, "logical-cooldown run finalised on quiescence"
         )
@@ -298,7 +307,7 @@ async def _check_7_export_boundary(root: Path) -> CheckResult:
             "counter", schemas=[CountReached], schema_version=1, factory=lambda: _counter
         )
         b.initial("counter", input=None)
-        b.termination(threshold_count("substrate.ProducerCompleted", 1))
+        b.termination(threshold_count(PRODUCER_COMPLETED, 1))
 
     inner_root = root.parent / "c7-inner"
 
@@ -349,7 +358,7 @@ async def _check_8_quarantine(root: Path) -> CheckResult:
                 "escalate_on_quarantine",
                 lambda c: (
                     Decision.FINALISE_RUN
-                    if c.counts("substrate.PredicateQuarantined") >= 1
+                    if c.counts(PREDICATE_QUARANTINED) >= 1
                     else Decision.CONTINUE
                 ),
             )
@@ -357,8 +366,8 @@ async def _check_8_quarantine(root: Path) -> CheckResult:
 
     await Runtime(root).run(topo)
     envs = list(read_record(root))
-    q = [e for e in envs if e["kind"] == "substrate.PredicateQuarantined"]
-    tm = [e for e in envs if e["kind"] == "substrate.TerminationMatched"]
+    q = [e for e in envs if e["kind"] == PREDICATE_QUARANTINED]
+    tm = [e for e in envs if e["kind"] == TERMINATION_MATCHED]
     quarantined_ok = bool(q) and q[0]["payload"]["reason"] == "budget" and q[0]["payload"]["k"] == 3
     # the escalation: a TerminationMatched (the escalate-on-quarantine policy) appears AFTER
     # the quarantine, and the run finalised because of it.
@@ -438,7 +447,7 @@ async def _check_11_provenance(root: Path) -> CheckResult:
 
     await Runtime(root).run(topo)
     envs = list(read_record(root))
-    started = [e for e in envs if e["kind"] == "substrate.ProducerStarted"]
+    started = [e for e in envs if e["kind"] == PRODUCER_STARTED]
     try:
         for st in started:
             inst = st["payload"]["producer"]["instance"]
@@ -480,7 +489,7 @@ async def _check_13_divergence(root: Path) -> CheckResult:
                 "c", schemas=[CountReached], schema_version=1, factory=lambda: from_list
             )
             b.initial("c", input={"values": values})
-            b.termination(threshold_count("substrate.ProducerCompleted", 1))
+            b.termination(threshold_count(PRODUCER_COMPLETED, 1))
 
         return t
 
@@ -596,14 +605,10 @@ async def _check_17_input_build_failed(root: Path) -> CheckResult:
     await Runtime(root).run(topo)
     envs = list(read_record(root))
     ibf = [
-        e
-        for e in envs
-        if e["kind"] == "substrate.InputBuildFailed" and e["payload"].get("trigger_id") == "t"
+        e for e in envs if e["kind"] == INPUT_BUILD_FAILED and e["payload"].get("trigger_id") == "t"
     ]
     started_c = [
-        e
-        for e in envs
-        if e["kind"] == "substrate.ProducerStarted" and e["payload"]["producer"]["kind"] == "c"
+        e for e in envs if e["kind"] == PRODUCER_STARTED and e["payload"]["producer"]["kind"] == "c"
     ]
     if ibf and not started_c:
         return CheckResult(
