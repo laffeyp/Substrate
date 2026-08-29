@@ -24,6 +24,22 @@ if grep -rn 'noqa: BLE001[[:space:]]*$' src/ tests/ 2>/dev/null; then
   fail=1
 fi
 
+# REVIEW-2026-08-28 Q1 gate: mypy strict on `src/substrate`. The BLACKBOARD
+# claimed "mypy strict clean" 111 times across 2026-06 through 2026-08; at
+# review open, mypy strict was returning 10 errors across 6 files. The
+# check runs in about 4 seconds when the cache is warm. Adding it to the
+# pre-commit gate closes the "green is not proven" class named in memory
+# `be-your-own-skeptic-green-is-not-proven`. `scripts/ci_local.sh` runs
+# the full stack (pytest + lint-imports + conformance); this gate keeps
+# mypy at every commit.
+echo "pre-commit: mypy --strict src/substrate"
+UV="$(command -v uv || echo .venv/bin/uv)"
+if ! "$UV" run mypy --strict src/substrate > /tmp/substrate-mypy.log 2>&1; then
+  tail -15 /tmp/substrate-mypy.log
+  echo "  ^^ mypy strict violations. Fix or add a scoped [tool.mypy.overrides] entry with justification."
+  fail=1
+fi
+
 # Sprint 224h gate: raw-status-string comparison ban. Substrate-ui exports
 # STATUS_RUNNING / STATUS_PARKED / STATUS_INTERRUPTED / STATUS_ENDED from
 # session_registry.py; any `== "ended"` / `== "parked"` etc. in the daemon

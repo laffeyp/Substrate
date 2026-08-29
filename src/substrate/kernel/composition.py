@@ -187,8 +187,12 @@ def embedded_substrate(
                 run_task.cancel()
                 try:
                     await run_task
-                except (asyncio.CancelledError, Exception):
-                    pass
+                except (asyncio.CancelledError, Exception) as exc:  # noqa: BLE001 — kernel cleanup path (REVIEW-2026-08-28 Q7): cannot propagate from finally; log the class name so a bug during teardown leaves a trace on stderr rather than silent information loss.
+                    import logging
+
+                    logging.getLogger(__name__).warning(
+                        "composition cleanup swallowed inner run cancel: %r", exc
+                    )
 
         # Inner failure surfaces as ONE outer ProducerFailed carrying the inner run_id (§20).
         # The run_id is taken from the inner RunResult (authoritative + always present), NOT

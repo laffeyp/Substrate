@@ -355,9 +355,17 @@ def build_report(
         }
 
     # Sprint 201: a solo-arm suite (control_arm is None) skips paired-delta framing entirely.
-    _has_control = check.state == PASS and suite.control_arm is not None
-    control_map = cell_map(suite.control_arm) if _has_control else {}
-    control_bools = _arm_trial_bools(results, suite.control_arm, case_ids) if _has_control else {}
+    # REVIEW-2026-08-28 Q1: the `_has_control` boolean did not narrow `suite.control_arm`
+    # from `str | None` to `str` for mypy across the boolean-and-attribute test. Split
+    # into an explicit-narrow branch so both accesses see `str`.
+    control_arm_name = suite.control_arm
+    _has_control = check.state == PASS and control_arm_name is not None
+    if _has_control and control_arm_name is not None:
+        control_map = cell_map(control_arm_name)
+        control_bools = _arm_trial_bools(results, control_arm_name, case_ids)
+    else:
+        control_map = {}
+        control_bools = {}
     # ARM-COMPLETENESS gate: a verdict needs every Case graded in BOTH the arm AND the control
     # — a half-finished run (the live sweep) must not yield a confirmatory delta/CI/verdict.
     # Sprint 170 (F3): the caller may relax "every Case" to "graded_rate >= floor" by passing

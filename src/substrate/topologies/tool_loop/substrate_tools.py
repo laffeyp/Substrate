@@ -304,8 +304,10 @@ def _extract_application_name(record_root: str) -> str | None:
             if isinstance(topology, str):
                 return topology
             config = payload.get("config") or {}
-            if isinstance(config, dict) and isinstance(config.get("topology"), str):
-                return config["topology"]
+            if isinstance(config, dict):
+                config_topology = config.get("topology")
+                if isinstance(config_topology, str):
+                    return config_topology
             return None
     return None
 

@@ -67,11 +67,14 @@ def _tcp_host_port() -> tuple[str, int]:
     )
 
 
-def _connect(timeout: float = 5.0) -> http.client.HTTPConnection:
+def _connect(timeout: float | None = 5.0) -> http.client.HTTPConnection:
     """Return a connected HTTPConnection. UDS first, TCP second. Never returns
     an unconnected connection — every path calls `.connect()` and raises
-    `DaemonNotRunning` if neither transport is up."""
+    `DaemonNotRunning` if neither transport is up. `timeout=None` disables
+    the socket timeout — the SSE streamer at `cli.py::_sse_stream` uses
+    this shape so a long-idle stream is not torn by the connect timeout."""
     uds = _uds_path()
+    conn: http.client.HTTPConnection
     if uds.exists():
         try:
             conn = _UnixHTTPConnection(str(uds), timeout=timeout)

@@ -159,7 +159,12 @@ def load_bundle(name: str, *, bundles_root: Path | None = None) -> Bundle:
     if not toml_path.is_file():
         raise BundleError(f"bundle at {bundle_dir}: missing bundle.toml")
     raw = tomllib.loads(toml_path.read_text(encoding="utf-8"))
-    metadata = raw.get("bundle") if isinstance(raw.get("bundle"), dict) else {}
+    bundle_block = raw.get("bundle")
+    # mypy narrowing: assign the isinstance-guarded shape to a typed
+    # local so the four `metadata.get(...)` accesses below type-check.
+    # The ternary that used to live here read the same key twice and
+    # mypy could not narrow across it (REVIEW-2026-08-28 Q1).
+    metadata: dict[str, Any] = bundle_block if isinstance(bundle_block, dict) else {}
     # Piece-B compat: 224a-e's scaffolding wrote top-level `name` too.
     # Fall back to that shape so a `substrate bundle create <n>` bundle
     # loads without needing a manual re-shape.
