@@ -3,7 +3,7 @@
 ```yaml
 ---
 id: 239
-status: pending
+status: closed
 phase: 6
 pass_kind: docs
 ---
