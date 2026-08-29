@@ -248,6 +248,63 @@ def _c3_linearise(
     return ordered
 
 
+def list_bundles(bundles_root: Path | None = None) -> list[Bundle]:
+    """Enumerate every shipped and user bundle. Returns Bundles sorted by name.
+
+    Sources, in name-shadowing order (later wins if a name collides):
+      1. Shipped defaults under `topologies/session/bundle/` (name "session")
+         and `topologies/applications/<app>.bundle/` (name "<app>").
+      2. User bundles under `_bundles_root(bundles_root)` — every direct
+         subdirectory that contains a `bundle.toml` file is loaded via
+         `load_bundle(name)`; per `load_bundle`, a user bundle of the same
+         name shadows the shipped default.
+
+    A missing bundles root yields the shipped list only. A subdirectory
+    without a `bundle.toml` is skipped silently (matches `load_bundle`'s
+    "no manifest → BundleNotFoundError" contract only when the caller
+    asks for that specific name; enumeration does not raise).
+
+    Sprint 238: added as the substrate-side prerequisite for substrate-ui
+    sprint 034a's `GET /api/bundles` endpoint. The daemon calls this and
+    surfaces `[{name, description, slot_count}]` to the UI's bundle picker.
+    """
+    # Two pools: shipped names (loaded without bundles_root so load_bundle
+    # falls through to _shipped_bundle_dir) and user names (loaded with the
+    # user_root so they shadow correctly). A name in both pools loads from
+    # user_root and the shipped entry is skipped — user shadows shipped.
+    shipped: set[str] = set()
+    session_dir = Path(__file__).parent / "topologies" / "session" / "bundle"
+    if session_dir.is_dir() and (session_dir / "bundle.toml").is_file():
+        shipped.add("session")
+    apps_dir = Path(__file__).parent / "topologies" / "applications"
+    if apps_dir.is_dir():
+        for child in apps_dir.iterdir():
+            if (
+                child.is_dir()
+                and child.name.endswith(".bundle")
+                and (child / "bundle.toml").is_file()
+            ):
+                shipped.add(child.name[: -len(".bundle")])
+    user: set[str] = set()
+    user_root = _bundles_root(bundles_root)
+    if user_root.is_dir():
+        for child in user_root.iterdir():
+            if child.is_dir() and (child / "bundle.toml").is_file():
+                user.add(child.name)
+    bundles: list[Bundle] = []
+    for name in sorted(shipped | user):
+        source_root: Path | None = bundles_root if name in user else None
+        try:
+            bundles.append(load_bundle(name, bundles_root=source_root))
+        except (BundleNotFoundError, BundleShapeError):
+            # A subdirectory with a bundle.toml that fails structural checks
+            # is a real bug in that bundle, not this enumerator's problem.
+            # Skip it here; load_bundle(name) raises for callers that
+            # specifically ask for it.
+            continue
+    return bundles
+
+
 def resolve_extends(name: str, *, bundles_root: Path | None = None) -> list[Bundle]:
     """C3 linearisation of a bundle's `extends` chain. Returns bundles
     in resolution order: every ancestor before its descendant, first-
@@ -436,6 +493,7 @@ __all__ = [
     "assemble_seed",
     "assemble_seed_from_chain",
     "bind_slots",
+    "list_bundles",
     "load_bundle",
     "resolve_extends",
 ]
