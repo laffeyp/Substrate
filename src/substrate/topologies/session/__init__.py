@@ -145,6 +145,51 @@ def _session_end_factory() -> Callable[[], Any]:
     return lambda: _session_end
 
 
+def _session_started_factory(
+    session_id: str,
+    seed: str,
+    driver_name: str,
+    driver_context_tokens: int,
+    tool_names: tuple[str, ...],
+    workspace_path: str,
+    workspace_shape: str,
+    bundle: str | None,
+    parent_session_id: str | None,
+    parent_seq_at_call: int | None,
+) -> Callable[[], Any]:
+    """Sprint 240 — the SessionStarted instrument's producer body.
+
+    Fires exactly once on `substrate.RunStarted`, yields one SessionStarted
+    envelope with every field the topology's caller passed in (the daemon
+    at `substrate-ui/session_registry.py::SessionRegistry.turn_sync`, or a
+    delegate-side callable). The `session_id`, `seed`, and driver identity
+    are all present at topology build time — the closure captures them.
+
+    Closes the substrate-side gap REVIEW-2026-08-28-piece-g-full SDD-1
+    named: the SessionStarted Struct existed for two months without an
+    emit site. Downstream readers (substrate-ui `terminal.ts`) now read
+    the record for session-started as they read for Park, ModelReply,
+    SessionEnded, TranscriptCompacted, SessionWarning.
+    """
+
+    async def _session_started(_inp: Any) -> AsyncIterator[SessionStarted]:
+        yield SessionStarted(
+            session_id=session_id,
+            seed=seed,
+            driver_model=driver_name,
+            driver_context_tokens=driver_context_tokens,
+            tool_suite=tool_names,
+            workspace_path=workspace_path,
+            workspace_shape=workspace_shape,
+            bundle=bundle,
+            baseline={},
+            parent_session_id=parent_session_id,
+            parent_seq_at_call=parent_seq_at_call,
+        )
+
+    return lambda: _session_started
+
+
 def _session_open_factory(user_message: "UserMessage") -> Callable[[], Any]:
     """Sprint 217a: the fresh-record opener. Emits exactly one UserMessage
     (the daemon's first-turn text) and completes, so `resume-on-user` fires
@@ -301,6 +346,8 @@ def session_topology(
     turn_max_steps: int = 24,
     session_id: str,
     workspace_path: str,
+    workspace_shape: str = "flat",
+    bundle: str | None = None,
     parent_session_id: str | None = None,
     parent_seq_at_call: int | None = None,
     script: list[tuple[str, list[Any]]] | None = None,
@@ -356,7 +403,40 @@ def session_topology(
     # stays `deterministic=False` on those paths.
     model_is_deterministic = isinstance(driver, DeterministicResponder)
 
+    # Sprint 240: freeze the tool_names tuple at build time so the
+    # SessionStarted instrument's closure captures a snapshot even if the
+    # `tools` dict is mutated later (it should not be, but the freeze is
+    # defensive — the emitted envelope must reflect the boot-time suite).
+    _tool_names_frozen: tuple[str, ...] = tuple(sorted(tools.keys()))
+
     def topo(b: api.TopologyBuilder) -> None:
+        # Sprint 240: SessionStarted emit on RunStarted. Closes the
+        # substrate-side gap REVIEW-2026-08-28-piece-g-full SDD-1 named.
+        # `substrate.RunStarted` fires exactly once at run open (seq 0); the
+        # instrument emits one SessionStarted at seq 2 (RunStarted → the
+        # instrument's synthesized TriggerFired → SessionStarted).
+        # Observation contract: `terminal.ts::_handleEnvelope` reads the
+        # `SessionStarted` branch; the UI's `DRIVER_SESSION_STARTED` moves
+        # from the daemon-ack seam to the record-envelope seam.
+        b.instrument(
+            "session_started",
+            on=api.RUN_STARTED,
+            schemas=[SessionStarted],
+            input_builder=lambda _ctx: {},
+            factory=_session_started_factory(
+                session_id=session_id,
+                seed=seed,
+                driver_name=driver_name,
+                driver_context_tokens=driver_context_tokens,
+                tool_names=_tool_names_frozen,
+                workspace_path=workspace_path,
+                workspace_shape=workspace_shape,
+                bundle=bundle,
+                parent_session_id=parent_session_id,
+                parent_seq_at_call=parent_seq_at_call,
+            ),
+            deterministic=True,
+        )
         b.producer_kind(
             "model",
             schemas=[ToolCall, FinalAnswer, ModelReply, TranscriptCompacted],
