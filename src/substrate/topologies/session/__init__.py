@@ -19,7 +19,6 @@ the real model / tool / park / session_end loop and the rolling-window transcrip
 
 from __future__ import annotations
 
-import asyncio
 import re
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
@@ -28,7 +27,7 @@ from typing import Any
 from msgspec import Struct
 
 from ... import api
-from ...adapters import DeterministicResponder, Responder
+from ...adapters import DeterministicResponder, Responder, call_responder
 from ...kernel.policies import TerminationPolicy
 from ..tool_loop import _tool_factory as _tool_loop_tool_factory
 from ..tool_loop.tools import Tool
@@ -292,19 +291,13 @@ def _model_factory(
             else:
                 yield FinalAnswer(text=_answer_text_from_results(results), steps=step)
             return
-        # Sprint 244: yield the event loop during the driver call so
-        # cancel_producer can preempt it (park-on-interrupt). The public
-        # Responder Protocol only names sync `respond`; the shipped adapters
-        # (Deterministic, Ollama, CLI) also expose async `arespond`. Prefer
-        # the native async entry point when the adapter offers one; bridge
-        # a sync-only Responder through asyncio.to_thread so any conforming
-        # adapter works. Test:
+        # Sprint 244: route through call_responder so a slow driver yields
+        # the event loop and cancel_producer has a window to fire. The helper
+        # awaits arespond when the adapter exposes one, else bridges sync
+        # respond via asyncio.to_thread; DeterministicResponder stays sync
+        # to preserve N-DET-1 record byte-identity. Test:
         # tests/test_session_topology_failure_modes.py::test_park_on_interrupt.
-        arespond = getattr(driver, "arespond", None)
-        if arespond is not None:
-            reply_text = str(await arespond(prompt_text))
-        else:
-            reply_text = str(await asyncio.to_thread(driver.respond, prompt_text))
+        reply_text = str(await call_responder(driver, prompt_text))
         yield ModelReply(text=reply_text, model_usage={}, turn_index=turn_index)
         yield FinalAnswer(text=reply_text, steps=step)
 
