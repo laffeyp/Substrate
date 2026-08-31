@@ -61,7 +61,7 @@ def main() -> None:
             ok = grade_patch(
                 iid,
                 patch,
-                report_root=Path("process/assay_host"),
+                report_root=Path("process/runs/assays/host"),
                 dataset_name="princeton-nlp/SWE-bench_Lite",
             )
         except Exception as exc:  # noqa: BLE001

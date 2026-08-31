@@ -1,31 +1,34 @@
 # Application catalogue (Phase 2, sprint-100)
 
-*The runnable application library (fanout_review, best_of_n_verified, research_sweep, delegate) is documented in [applications.md](applications.md) — the launchable patterns; this file is the strategic catalogue behind them.*
+*The runnable application library is [applications.md](applications.md). This file
+is the strategic catalogue behind it.*
 
-What the substrate is for, as a ranked, structured list of applications — the ones built, and
-the candidates worth building next. Grounded in the 12 topologies in the `BUNDLED` registry
-(`substrate run --topology`: code_review, pair_coding, recursive_decomposition, debate,
-prisoners_dilemma, intel_asymmetry, natural_conversation, natural_conversation_bare,
-adversarial_pair, game_of_life, game_of_life_glider, tool_loop) and the precursor extraction
-(`docs/precursor-application-ideas.md`).
+What the substrate is for, in two lists: the 12 topologies shipped in the `BUNDLED`
+registry (code_review, pair_coding, recursive_decomposition, debate,
+prisoners_dilemma, intel_asymmetry, natural_conversation,
+natural_conversation_bare, adversarial_pair, game_of_life, game_of_life_glider,
+tool_loop), and the candidates the precursor pulled out
+(`docs/precursor-application-ideas.md`) worth building next.
 
 ## The organizing axis: instrument emergence, don't fake it
 
-The catalogue is sorted by one principled question, lifted from the recursive_strategy_refinment
-precursor — not by how impressive a demo looks:
+Two ways to make a dynamic show up in the output. Only one of them lives in the
+substrate.
 
-- **Instrumenting for emergence** — create structural conditions (asymmetric
-  information, payoffs, tighter coupling, a side instrument that feeds the next step) so the
-  wanted dynamic arises as a *best-response* to the setup. Pull the structure and the behaviour
-  changes. This is what the substrate is good for: the dynamic lives in the topology, not the
-  prompt.
-- **Faking** — constrain the input space to force the output shape (bake "use
-  short turns, acknowledge the other speaker" into a system prompt; post-hoc stitch monologues).
-  The shape arrives because it was written on the prompt; pull the prompt and it disappears.
+Instrumenting the dynamic means setting up structural conditions — asymmetric
+information, payoffs, tighter coupling, a side instrument feeding the next step —
+so the behaviour arises as the best response to that setup. Pull the structure and
+the behaviour changes. The dynamic lives in the topology, not the prompt.
 
-A topology earns its place by what it *instruments*. The natural-conversation ablation makes the
-distinction runnable: `substrate demo replay natural_conversation` (instruments on) vs
-`natural_conversation_bare` (off) — same prompts, different dynamics; the delta is the substrate.
+Faking the dynamic means constraining the input space until only the wanted shape
+comes out: bake "short turns, acknowledge the other speaker" into the system
+prompt, or post-hoc stitch two monologues together. The shape arrives because the
+prompt wrote it. Pull the prompt and it disappears.
+
+The natural-conversation ablation makes the distinction runnable:
+`substrate demo replay natural_conversation` (instruments on) versus
+`natural_conversation_bare` (off). Same prompts, different dynamics. The delta is
+the substrate.
 
 ## The axes a topology varies (the design space)
 
@@ -49,8 +52,9 @@ asymmetry · round cadence · output type per role.
 
 ## Built (application library) — launched via `scripts/run_*.py`, documented in [applications.md](applications.md)
 
-Distinct from the table above: these are NOT in the `substrate run --topology` registry (`BUNDLED`).
-They compose the primitives on REAL input and launch from a script; each run is a replayable record.
+A separate track from the table above. These are not in the `substrate run --topology`
+registry (`BUNDLED`). They compose the primitives on real input, launch from a script,
+and each run lands as a replayable record.
 
 | Application | Structural driver | Composition |
 |---|---|---|
@@ -59,10 +63,11 @@ They compose the primitives on REAL input and launch from a script; each run is 
 | `research_sweep` | map readers over a document set → critique gaps → synthesize | authored from primitives |
 | `delegate` (tool) | an agent hands a subtask to a child agent, folds the answer back | tool_loop tool + child run |
 
-Instruments (composable, reusable across conversation topologies): **scoring** (proper rules —
-Brier/log-loss/spherical — close the cheap-talk loop), **common-ground** (Clark's shared state
-accretes per turn), **repair** (Schegloff's other-initiated repair fires + discriminates),
-**grader** (scores prior confidence claims → payoff).
+Four instruments compose across the conversation topologies: **scoring** (proper
+rules — Brier, log-loss, spherical — close the cheap-talk loop), **common-ground**
+(Clark's shared state accretes per turn), **repair** (Schegloff's other-initiated
+repair fires and discriminates), and **grader** (scores prior confidence claims
+into a payoff).
 
 ## Candidates worth building next (ranked by coverage × emergence, deferred)
 
@@ -76,14 +81,17 @@ accretes per turn), **repair** (Schegloff's other-initiated repair fires + discr
 | `red_blue_team` | two internally-cooperative coalitions | coalitional structure | day | scales the ensemble pattern |
 | `self_refine` (N=1 baseline) | one Producer generates + critiques in alternation | measurement floor | afternoon | the control: if a two-Producer pair-loop doesn't beat it, the second isn't earning its cost; `best_of_n_verified` is the N>1 verified-selection sibling to measure against it |
 
-Source for the candidate map: the precursor's `notes/recursive_questioning.md` (~25 dialogue
-patterns) + `notes/orchestrating_conversation.md` (the gaps each instrument closes) +
-PHASE2_PLAN Wave-13 originals. Build order favours STRUCTURAL drivers first; `population_simulation`
-needs its batching-feasibility receipt before it is a flagship default.
+The candidate map came from the precursor's `notes/recursive_questioning.md` (~25
+dialogue patterns), `notes/orchestrating_conversation.md` (the gaps each instrument
+closes), and the PHASE2_PLAN Wave-13 originals. Build order favours structural
+drivers first. `population_simulation` needs a batching-feasibility receipt before
+it can default to flagship.
 
 ## What the catalogue deliberately excludes
 
-Faking moves named so the decision survives: post-hoc synthesis of two monologues into chat
-shape; pragmatic-marker injection as the *primary* mechanism (useful only as an ablation
-baseline — "here's how it looks when we just tell it to behave"); TTS-coupled timing illusions.
-These produce a shape without instrumenting a dynamic; the substrate's value is the opposite.
+The faking moves. Named here so the decision survives.
+
+Post-hoc synthesis of two monologues into chat shape. Pragmatic-marker injection as
+the primary mechanism (allowed as an ablation baseline — "here is how it looks when
+we just tell it to behave"). TTS-coupled timing illusions. Each produces a shape
+without instrumenting a dynamic. The substrate is for the other kind.

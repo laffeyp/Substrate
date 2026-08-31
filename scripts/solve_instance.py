@@ -155,7 +155,7 @@ def main() -> None:
     # patch so distinct patches grade fresh and an identical re-run still caches correctly.
     patch_hash = hashlib.sha1(selected[0]["model_patch"].encode()).hexdigest()[:8]
     run_id = f"solve-{MODEL.split(':')[0].replace('/', '_')}-{patch_hash}"
-    rdir = Path("process/solve_runs") / IID
+    rdir = Path("process/runs/smokes/solves") / IID
     run_swebench(
         [pred],
         dataset_name="princeton-nlp/SWE-bench_Lite",

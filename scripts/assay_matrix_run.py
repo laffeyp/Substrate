@@ -44,7 +44,7 @@ def main() -> None:
     chosen = _pick_spanning_repos(ds, N)
     print(f"matrix: {len(chosen)} cases x 2 arms x {TRIALS} trials | model={MODEL}", flush=True)
 
-    report_root = Path("process/assay_matrix")
+    report_root = Path("process/runs/assays/matrix")
     arms = [
         host_arm("host", BASELINE, model=MODEL),  # control: the simple focused backend
         container_arm("container", FULL, model=MODEL),  # the executing agent backend

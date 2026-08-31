@@ -163,7 +163,7 @@ def main() -> None:
 
     print("grading the SelectedPatch with the swebench oracle (Docker)...", flush=True)
     pred = make_prediction(IID, selected[0]["model_patch"], model_name="substrate-solver")
-    rdir = Path("process/flask_solve")
+    rdir = Path("process/runs/smokes/flask")
     run_swebench(
         [pred],
         dataset_name="princeton-nlp/SWE-bench_Lite",

@@ -28,7 +28,7 @@ def main() -> None:
     by_id = {x["instance_id"]: x for x in ds}
     arm = swebench_repair_arm("repair", models=[MODEL], n=N, max_rounds=2, role=FULL)
     oracle = swebench_record_oracle(
-        report_root="process/assay_repair", dataset_name="princeton-nlp/SWE-bench_Lite"
+        report_root="process/runs/assays/repair", dataset_name="princeton-nlp/SWE-bench_Lite"
     )
     base = Path(tempfile.mkdtemp(prefix="repair-verify-"))
     resolved = []

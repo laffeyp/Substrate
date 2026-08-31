@@ -258,7 +258,10 @@ def _sign_cursor(payload: dict[str, Any], hmac_key: bytes) -> str:
 
     payload_bytes = msgspec.json.encode(payload)
     signature = hmac.new(hmac_key, payload_bytes, hashlib.sha256).digest()
-    return base64.urlsafe_b64encode(signature + b"." + payload_bytes).decode("ascii")
+    # HMAC-SHA256 is always 32 bytes; use a fixed-width prefix, not a delimiter.
+    # A delimiter (b".") collides when the signature contains 0x2E, which
+    # happens with ~12% probability per cursor (sprint 242 root cause).
+    return base64.urlsafe_b64encode(signature + payload_bytes).decode("ascii")
 
 
 def _verify_cursor(cursor: str, hmac_key: bytes) -> dict[str, Any] | None:
@@ -273,7 +276,10 @@ def _verify_cursor(cursor: str, hmac_key: bytes) -> dict[str, Any] | None:
 
     try:
         raw = base64.urlsafe_b64decode(cursor.encode("ascii"))
-        signature, payload_bytes = raw.split(b".", 1)
+        # HMAC-SHA256 is exactly 32 bytes; split at that boundary (sprint 242).
+        if len(raw) < 32:
+            return None
+        signature, payload_bytes = raw[:32], raw[32:]
         expected = hmac.new(hmac_key, payload_bytes, hashlib.sha256).digest()
         if not hmac.compare_digest(signature, expected):
             return None

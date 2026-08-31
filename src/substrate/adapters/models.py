@@ -109,6 +109,15 @@ class DeterministicResponder:
             return self._menu[int(h[:8], 16) % len(self._menu)]
         return f"stub[{self._seed}]:{h[:12]}"
 
+    async def arespond(self, prompt: str) -> str:
+        """Async sibling of `respond` — pure delegation. Every Responder must
+        expose both surfaces per the protocol (sprint 244); the async path is
+        the one the session model producer awaits so cancel_producer has a
+        window during a slow real driver's call. DeterministicResponder is
+        already fast + synchronous; arespond just wraps respond, keeping the
+        byte-identical CI record contract."""
+        return self.respond(prompt)
+
 
 class OllamaResponder:
     """A real local-LLM responder over Ollama's native `/api/chat` (walkthrough mode).

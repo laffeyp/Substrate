@@ -1,33 +1,23 @@
 # First topology: zero to a working two-Producer run
 
-The plain version first: two small computations where one reacts to the other, and a
-complete, replayable record of what happened. That's the whole of this tutorial. In
-Substrate's words — a counter *Producer* emits numbers, and a *Trigger* fires a doubler
-*Producer* for each. New to the eight words? The [README glossary](../README.md#the-pieces)
-names them all, in order, first.
+A counter Producer emits three numbers. A Trigger fires a doubler Producer for each. That is the whole tutorial. New to the eight words? The [README glossary](../README.md#the-pieces) names them.
 
-This walks from nothing to a running two-Producer topology and shows how to read what it
-recorded. It mirrors the design-spec §3 shape: a counter Producer emits numbers, and a
-Trigger fires a doubler Producer for each one.
-
-Everything here uses only the public API, `substrate.api`.
+Everything uses `substrate.api` only. Shape from design-spec §3.
 
 ## 0. Install
 
-From the `substrate/` directory, create a Python 3.12 environment and install the package
-(editable, with dev extras) so the imports below resolve:
+From the `substrate/` directory:
 
 ```
 uv venv --python 3.12
 uv pip install -e ".[dev]"
 ```
 
-Then save each snippet to a file (e.g. `first.py`) and run it with `python first.py`.
+Save each snippet below to `first.py` and run `python first.py`.
 
 ## 1. A single Producer
 
-A **Producer** is a callable that takes a typed input and yields a stream of typed
-**Events** (msgspec `Struct`s). The simplest topology runs one:
+A Producer is a callable. It takes typed input and yields typed Events — msgspec `Struct`s. The smallest topology is one Producer:
 
 ```python
 import asyncio
@@ -58,23 +48,18 @@ async def main():
 asyncio.run(main())
 ```
 
-Run it: `python first.py` prints `finalised ./runs/first`. The run is now a **record** on
-disk under `./runs/first/`.
+It prints `finalised ./runs/first`. That directory is a **run record** — the log on disk.
 
-Notes on what you just declared:
+What you declared:
 
-- `producer_kind` registers a Producer KIND: its name, the event `schemas` it may emit (each
-  a frozen `Struct`), a `schema_version`, and a `factory` returning the `start` callable.
-- Event schemas must be `frozen=True` — that is how the runtime enforces input immutability
-  by construction (F-PROD-3).
+- `producer_kind` registers a Producer KIND. It takes a name, the event `schemas` it may emit, a `schema_version`, and a `factory` that returns the `start` callable.
+- Every event schema is `frozen=True`. That is how the runtime keeps Producer inputs immutable by construction (F-PROD-3).
 - `b.initial(kind, input=...)` schedules one Producer of that kind at run open.
-- The `TerminationPolicy` decides when the run ends. `threshold_count(kind, n)` finalises
-  after `n` events of `kind`; here, after the counter's one `substrate.ProducerCompleted`.
+- A `TerminationPolicy` decides when the run ends. `threshold_count(kind, n)` finalises after `n` events of `kind`; here, after the counter's one `substrate.ProducerCompleted`.
 
 ## 2. Add a Trigger and a second Producer
 
-A **Trigger** creates new Producers when a **Predicate** over the bus holds. Here, fire a
-`doubler` for each `CountReached`:
+A Trigger creates new Producers when a Predicate over the bus holds. Fire a `doubler` on each `CountReached`:
 
 ```python
 from substrate.api import PerEvent, Subscription, quiescence_with_watchdog
@@ -104,30 +89,19 @@ def topology(b: TopologyBuilder) -> None:
     b.termination(quiescence_with_watchdog(seconds=2))                  # end when work settles
 ```
 
-A Trigger has: a `subscription` (which event kinds/producers it watches), a `predicate` (a
-cheap boolean over the context), an `input_builder` (builds the new Producer's input from the
-context), the kind it `starts`, and a firing `policy`
-(`PerEvent`/`Once`/`PerKey`/`WhileTrue`). This run emits three `CountReached` and three
-`Doubled`, then goes quiescent and finalises.
+A Trigger takes five pieces: a `subscription` (which event kinds or producers it watches), a `predicate` (a cheap boolean over the context), an `input_builder` (builds the new Producer's input), the `starts` kind, and a firing `policy` — `PerEvent`, `Once`, `PerKey`, or `WhileTrue`. This run emits three `CountReached`, three `Doubled`, goes quiescent, and finalises.
 
-Both callbacks take ONE argument — a `TriggerContext`, here called `ctx`:
+Both callbacks take one argument, a `TriggerContext`, called `ctx` by convention:
 
 - `ctx.event` — the event that matched the subscription.
-- `ctx.views` — the named Views; read `ctx.views["name"].value()`.
-- `ctx.staged` — the Route slots staged for this firing (see §2.6).
+- `ctx.views` — the named Views. Read `ctx.views["name"].value()`.
+- `ctx.staged` — the Route slots staged for this firing. See §2.6.
 
-> **`finalised` does not mean "it worked".** A run finalises whenever it reaches a terminal —
-> even if a Producer raised, an `input_builder` raised, or a predicate quarantined. Those are on
-> the record (`substrate.ProducerFailed` / `InputBuildFailed` / `PredicateQuarantined`), and the
-> CLI prints a `WARNING: N ProducerFailed` line on `run` — but `result.status` is still
-> `finalised`. After a run, read the warning, inspect the record, or assert with
-> `assert_event` / `assert_no_event`. `substrate run --strict` makes any such failure a nonzero
-> exit.
+> **`finalised` is not "it worked."** A run finalises whenever it reaches a terminal, even if a Producer raised, an `input_builder` raised, or a predicate quarantined. Failures are on the record as `substrate.ProducerFailed`, `InputBuildFailed`, or `PredicateQuarantined`, and the CLI prints `WARNING: N ProducerFailed` on `run`. `result.status` is still `finalised`. Inspect the record, or assert with `assert_event` / `assert_no_event`. `substrate run --strict` turns any such failure into a nonzero exit.
 
 ## 2.5 Gate on accumulated state (Views + Predicates)
 
-A predicate that is always `True` fires on every event. The point of a **View** is to gate on
-*accumulated* state — "fire once three are in":
+A predicate that returns `True` fires on every event. Views gate on accumulated state — "fire once three are in":
 
 ```python
 from substrate.api import KindCount
@@ -149,16 +123,11 @@ def topology(b: TopologyBuilder) -> None:
     b.termination(quiescence_with_watchdog(seconds=2))
 ```
 
-A View (`KindCount`, `KindBuffer`, `PerKindLatest`, …) is a deterministic incremental projection
-over the bus; the predicate reads `ctx.views[name].value()`. Forgetting `.value()` (reading the View
-object itself) quarantines the predicate — surfaced as the `WARNING` above.
+A View is a deterministic incremental projection over the bus. The shipped ones are `KindCount`, `KindBuffer`, and `PerKindLatest`. The predicate reads `ctx.views[name].value()`. Forget the `.value()` and you read the View object itself — the predicate quarantines and the `WARNING` above surfaces.
 
 ## 2.6 Carry context forward (Route + `staged`)
 
-A **Route** stages data from an event into a named *slot* so a later Trigger's `input_builder`
-can read it (that is `ctx.staged`) — how context flows into a Producer's *next* instantiation.
-A Route's own `transform` takes the event directly (`lambda event: ...`), since it runs per event
-before any Trigger:
+A Route stages data from an event into a named slot. A later Trigger's `input_builder` reads it as `ctx.staged`. That is how context flows into a Producer's next instantiation. A Route's own `transform` takes the event directly, since it runs per event before any Trigger:
 
 ```python
 b.route(
@@ -170,9 +139,7 @@ b.route(
 # ... a later input_builder reads it:  ctx.staged.get("last_doubled")
 ```
 
-The staging is recorded as `substrate.InjectionApplied`, so the context that reached a Producer
-is on the log. (The bundled `pair_coding` topology is a worked example — a navigator's suggestion
-Routed into the driver's next chunk.)
+The staging lands as `substrate.InjectionApplied` on the record. Context that reached a Producer is on the log. The bundled `pair_coding` topology is the worked example — a navigator's suggestion Routed into the driver's next chunk.
 
 ## 3. Read the record
 
@@ -188,11 +155,9 @@ seq=3   CountReached                producer=counter[01J...]  n=1
 seq=N   substrate.RunFinalised
 ```
 
-Filter at bus volumes: `--kind CountReached`, `--producer counter`, `--since 100` (compose
-with AND); `--format jsonl` for the raw on-disk bytes (pipe into `jq`).
+`tail` accepts `--kind CountReached`, `--producer counter`, `--since 100`. Filters compose with AND. `--format jsonl` prints the raw on-disk bytes; pipe into `jq`.
 
-`tail` is every frame. To read the run as a *story* — the plot, not the heartbeat — use
-`narrate`:
+`tail` is every frame. `narrate` is the plot:
 
 ```
 $ uv run substrate narrate ./runs/first
@@ -204,9 +169,7 @@ seq    14  doubler -> Doubled (original=2, doubled=4)
 seq    20  Run finalised.
 ```
 
-It renders the substrate causal beats in prose and the application events as the work,
-suppressing the producer-lifecycle bracketing (`--lifecycle` restores every frame). `--summary`
-answers *did it work?* at a glance:
+Application events show as work; substrate lifecycle events (`ProducerStarted`, `ProducerCompleted`) hide by default. `--lifecycle` restores them. `--summary` answers *did it work?*:
 
 ```
 $ uv run substrate narrate ./runs/first --summary
@@ -215,9 +178,7 @@ Run finalised: 21 events.
   work: CountReached=3, Doubled=3
 ```
 
-Every authoring failure is shown, and finalising is not the same as working: when a run
-finalises with failures, the summary header says so on line one — `Run finalised WITH 2
-FAILURES: ...` — so a broken run looks broken at a glance, not green.
+Every authoring failure surfaces. A run that finalises with failures gets a `Run finalised WITH 2 FAILURES: ...` header on line one. Broken runs look broken.
 
 Ask *why* a Producer existed:
 
@@ -229,7 +190,7 @@ caused_by:
   seq=12  TriggerFired   trigger=double-each   resolved_input={"n": 2}   input_sha256=sha256:...
 ```
 
-Or in code:
+From code:
 
 ```python
 from substrate.api import read_record, explain_producer, narrate, view_at, KindCount
@@ -249,17 +210,12 @@ Frames replayed: 21
 Decisions verified: 4 (all inputs verified by hash)
 ```
 
-Levels 1, 2, and 3(a) ship in v1.0, along with **D-8 log-equivalence** for diffing two
-records (`substrate inspect <a> --diff <b>`, or `first_divergence(a, b)`), which compares
-runs modulo supplementary metadata (wall-clock `t`, run ids, per-run instance ids). **Level
-3(b) byte-identical re-execution is post-1.0** (see the README and product amendment A1.1) —
-`--level 3b` reports the deferral explicitly rather than faking it.
+Levels 1, 2, and 3(a) ship in v1.0, along with **D-8 log-equivalence** for diffing two records (`substrate inspect <a> --diff <b>`, or `first_divergence(a, b)`). D-8 compares runs modulo supplementary metadata: wall-clock `t`, run ids, per-run instance ids. **Level 3(b)** — byte-identical re-execution — is post-1.0 (see the README and product amendment A1.1). `--level 3b` reports the deferral rather than faking it.
 
 ## Next
 
 - The eight primitives in depth: `docs/specs/kernel_spec/v15.md`.
-- Worked reference topologies (ensemble+adjudicator, error cascade, composed code-synth),
-  with real local-LLM runs: `docs/walkthroughs/README.md`.
+- Worked reference topologies (ensemble + adjudicator, error cascade, composed code-synth) with real local-LLM runs: `docs/walkthroughs/README.md`.
 - The full public API: `docs/api.md`.
-- Evolving your event schemas without breaking old records: `docs/schema-evolution.md`.
+- Evolving event schemas without breaking old records: `docs/schema-evolution.md`.
 - A custom LLM backend: implement `Responder` (`from substrate.reference import Responder`).

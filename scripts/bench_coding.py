@@ -47,7 +47,7 @@ TRIALS = int(os.environ.get("BENCH_TRIALS", "10"))
 CONCURRENCY = int(os.environ.get("BENCH_CONCURRENCY", "8"))
 MARGIN = float(os.environ.get("BENCH_MARGIN", "0.10"))
 RUN_TIMEOUT = float(os.environ.get("BENCH_RUN_TIMEOUT", "240"))
-CELLS = Path(os.environ.get("BENCH_CELLS", "process/bench_results/coding_cells.jsonl"))
+CELLS = Path(os.environ.get("BENCH_CELLS", "process/runs/benches/coding/coding_cells.jsonl"))
 SALVAGE = os.environ.get("BENCH_SALVAGE", "")
 
 

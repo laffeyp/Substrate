@@ -184,7 +184,7 @@ def main() -> int:
     )
     ap.add_argument(
         "--out",
-        default="process/agency_results",
+        default="process/runs/benches/agency",
         help="dir for the per-cell JSONL rows (the persisted board; always written)",
     )
     ap.add_argument(

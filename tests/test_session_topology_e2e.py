@@ -93,12 +93,24 @@ async def test_piece_a_ci_wrapper_observation_contract(tmp_path: Path) -> None:
     assert _count_by_kind(envelopes, "FinalAnswer") == 3
     assert _count_by_kind(envelopes, "SessionEnded") == 1
     assert 2 <= _count_by_kind(envelopes, "Park") <= 3
-    # No stray application kinds beyond the ones counted above.
-    assert set(kinds) == {"UserMessage", "ModelReply", "FinalAnswer", "Park", "SessionEnded"}
+    # SessionStarted joins the set post-sprint 240 (RunStarted instrument
+    # emits one SessionStarted envelope at seq 2). No stray application
+    # kinds beyond the ones counted above.
+    assert set(kinds) == {
+        "SessionStarted",
+        "UserMessage",
+        "ModelReply",
+        "FinalAnswer",
+        "Park",
+        "SessionEnded",
+    }
+    assert _count_by_kind(envelopes, "SessionStarted") == 1
 
     # The ordered subsequence of un-raced kinds is stable regardless of the tail race.
-    ordered_head = [k for k in kinds if k != "Park"][:10]
+    # SessionStarted leads the sequence (sprint 240 instrument at seq 2).
+    ordered_head = [k for k in kinds if k != "Park"][:11]
     assert ordered_head == [
+        "SessionStarted",
         "UserMessage",
         "ModelReply",
         "FinalAnswer",

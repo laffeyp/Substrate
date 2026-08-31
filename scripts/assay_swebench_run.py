@@ -53,7 +53,7 @@ def main() -> None:
     )
 
     oracle = swebench_record_oracle(
-        report_root=Path("process/assay_run"), dataset_name="princeton-nlp/SWE-bench_Lite"
+        report_root=Path("process/runs/assays/run"), dataset_name="princeton-nlp/SWE-bench_Lite"
     )
     base_root = Path(tempfile.mkdtemp(prefix="assay-run-"))
 

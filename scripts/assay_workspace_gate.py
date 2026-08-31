@@ -46,7 +46,7 @@ def main() -> None:
     resolved = grade_patch(
         IID,
         patch,
-        report_root=Path("process/assay_ws_gate"),
+        report_root=Path("process/runs/assays/ws_gate"),
         dataset_name="princeton-nlp/SWE-bench_Lite",
     )
     print(

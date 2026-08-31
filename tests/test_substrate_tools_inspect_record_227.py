@@ -135,6 +135,26 @@ def test_hmac_sign_and_verify_roundtrip() -> None:
     assert _verify_cursor(tampered, key) is None
 
 
+def test_hmac_cursor_survives_signatures_containing_delimiter_bytes() -> None:
+    """Sprint 242 regression pin. HMAC-SHA256 is 32 raw bytes; ~12% of cursors
+    have at least one 0x2E (`.`) byte in the signature. Pre-fix encoding split
+    on `.` and cut the signature short, dropping ~1 in 8 cursors as "invalid."
+    Post-fix uses a fixed-width 32-byte prefix. 200 round-trips cover the
+    probability space enough that a regression would surface loudly.
+    """
+    import os as _os
+
+    for _ in range(200):
+        key = _os.urandom(32)
+        payload = {
+            "record": f"/tmp/{_os.urandom(4).hex()}",
+            "next_seq": int.from_bytes(_os.urandom(2), "big"),
+            "kinds": ["Verdict", "Beat"],
+        }
+        cursor = _sign_cursor(payload, key)
+        assert _verify_cursor(cursor, key) == payload
+
+
 def test_inspect_record_schema_declares_all_formats() -> None:
     tool = make_inspect_record()
     formats = tool.schema["properties"]["format"]["enum"]

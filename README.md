@@ -6,142 +6,66 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)](pyproject.toml)
 
-Substrate is a Python runtime for running many computations together — LLMs, ML
-models, deterministic transforms, subprocesses, parsers, simulators: anything that
-takes typed input and emits typed events — and coordinating them through a single
-shared, append-only log.
+A Python 3.12+ runtime for running many computations together. You hand it model calls, transforms, subprocesses, parsers, simulators — anything that takes typed input and emits typed events. It runs them concurrently and coordinates them through one append-only log. Every event, and every runtime decision about what to start next, lands on that log. You replay the log, diff it, or inspect any point.
 
 ## Quick start
 
 ```
-pip install substrate-kernel          # the import name is `substrate`
-substrate demo replay code_review     # read a committed run record back — no model, no network
+pip install substrate-kernel          # import name is `substrate`
+substrate demo replay code_review     # read a committed record; no model, no network
 substrate demo run debate             # run one live
 ```
 
-`demo replay` reads back a run record that ships with the package: every event and
-every runtime decision from a real run, numbered and replayable offline.
-[docs/tutorial.md](docs/tutorial.md) goes from install to a running two-Producer
-topology, step by step.
+`demo replay` reads a run record shipped in the package. Every event is on it, numbered. The [tutorial](docs/tutorial.md) walks install to a two-Producer topology.
 
 ## The pieces
 
-A topology is assembled from a small, fixed set of named pieces:
+You hand the runtime a topology: a Python function that declares which computations can run and what starts them. Nine names carry the design.
 
-- **Producer** — a callable that takes typed input and emits a stream of typed
-  **Events**. An LLM, an ML model, a transform, a subprocess, a parser — anything
-  with that shape.
-- **Event** — one typed, numbered fact on the log (e.g. `AnswerEmitted`, `RowParsed`).
-- **Bus** — the single totally-ordered, append-only log every event goes onto.
-  There is exactly one; Producers coordinate only through it.
-- **View** — a running summary maintained over the log as events land (e.g.
-  "everything Producer X has emitted so far", "how many answers are in").
-- **Predicate** — a cheap yes/no question asked of the Views when an event lands.
-- **Trigger** — starts a new Producer when its Predicate holds. Aside from the
-  initial Producers you declare to start the run, a Trigger is the only way new
-  Producers are created.
-- **Route** — carries data from past events into the input of a future Producer.
-- **TerminationPolicy** — decides when the run ends, or pauses to wait for outside
-  input.
-- **run record** — the log persisted to disk: framed, CRC-protected,
-  canonically-encoded JSONL. Every event and every decision is on it; nothing
-  consequential is left off.
+A **Producer** takes typed input and streams typed **Events**. It is a callable — an LLM, an ML model, a deterministic transform, a subprocess, a parser, anything of that shape. Events land on the **Bus**: one totally-ordered append-only log per run. Producers coordinate only through it.
+
+A **View** maintains a running summary over the log ("how many answers are in", "everything Producer X has emitted so far"). A **Predicate** is a yes/no over the Views, evaluated when an event lands. A **Trigger** starts a new Producer when its Predicate holds. After the initial Producers you name, Triggers are the only way new ones appear. A **Route** carries data from past events into a future Producer's input. A **TerminationPolicy** decides when the run ends or pauses for outside input.
+
+The bus writes to a **run record** on disk: framed, CRC-protected JSONL, canonically encoded. Everything is on it. Nothing is left off.
 
 ## What you can build
 
-Each of these is a topology — a short Python program against the runtime:
+Every topology is a short Python program. `substrate topology list` names the ones the package ships. `substrate demo replay <name>` reads any of them back.
 
-- An ensemble of several cheap models on the same task, with a stronger model
-  adjudicating and the losing runs cancelled once a verdict lands.
-- A pipeline that retries a failed step with the failure reason fed back in,
-  escalates after N attempts, and pauses for a human when it can't recover.
-- A code-writing setup where one Producer streams code while a checker Producer
-  fires on each complete declaration as it arrives — running concurrently with the
-  still-streaming writer.
-- A planner that emits subtasks, each starting a solver that can itself emit more
-  subtasks — recursive decomposition to arbitrary depth.
-- An adversarial pair — one Producer writes, another attacks — streaming at each
-  other from the start.
-- A simulation: many Producers acting each tick against a shared world-state
-  Producer, the whole run replayable from the log.
-- A conversation between models as alternating Producers, ended on a convergence
-  condition.
-- A tool-using loop as a chain of model → tool → model Producers, each call
-  independently replayable.
+`code_review` runs several cheap models on the same task, has a stronger model adjudicate, and cancels the losing runs when the verdict lands. `coding_flow` streams code from a writer Producer while a checker Producer fires on each complete declaration as it arrives — writer and checker run at the same time. The check is real: `ruff check && mypy --strict && pytest` on the code the writer produced.
 
-All of these ship as runnable code. Most are bundled topologies with committed run
-records — `substrate topology list` to browse, `substrate demo replay <name>` to
-read one back. The retry/escalate/pause pipeline ships as a reference walkthrough
-(`docs/walkthroughs/`); `coding_flow` runs a real
-`ruff check && mypy --strict && pytest` gate on generated code.
+`debate` puts two model Producers on opposite sides of a claim; the run ends on a convergence condition. `adversarial_pair` runs a writer and an attacker streaming from t=0. A planner-and-solver topology emits subtasks that each start solvers that can themselves emit more subtasks — recursion falls out because a Trigger can start its own kind. A simulation runs many Producers each tick against a shared world-state Producer.
+
+`docs/walkthroughs/` ships a retry pipeline: the failure reason feeds into the next attempt, escalation after N tries, pause for a human when it cannot recover. `tool_loop` is model → tool → model as a chain of Producers; each call is independently replayable because each Producer instantiation is its own record entry.
 
 ## How it works
 
-If you use a coding agent — Claude Code, Codex, and their kin — you already know
-the shape: a model that can only read and write text, wrapped in a harness of
-tools and procedures that decides how that text becomes work on a computer. The
-harness is most of the product. Substrate lets you build your own — your models,
-local or cloud, your tools, your loop — with a property none of those harnesses
-have: every step of the run lands on a replayable record. And because the harness
-is just one arrangement of the same pieces, the runtime covers much more than the
-agent loop.
+Every computation reads the log and writes typed events back to it. Producers never call each other. The log is the coordination surface, and it is the only one.
 
-Say you have several computations that need to work together: a few models
-answering the same question, or a parser feeding a checker feeding a fixer, or a
-planner that hands pieces of work to solvers. The awkward part is rarely running
-any one of them — it's getting them to coordinate, and being able to say afterward
-what actually happened.
+The set of running Producers is not fixed. You write conditions over the log — "once three answers are in", "when this step fails" — and when a condition holds, the runtime starts another Producer. A run's shape grows as it unfolds. Recursion is a Producer that starts more of itself.
 
-The usual ways to wire that up are to connect the pieces directly to each other, or
-to let them share and mutate some common state. Both get tangled as the number of
-pieces grows, and both leave the history of a run implicit — spread across logs,
-in-memory state, and control flow you can't replay.
+Every event and every runtime decision lands on the log. Each Producer start, each condition that fires, how the run ends: on the log. You read back what happened and why. You replay it at any point. Nothing consequential lives in memory or in control flow.
 
-Substrate takes one approach throughout: everything goes through a single,
-totally-ordered, append-only log — think of an accountant's ledger, where you only
-ever add a new entry, never erase an old one, and any total you care about is
-*derived* by replaying the entries rather than kept on the side. Each computation
-reads from the log and emits typed events back onto it; none of them talk to each
-other directly. That one shared log is the only place coordination happens.
-
-The set of running computations isn't fixed ahead of time. Instead of declaring a
-static graph, you write small conditions over the log — "once three answers are
-in", "when this step fails" — and when a condition holds, the runtime starts
-another computation. The shape of a run grows as it unfolds, including computations
-that start more of themselves (so recursion falls out for free).
-
-What you actually write is called a **topology**: a small Python program that
-declares which computations can run, which conditions start them, and how data
-flows between them. You hand the topology to the runtime; it executes it and
-produces the log.
-
-And because every event *and* every decision the runtime makes — each time a
-computation starts, each condition that fires, how the run ends — is written onto
-that same log, the log is a complete, ordered account of the run. You can read back
-exactly what happened and why, replay it, or inspect any point in it. Nothing
-important is stranded in memory or hidden in control flow.
+If you have used a coding agent, the harness around the model is the product. Substrate lets you build your own — your models, your tools, your loop, every step on a replayable record. The agent shape is one arrangement of the pieces; the runtime covers many others.
 
 ## Status
 
-1.0.0. Ships: the nine pieces above, both persistence modes, replay Levels 1,
-2, and 3(a), the read projections (provenance, diff, narration, graphs),
-composition, the 17-check conformance suite, and the bundled topologies with their
-committed records. Deferred, with recorded rationale: byte-identical Level-3(b)
-re-execution, and the persistent bus on Windows.
+1.0.0 on PyPI as `substrate-kernel`. Apache-2.0. Import name `substrate`.
 
-The verification gate is `scripts/ci_local.sh` — the full stack (lint, format,
-strict types, tests, import contract, conformance) across Python 3.12/3.13/3.14.
-The conformance throughput floor is hardware-dependent and is graded on controlled
-hardware rather than in the matrix (`CONTRIBUTING.md`).
+Ships: the nine pieces above, both persistence modes, replay Levels 1, 2, and 3(a), the read projections (provenance, diff, narration, graphs), composition, the 17-check conformance suite, and the bundled topologies with committed records.
+
+Deferred, with recorded rationale: byte-identical Level-3(b) re-execution, and the persistent bus on Windows.
+
+`scripts/ci_local.sh` is the verification gate. It runs lint, format, strict types, tests, import contract, and conformance across Python 3.12/3.13/3.14. Check 15 (the throughput floor) is hardware-sensitive and grades on controlled hardware, not in the CI matrix. `CONTRIBUTING.md` has the details.
 
 ## Docs
 
 | Doc | What it is |
 |---|---|
-| [docs/tutorial.md](docs/tutorial.md) | Install to a running two-Producer topology, step by step. Start here. |
-| [docs/demo.md](docs/demo.md) | A guided read of three reference topologies against their committed records — logs annotated line by line, replay and provenance queries. Also runnable: `bash demo.sh`. |
-| [docs/adding-a-topology.md](docs/adding-a-topology.md) | Package a topology, run it from the CLI, register it in the bundled catalogue. The contributor on-ramp. |
-| [docs/walkthroughs/](docs/walkthroughs/README.md) | Three complete worked topologies, each with a committed record and a reproducible real-model transcript. |
+| [docs/tutorial.md](docs/tutorial.md) | Install to a running two-Producer topology. Start here. |
+| [docs/demo.md](docs/demo.md) | Three reference topologies annotated line by line against their committed records. Runnable: `bash demo.sh`. |
+| [docs/adding-a-topology.md](docs/adding-a-topology.md) | Package a topology, run it from the CLI, register it in the bundled catalogue. Contributor on-ramp. |
+| [docs/walkthroughs/](docs/walkthroughs/README.md) | Three worked topologies, each with a committed record and a reproducible real-model transcript. |
 | [docs/replay.md](docs/replay.md) | The four replay fidelity levels and which ship in v1.0. |
 | [docs/api.md](docs/api.md) | The public surface (`substrate.api`), generated from the code. |
 
@@ -155,23 +79,15 @@ scripts/ci_local.sh
 
 `CONTRIBUTING.md` has the gates, the spec corpus, and the layout.
 
-## Repository layout
+## Layout
 
-To use or contribute, you need `src/` (the runtime), `docs/` (how to use it), and
-`CONTRIBUTING.md` (how to develop). The runtime implements a four-document spec
-corpus; the canonical drafts:
+`src/` is the runtime. `docs/` is how to use it. `CONTRIBUTING.md` is how to develop. Four spec documents govern the code:
 
 | Spec | Canonical |
 |---|---|
 | Kernel semantics | `docs/specs/kernel_spec/v15.md` |
-| Product (requirements, conformance, reference topologies) | `docs/specs/product_spec/draft7.md` + amendments `A1`, `A2`, `A3` |
-| Technical (byte layout, writer cycle, public API) | `docs/specs/technical_spec/draft5.md` + amendment `A1` |
-| Design (API ergonomics, CLI/error UX) | `docs/specs/design_spec/draft1.md` |
+| Product | `docs/specs/product_spec/draft7.md` + `A1`, `A2`, `A3` |
+| Technical | `docs/specs/technical_spec/draft5.md` + `A1` |
+| Design | `docs/specs/design_spec/draft1.md` |
 
-Superseded drafts live in each spec dir's `history/`, kept, not deleted. Everything
-under `process/` is the development record — how this was built, kept append-only.
-Read it for the why; skip it to use or contribute.
-
----
-
-Substrate. On PyPI as `substrate-kernel` (the import name is `substrate`). Apache-2.0.
+Superseded drafts live under each spec dir's `history/`. `process/` holds the development record, append-only. Read it for the why; skip it to use or contribute.

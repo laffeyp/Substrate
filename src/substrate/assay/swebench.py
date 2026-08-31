@@ -373,29 +373,36 @@ def run_swebench(
     or CI). Write the predictions, invoke the official harness over the named dataset/instances, and
     return the parsed run report. Lazy-imports swebench so this module imports without it. This is the
     run-and-observe truth source; its verdict is captured once and is not reproducible by replay."""
+    import contextlib
+
     from swebench.harness import run_evaluation  # lazy, env-gated (mypy: see [tool.mypy.overrides])
 
     verify_constants()
     rdir = Path(report_dir)
     rdir.mkdir(parents=True, exist_ok=True)
     preds_path = write_predictions(predictions, rdir / f"preds_{run_id}.jsonl")
-    run_evaluation.main(
-        dataset_name=dataset_name,
-        split=split,
-        instance_ids=list(instance_ids),
-        predictions_path=str(preds_path),
-        max_workers=max_workers,
-        force_rebuild=False,
-        cache_level="env",
-        clean=False,
-        open_file_limit=4096,
-        run_id=run_id,
-        timeout=timeout,
-        namespace=namespace,
-        rewrite_reports=False,
-        modal=False,
-        report_dir=str(rdir),
-    )
+    # Sprint 246a: chdir into `rdir` so the upstream harness's cwd-write of
+    # `<model_name>.<run_id>.json` lands inside the controlled directory
+    # rather than at repo root. The harness ignores `report_dir` for that
+    # specific file (see the comment at read_run_report below).
+    with contextlib.chdir(rdir):
+        run_evaluation.main(
+            dataset_name=dataset_name,
+            split=split,
+            instance_ids=list(instance_ids),
+            predictions_path=str(preds_path),
+            max_workers=max_workers,
+            force_rebuild=False,
+            cache_level="env",
+            clean=False,
+            open_file_limit=4096,
+            run_id=run_id,
+            timeout=timeout,
+            namespace=namespace,
+            rewrite_reports=False,
+            modal=False,
+            report_dir=str(rdir),
+        )
     model_name = predictions[0][KEY_MODEL] if predictions else DEFAULT_MODEL_NAME
     # the harness writes the final run report to CWD (not report_dir) in swebench 4.x — search both,
     # the same path-churn lesson as read_resolved (pinned empirically on the Architect's arm64 box).
@@ -1177,28 +1184,34 @@ def batch_grade_from_records(
     if not predictions:
         return {}
 
+    import contextlib
+
     verify_constants()
     preds_path = write_predictions(predictions, report_dir / f"preds_{run_id}.jsonl")
 
     from swebench.harness import run_evaluation  # lazy, env-gated
 
-    run_evaluation.main(
-        dataset_name=dataset_name,
-        split="test",
-        instance_ids=sorted({p[KEY_INSTANCE_ID] for p in predictions}),
-        predictions_path=str(preds_path),
-        max_workers=max_workers,
-        force_rebuild=False,
-        cache_level="env",
-        clean=False,
-        open_file_limit=4096,
-        run_id=run_id,
-        timeout=timeout,
-        namespace=namespace,
-        rewrite_reports=False,
-        modal=False,
-        report_dir=str(report_dir),
-    )
+    # Sprint 246a: chdir into `report_dir` for the same reason as the
+    # single-cell path above — pin the harness's cwd-writes into the
+    # controlled directory, not repo root.
+    with contextlib.chdir(report_dir):
+        run_evaluation.main(
+            dataset_name=dataset_name,
+            split="test",
+            instance_ids=sorted({p[KEY_INSTANCE_ID] for p in predictions}),
+            predictions_path=str(preds_path),
+            max_workers=max_workers,
+            force_rebuild=False,
+            cache_level="env",
+            clean=False,
+            open_file_limit=4096,
+            run_id=run_id,
+            timeout=timeout,
+            namespace=namespace,
+            rewrite_reports=False,
+            modal=False,
+            report_dir=str(report_dir),
+        )
 
     # Read per-cell resolved from the harness reports. The harness writes one report.json per
     # `{model}/{instance_id}/report.json` — the per-cell model_name in each prediction row is
