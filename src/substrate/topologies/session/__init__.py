@@ -30,7 +30,7 @@ from ... import api
 from ...adapters import DeterministicResponder, Responder, call_responder
 from ...kernel.policies import TerminationPolicy
 from ..tool_loop import _tool_factory as _tool_loop_tool_factory
-from ..tool_loop.tools import Tool
+from ..tool_loop.tools import Tool, ollama_tools, parse_tool_call, suite_describe
 from .vocabulary import (
     PARK,
     SESSION_END_REQUESTED,
@@ -219,6 +219,7 @@ def _model_factory(
     driver_context_tokens: int,
     driver_headroom_frac: float,
     record_root: Path | None,
+    tools: dict[str, Tool],
 ) -> Callable[[], Any]:
     """Model Producer body. Yields TranscriptCompacted, ToolCall, ModelReply, or FinalAnswer.
 
@@ -291,12 +292,51 @@ def _model_factory(
             else:
                 yield FinalAnswer(text=_answer_text_from_results(results), steps=step)
             return
-        # Sprint 244: route through call_responder so a slow driver yields
-        # the event loop and cancel_producer has a window to fire. The helper
-        # awaits arespond when the adapter exposes one, else bridges sync
-        # respond via asyncio.to_thread; DeterministicResponder stays sync
-        # to preserve N-DET-1 record byte-identity. Test:
-        # tests/test_session_topology_failure_modes.py::test_park_on_interrupt.
+        # Sprint 045 — expose the tool suite to the model. Ports the
+        # tool_loop pattern (topologies/tool_loop/__init__.py:158-219):
+        # try native tools-chat when the responder exposes achat_tools
+        # (OllamaResponder does), else describe the tools in the prompt
+        # and parse the reply. Parity with tool_loop is intentional so
+        # the session inherits every improvement the loop earns.
+        progress = [
+            {"tool": r.get("tool"), "ok": r.get("ok", True), "output": r.get("output", "")}
+            for r in results
+        ]
+        if tools:
+            achat = getattr(driver, "achat_tools", None)
+            if callable(achat):
+                loop_prompt = prompt_text + (
+                    f"\n\nTool results so far, in order: {progress}" if progress else ""
+                )
+                kind, chosen = parse_tool_call(await achat(loop_prompt, ollama_tools(tools)), tools)
+                if kind == "tool":
+                    name, call_args = chosen
+                    yield ToolCall(call_id=f"c{step}", tool=name, args=list(call_args), step=step)
+                    return
+                text = str(chosen)
+                yield ModelReply(text=text, model_usage={}, turn_index=turn_index)
+                yield FinalAnswer(text=text, steps=step)
+                return
+            # Fallback for a text-only Responder (CliResponder, custom): describe
+            # the tools and parse a JSON tool-call from the reply.
+            described = (
+                f"{prompt_text}\n\nTools you MAY use:\n{suite_describe(tools)}\n"
+                + (f"Tool results so far, in order: {progress}\n" if progress else "")
+                + 'Reply with EITHER a single JSON object {"name": "<tool>", "arguments": {...}} to '
+                "call a tool, OR your final answer as plain text. Output only one of those."
+            )
+            reply_text = str(await call_responder(driver, described))
+            kind, chosen = parse_tool_call({"content": reply_text, "tool_calls": []}, tools)
+            if kind == "tool":
+                name, call_args = chosen
+                yield ToolCall(call_id=f"c{step}", tool=name, args=list(call_args), step=step)
+                return
+            text = str(chosen)
+            yield ModelReply(text=text, model_usage={}, turn_index=turn_index)
+            yield FinalAnswer(text=text, steps=step)
+            return
+        # No tools declared: pure chat. Sprint 244's yield-through-
+        # call_responder path preserved so cancel_producer still fires.
         reply_text = str(await call_responder(driver, prompt_text))
         yield ModelReply(text=reply_text, model_usage={}, turn_index=turn_index)
         yield FinalAnswer(text=reply_text, steps=step)
@@ -455,6 +495,7 @@ def session_topology(
                 driver_context_tokens=driver_context_tokens,
                 driver_headroom_frac=driver_headroom_frac,
                 record_root=record_root,
+                tools=tools,
             ),
             deterministic=model_is_deterministic,
         )
