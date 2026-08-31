@@ -30,7 +30,7 @@ from substrate.topologies.session import (
     UserMessage,
     session_topology,
 )
-from substrate.topologies.tool_loop.tools import CALCULATOR
+from substrate.topologies.tool_loop.tools import CALCULATOR, Tool
 
 # ── shared test scaffolding ────────────────────────────────────────────
 
@@ -352,3 +352,109 @@ async def test_end_on_cap_finalises_with_timeout_reason(tmp_path: Path) -> None:
     # Record seals with substrate.RunFinalised.
     finalised = _by_kind(envelopes, "substrate.RunFinalised")
     assert finalised, "expected substrate.RunFinalised on the record"
+
+
+# ── test 4: trailing-fails counter resets per turn ─────────────────────
+
+
+def _boom_tool() -> dict[str, Tool]:
+    """A single tool that always raises. Drives the anti-spin guard.
+
+    The tool loop counts consecutive failed ToolResults from the tail and
+    bails after `_MAX_CONSECUTIVE_FAILS` (default 3) with a FinalAnswer
+    citing the last error. The counter is meant to be per-turn — a fresh
+    turn should get 3 attempts before the guard fires.
+    """
+
+    def _run(_args: list[Any]) -> Any:
+        raise RuntimeError("boom (test-induced)")
+
+    return {"boom": Tool(name="boom", describe="always fails", deterministic=True, run=_run)}
+
+
+def _bail_events(envs: list[dict[str, Any]]) -> list[str]:
+    return [
+        str(e["payload"].get("text", ""))
+        for e in _by_kind(envs, "FinalAnswer")
+        if str(e["payload"].get("text", "")).startswith("stopped after")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_trailing_fails_counter_resets_between_turns(tmp_path: Path) -> None:
+    """Sprint 047 regression. Before the fix, the anti-spin guard counted
+    failures over the ENTIRE session (KindBuffer("ToolResult") is
+    session-wide), so a turn with 3 failures blew the guard for every
+    later turn — turn 2's first failing call became the 4th consecutive
+    fail and the model bailed immediately. Fix: `_continue_input` slices
+    the buffer to just this turn's tail (count = step_of_result + 1).
+
+    Contract: turn 2 must burn 3 fresh failures before its bail fires.
+    """
+    root = tmp_path / "trailing-fails"
+    tools = _boom_tool()
+    # Script every model firing to call boom. Long enough to exceed either
+    # turn's guard (turn_max_steps=8 caps the turn independently).
+    script = [("boom", [])] * 20
+
+    def _build_boom(*, first_text: str) -> Callable[[api.TopologyBuilder], None]:
+        return session_topology(
+            driver=_FastResponder(),
+            driver_name="test",
+            driver_context_tokens=4096,
+            seed="anti-spin-per-turn",
+            tools=tools,
+            per_turn="",
+            max_turns=20,
+            turn_max_steps=8,
+            session_id="s_boom",
+            workspace_path=str(tmp_path / "ws"),
+            script=script,
+            first_turn_user_message=UserMessage(
+                text=first_text,
+                turn_index=0,
+                assembled_prompt=first_text,
+                slash_source="test",
+            ),
+        )
+
+    # Turn 1 — 3 failing calls, guard fires, session parks on FinalAnswer.
+    r1 = await api.Runtime(root, persistent=True).run(_build_boom(first_text="try once"))
+    assert r1.status == "paused", f"turn 1 expected paused, got {r1.status}"
+    envs_1 = _read(root)
+    tool_results_1 = _by_kind(envs_1, "ToolResult")
+    bails_1 = _bail_events(envs_1)
+    assert len(bails_1) == 1, f"turn 1 expected 1 bail FinalAnswer, got {len(bails_1)}: {bails_1}"
+    assert "3 failed" in bails_1[0], f"turn 1 bail should cite 3 failures, got: {bails_1[0]}"
+
+    # Turn 2 — resume with a new UserMessage. The bug (pre-047) makes the
+    # first failure of turn 2 count as the 4th and bail immediately with
+    # "stopped after 4 failed tool call(s)". Post-fix, turn 2's counter
+    # is 1, not 4, and the model continues until turn 2's own 3-in-a-row.
+    r2 = await api.Runtime(root, persistent=True).resume(
+        _build_boom(first_text="unused-on-resume"),
+        resume_event=UserMessage(
+            text="try again",
+            turn_index=1,
+            assembled_prompt="try again",
+            slash_source="test",
+        ),
+    )
+    assert r2.status == "paused", f"turn 2 expected paused, got {r2.status}"
+
+    envs_2 = _read(root)
+    tool_results_2 = _by_kind(envs_2, "ToolResult")
+    turn_2_tool_results = tool_results_2[len(tool_results_1) :]
+    bails_2 = _bail_events(envs_2)
+    # Turn 1's bail is still on the record; turn 2 adds one of its own.
+    assert len(bails_2) == 2, (
+        f"expected 2 total bail FinalAnswers (one per turn), got {len(bails_2)}: {bails_2}"
+    )
+    # The regression: pre-fix bails_2[-1] cited "4 failed"; post-fix it must cite "3".
+    assert "3 failed" in bails_2[-1], (
+        f"turn 2 bail should cite 3 failures (counter resets per turn), got: {bails_2[-1]}"
+    )
+    # And turn 2 actually got 3 attempts, not just 1.
+    assert len(turn_2_tool_results) == 3, (
+        f"turn 2 should burn 3 failing tool calls before bailing, got {len(turn_2_tool_results)}"
+    )

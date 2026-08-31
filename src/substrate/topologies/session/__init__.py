@@ -436,9 +436,23 @@ def session_topology(
         return producer_kind_from_lifecycle_payload(payload)
 
     def _continue_input(ctx: Any, *, final: bool) -> dict[str, Any]:
+        # Sprint 047: pass this turn's ToolResults only, not the session-wide
+        # buffer. The KindBuffer("ToolResult") view at line ~565 accumulates
+        # every result for the life of the session, so a failed turn's
+        # trailing_fails counter carried into the next turn — a session
+        # with 3 failed bash calls in turn 2 tripped anti-spin on turn 3's
+        # first attempt. Fix: `step` reflects THIS turn's next firing (0
+        # after resume-on-user, 1 after the first ToolResult, ...); the
+        # count of ToolResults produced this turn is exactly `_step_of + 1`;
+        # slice the buffer tail to that count. Cross-turn ordering is
+        # preserved because the buffer is append-order; the last N results
+        # are always this-turn's N. Python's slice handles the edge cleanly
+        # (results[-1:] on an empty list is an empty list).
+        this_turn_count = _step_of(ctx) + 1
+        session_results = list(ctx.views["results"].value())
         return {
             "step": _step_of(ctx) + 1,
-            "results": list(ctx.views["results"].value()),
+            "results": session_results[-this_turn_count:] if this_turn_count > 0 else [],
             "final": final,
             "turn_index": _turn_index(ctx),
         }
