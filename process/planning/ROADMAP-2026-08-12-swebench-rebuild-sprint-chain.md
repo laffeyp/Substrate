@@ -233,7 +233,7 @@ behaves identically.
 
 **Duration.** One sprint (one to two days — architectural).
 
-**Rule.** `docs/swebench-solver-design.md:82-86` — factor once, three
+**Rule.** `docs/swebench/swebench-solver-design.md:82-86` — factor once, three
 consumers.
 
 **Files touched.**
@@ -593,7 +593,7 @@ under the working agreement's existing dispatch rules.
 - Does not schedule against calendar time. Sprint durations are
   estimates; the Architect sets the pace.
 - Does not supersede
-  `docs/swebench-close-the-loop-roadmap.md` (round 3). That document
+  `docs/swebench/swebench-close-the-loop-roadmap.md` (round 3). That document
   reflects the pre-rebuild plan and stays on disk as the audit trail per
   hard rule 12. The relationship:
   - Close-the-loop round 3 targets the current heavy-topology architecture.
@@ -631,6 +631,6 @@ dispatches; this reviewer stops here.
 `docs/adding-a-topology.md`,
 `docs/POSTMORTEM-2026-08-10-swebench-topology-drift.md`,
 `docs/DESIGN-2026-08-10-swebench-confirmatory-revert-v3.md`,
-`docs/swebench-close-the-loop-roadmap.md` (round 3, superseded on
+`docs/swebench/swebench-close-the-loop-roadmap.md` (round 3, superseded on
 completion of this chain), all files cited in the two companion
 documents above.*

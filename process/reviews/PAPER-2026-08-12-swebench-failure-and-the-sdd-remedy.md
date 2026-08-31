@@ -47,8 +47,8 @@ Sources: `sdd-kit-2/AGENTS.md`, `sdd-kit-2/foundations/01-04`,
 `docs/review/REVIEW-2026-08-10-swebench-confirmatory-revert-v2.md`;
 `docs/review/REVIEW-2026-08-10-swebench-holistic.md`;
 `docs/review/REVIEW-2026-08-11-swebench-re-review.md`;
-`docs/NORTH-STAR-2026-08-10-v5.md`; `docs/swebench-first-principles-2026-08-09.md`;
-`docs/swebench-solver-design.md`; `process/BLACKBOARD.md`;
+`docs/NORTH-STAR-2026-08-10-v5.md`; `docs/swebench/swebench-first-principles-2026-08-09.md`;
+`docs/swebench/swebench-solver-design.md`; `process/BLACKBOARD.md`;
 the code cited by every review above at current-HEAD line numbers.*
 
 *Date: 2026-08-12.*
@@ -216,7 +216,7 @@ verification, and typed error classification. Every one of these is a
 generic assay concern.
 
 Sprint 144a's own docstring at
-`docs/swebench-close-the-loop-roadmap.md` § "Group A" enumerates eight
+`docs/swebench/swebench-close-the-loop-roadmap.md` § "Group A" enumerates eight
 "parity gaps against `bench_coding.py`" — meaning the two runners are
 converging by hand-copying. The right primitive was `run_suite`; the shape
 that got built was a bespoke script that grows every week. This is Move 3
@@ -864,10 +864,10 @@ turns the wire-check from a catastrophe generator into an accuracy check.
 `docs/review/REVIEW-2026-08-10-swebench-holistic.md`;
 `docs/review/REVIEW-2026-08-11-swebench-re-review.md`;
 `docs/NORTH-STAR-2026-08-10-v5.md`;
-`docs/swebench-first-principles-2026-08-09.md`;
-`docs/swebench-solver-design.md`;
-`docs/swebench-close-the-loop-roadmap.md`;
-`docs/swebench-assay-roadmap.md`;
+`docs/swebench/swebench-first-principles-2026-08-09.md`;
+`docs/swebench/swebench-solver-design.md`;
+`docs/swebench/swebench-close-the-loop-roadmap.md`;
+`docs/swebench/swebench-assay-roadmap.md`;
 `process/BLACKBOARD.md`;
 `process/KIT_DIARY.md` (entry 26, entry 37, entry 39);
 `src/substrate/topologies/swebench_solver/assemble.py`;

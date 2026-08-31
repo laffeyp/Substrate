@@ -1,7 +1,7 @@
 """Graph projections — the structure and the run-as-graph the UI's graph surfaces render.
 
 Two pure, deterministic, read-only projections (F-OBS-6: no bus emission, no record mutation),
-the data layer behind the design handoff's two graph surfaces (`docs/ui-design-handoff.md` §6):
+the data layer behind the design handoff's two graph surfaces (`docs/design/ui-design-handoff.md` §6):
 
   - `topology_graph(record)` — the STATIC structure: Producer kinds as nodes (with the event
     kinds they emit), Triggers as the spawn edges (`on` a subscription, with a firing policy,

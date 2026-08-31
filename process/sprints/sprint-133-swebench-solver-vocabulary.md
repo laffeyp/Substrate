@@ -17,7 +17,7 @@ cadence_band: plan-mode-per-sprint
 ## scope
 
 The founding act for the `swebench_solver` topology (the vanilla non-agentic SWE-bench solver,
-`docs/swebench-solver-design.md`). Lock the topology's records — their names + payload fields — BEFORE
+`docs/swebench/swebench-solver-design.md`). Lock the topology's records — their names + payload fields — BEFORE
 any topology code (#1), run the #25 dual-contract audit (every behavior record paired with a
 record-observable), make the review-#57 shared-contract reconciliation decision (reuse coding_flow's
 `Draft/Candidate/Verdict/Solved/Exhausted` as the canonical 3-consumer best-of-N+correction contract), and
@@ -30,7 +30,7 @@ This is review gate #1 (the vocabulary-session lock) under the key-moments-only 
 
 ## context_files
 
-- `docs/swebench-solver-design.md` (the reviewed design, §1-§8)
+- `docs/swebench/swebench-solver-design.md` (the reviewed design, §1-§8)
 - `src/substrate/topologies/coding_flow/__init__.py` (the shared records to reconcile against)
 - `process/sprints/sprint-000-vocabulary-session.md` (the vocabulary-session form)
 - `process/WORKING_AGREEMENT.md` (canonical home registry; record-as-view-side override; strict posture)

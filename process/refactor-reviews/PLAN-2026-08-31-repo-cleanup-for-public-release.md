@@ -23,7 +23,7 @@ Findings organized by the source doc's three moves.
 
 Yes, selectively. The source doc's project cut 20-40% off scaffolded docs, 2% off fact-dense ones. Substrate's docs have a similar distribution:
 
-- **High-value dellm targets** (prose-heavy, likely LLM-register drift): `docs/adding-a-topology.md`, `docs/api.md`, `docs/applications.md`, `docs/interactive-agent.md`, `docs/output-conformance-design.md`, `docs/tool-loop-agent.md`, `docs/tool-loop-futures.md`, older `docs/benchmarking-*.md` design rounds. Also `README.md` and `CONTRIBUTING.md` — first-impression surfaces.
+- **High-value dellm targets** (prose-heavy, likely LLM-register drift): `docs/adding-a-topology.md`, `docs/api.md`, `docs/applications.md`, `docs/design/interactive-agent.md`, `docs/design/output-conformance-design.md`, `docs/tool-loop/tool-loop-agent.md`, `docs/tool-loop/tool-loop-futures.md`, older `docs/benchmarking-*.md` design rounds. Also `README.md` and `CONTRIBUTING.md` — first-impression surfaces.
 - **Low-value dellm targets** (already fact-dense per prior reviews + user's plain-register discipline): most process/REVIEW-*.md and process/PLAN-*.md docs (recent authoring already in Orwell/White register per the plain-output-style hook). `process/BLACKBOARD.md` and `process/KIT_DIARY.md` — accumulated audit trails that must not be edited per rule 12; skip. Sprint cards — same reason.
 - **Deferred candidates** (large docs, high value but expensive): `process/RESEARCH.md`, `docs/POSTMORTEM-2026-08-10-swebench-topology-drift.md`. Both are historical records; low ROI for the release surface.
 
@@ -35,7 +35,7 @@ Ordering by public-facing visibility:
 1. `README.md` (first page a visitor sees).
 2. `CONTRIBUTING.md`, `SECURITY.md`.
 3. `docs/api.md`, `docs/applications.md`, `docs/adding-a-topology.md` — the how-to surface.
-4. `docs/interactive-agent.md`, `docs/tool-loop-*.md` — application-level docs.
+4. `docs/design/interactive-agent.md`, `docs/tool-loop-*.md` — application-level docs.
 5. `docs/benchmarking-*.md` — research-adjacent.
 
 Estimated 12-15 files, 1-2 hours per file for a careful pass, 15-30 hours total. Break into 3-5 sprints, one per doc cluster (README+CONTRIBUTING+SECURITY, api+applications+adding-a-topology, etc.).

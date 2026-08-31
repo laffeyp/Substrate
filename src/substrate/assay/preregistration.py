@@ -1,6 +1,6 @@
 """Pre-registration gate for confirmatory assay runs — sprint 151.
 
-A confirmatory run is a bet with pre-declared stakes. `docs/benchmarking-preregistration-template.md`
+A confirmatory run is a bet with pre-declared stakes. `docs/benchmarking/benchmarking-preregistration-template.md`
 (18 sections) states the discipline: copy the template, fill every field, commit the file
 BEFORE the first arm executes, and never edit it in place. `provenance_status` at
 `assay/cells.py:79-105` verifies AFTER the fact that the meta sidecar wasn't tampered; this
@@ -165,7 +165,7 @@ def load_preregistration(path: Path | str) -> Preregistration:
         raise PreregistrationViolation(
             p,
             "missing_file",
-            f"expected a committed pre-reg at {p}; see docs/benchmarking-preregistration-template.md",
+            f"expected a committed pre-reg at {p}; see docs/benchmarking/benchmarking-preregistration-template.md",
         )
     try:
         raw = json.loads(p.read_text())

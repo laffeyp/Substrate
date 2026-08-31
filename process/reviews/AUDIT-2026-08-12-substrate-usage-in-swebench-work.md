@@ -50,7 +50,7 @@ script's lines re-implement generic assay concerns:
 `asyncio.Semaphore` around cell dispatch, per-cell `asyncio.wait_for`,
 salvage-mode regrade, checkpointed resume, cell-row JSONL writing,
 batch-grade dispatch, tier verification. Sprint 144a's docstring at
-`docs/swebench-close-the-loop-roadmap.md` § "Group A" is a punch list of
+`docs/swebench/swebench-close-the-loop-roadmap.md` § "Group A" is a punch list of
 "parity gaps against `bench_coding.py`" — two runners converging by hand.
 
 **2. `register_topology` in `topologies/bundled.py`.**
@@ -65,7 +65,7 @@ the step.
 **3. `embedded_substrate` at `kernel/composition.py:84`.**
 The composition primitive designed to factor "best-of-N + correction loop"
 once across three consumers: `swebench_solver`, `coding_flow`,
-`code_evolution`. `docs/swebench-solver-design.md:82-86` names this
+`code_evolution`. `docs/swebench/swebench-solver-design.md:82-86` names this
 explicitly. Zero consumers today. The shared sub-topology got re-implemented
 in three places — three copies of `Candidate` / `Verdict` / `Solved` /
 `ModelUsage` wiring, three places for the currency-gate or determinism bug
@@ -188,7 +188,7 @@ assay helpers or into named modules the runner imports.
 
 **3. Best-of-N + correction as `embedded_substrate` sub-topology.**
 One sub-topology, three consumers. The shape at
-`docs/swebench-solver-design.md:82-86`. Removes duplicate wiring across
+`docs/swebench/swebench-solver-design.md:82-86`. Removes duplicate wiring across
 `swebench_solver`, `coding_flow`, `code_evolution`.
 
 **4. Oracle is one class, one grade path.**
@@ -324,7 +324,7 @@ SDD pace closes the gap.
 `src/substrate/adapters/rate_limit.py`;
 `scripts/assay_swebench_confirmatory.py`;
 `scripts/bench_coding.py`;
-`docs/adding-a-topology.md`; `docs/swebench-solver-design.md`;
+`docs/adding-a-topology.md`; `docs/swebench/swebench-solver-design.md`;
 `docs/review/PAPER-2026-08-12-swebench-failure-and-the-sdd-remedy.md`;
 `docs/review/REVIEW-2026-08-10-swebench-holistic.md`;
 `docs/review/REVIEW-2026-08-11-swebench-re-review.md`.*

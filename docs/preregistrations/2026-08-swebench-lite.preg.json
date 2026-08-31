@@ -1,5 +1,5 @@
 {
-  "_note": "SPRINT 160-plan DRAFT — placeholders in <ANGLE_BRACKETS> the Architect fills before Pass 1. Freeze (commit) this file BEFORE the first arm executes. Every field frozen for this run — a change to any of them opens a new, separately-reported run version. See docs/benchmarking-preregistration-template.md for the field-by-field discipline.",
+  "_note": "SPRINT 160-plan DRAFT — placeholders in <ANGLE_BRACKETS> the Architect fills before Pass 1. Freeze (commit) this file BEFORE the first arm executes. Every field frozen for this run — a change to any of them opens a new, separately-reported run version. See docs/benchmarking/benchmarking-preregistration-template.md for the field-by-field discipline.",
   "_reads": "scripts/assay_swebench_confirmatory.py's preregistration_guard() (sprint 151) reads `arms_hash` and `comparator`. The rest is authoritative human record for the writeup.",
 
   "run_id": "swebench-lite-2026-08",

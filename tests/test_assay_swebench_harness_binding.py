@@ -20,7 +20,7 @@ Run explicitly on the Architect's box (Docker + swebench installed + the eval im
 
 Skips silently in CI + everywhere else. The gold_resolves case is the load-bearing check — if it
 FAILS with the current pinned swebench, the binding drifted (a key rename, a report-path change,
-a schema bump) and needs re-verifying against docs/swebench-bridge-mapping.md.
+a schema bump) and needs re-verifying against docs/swebench/swebench-bridge-mapping.md.
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ def _instance() -> dict:
 def test_constants_verify_against_installed_swebench() -> None:
     """The fastest binding check — no Docker, no network, no opt-in gate (review nit 146a-1). If
     `swebench` renamed KEY_INSTANCE_ID or KEY_PREDICTION between our pinned mapping
-    (docs/swebench-bridge-mapping.md, verified against 4.1.0) and the version installed here,
+    (docs/swebench/swebench-bridge-mapping.md, verified against 4.1.0) and the version installed here,
     this raises AssertionError with the drift enumerated — catching a version-bump silently
     breaking `make_prediction` before any Docker time. Skips only when swebench itself isn't
     importable (uninstalled — a legitimate CI state), NOT behind the Docker/opt-in gate: gating
@@ -118,7 +118,7 @@ def test_gold_patch_grades_resolved(tmp_path) -> None:
     resolved = read_resolved(tmp_path, run_id, DEFAULT_MODEL_NAME, _ANCHOR_INSTANCE)
     assert resolved is True, (
         f"gold patch on {_ANCHOR_INSTANCE} did NOT resolve — the binding drifted "
-        f"(check docs/swebench-bridge-mapping.md against the installed swebench version)"
+        f"(check docs/swebench/swebench-bridge-mapping.md against the installed swebench version)"
     )
 
 

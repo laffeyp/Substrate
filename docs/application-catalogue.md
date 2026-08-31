@@ -8,7 +8,7 @@ registry (code_review, pair_coding, recursive_decomposition, debate,
 prisoners_dilemma, intel_asymmetry, natural_conversation,
 natural_conversation_bare, adversarial_pair, game_of_life, game_of_life_glider,
 tool_loop), and the candidates the precursor pulled out
-(`docs/precursor-application-ideas.md`) worth building next.
+(`docs/research/precursor-application-ideas.md`) worth building next.
 
 ## The organizing axis: instrument emergence, don't fake it
 

@@ -1,6 +1,6 @@
 """swebench_solver — a vanilla non-agentic SWE-bench solver as a Substrate topology.
 
-Design: `docs/swebench-solver-design.md`. Three plain phases, no tool use: LOCALIZE (issue + repo ->
+Design: `docs/swebench/swebench-solver-design.md`. Three plain phases, no tool use: LOCALIZE (issue + repo ->
 suspect files -> edit locations) -> REPAIR (best-of-N SEARCH/REPLACE, apply to a clone, git diff ->
 candidate patch; the shared best-of-N + correction loop reused from coding_flow) -> SELECT (repo-derived
 regression + a generated reproduction test -> rerank -> one model_patch). Graded by the proven

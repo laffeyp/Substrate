@@ -122,7 +122,7 @@ emulation on arm64; native x86 on a cloud box):
      later turns into a `FAIL_TO_PASS`). Treat the reproduction test as the solver's own recorded artifact.
 2. **The final grade** — the swebench oracle (already working), entirely after and outside the solver.
 
-This is why containerization is required for the SWE-bench path (see `docs/swebench-bridge-mapping.md`):
+This is why containerization is required for the SWE-bench path (see `docs/swebench/swebench-bridge-mapping.md`):
 not just the grade, but the solver's own test-based selection needs the instance environment. The
 local-arm64-emulated path works for development; the reportable run belongs on x86.
 

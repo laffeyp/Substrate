@@ -3,7 +3,7 @@
 Pins the four cell counts, the raw agreement rate, and the chance-corrected kappa across the
 edge cases that matter: the trusted repro (high kappa), the trivially-passing repro (high
 raw agreement, kappa near zero — the exact false-positive that motivated the metric per
-docs/swebench-solver-design.md §5), the "no signal" fallbacks, and the degenerate marginal
+docs/swebench/swebench-solver-design.md §5), the "no signal" fallbacks, and the degenerate marginal
 that makes kappa undefined.
 
 Constructs `CaseResult`s directly so the test scope is the aggregation logic, not the
@@ -58,7 +58,7 @@ def test_repro_aggregate_perfect_agreement_yields_kappa_one():
 
 
 def test_repro_aggregate_trivially_passing_repro_raw_agreement_collapses_to_oracle_rate():
-    # The false-positive shape docs/swebench-solver-design.md §5 warns about: repro always says
+    # The false-positive shape docs/swebench/swebench-solver-design.md §5 warns about: repro always says
     # RESOLVED. Oracle passes 8 of 10 cases; raw agreement COLLAPSES TO THE ORACLE'S PASS RATE
     # (0.8) — a spurious "high" number anchored to how often the oracle happened to pass. But
     # Cohen's kappa is EXACTLY ZERO: chance-corrected agreement collapses because one marginal

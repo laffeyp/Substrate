@@ -53,14 +53,14 @@ class ArmReport:
 
     `model_ensemble_id` + `split_id` (sprint 154, ratified 2026-08-08) qualify the delta so a reader
     knows which (models, dataset split) the number belongs to — a delta is a property of
-    (topology, model, split), not the topology alone (Tran & Kiela; docs/benchmarking-design-round2.md).
+    (topology, model, split), not the topology alone (Tran & Kiela; docs/benchmarking/benchmarking-design-round2.md).
     Stable strings the run entrypoint reads from the pre-registration file; default empty strings so
     existing callers are unchanged and coding reports without an ensemble/split still print.
 
     `repro_2x2` + `repro_kappa` + `repro_agreement_rate` (sprint 158) aggregate the SWE-bench
     solver's reproduction verdict for the winning slot vs. the oracle's held-out grade — the number
     that decides whether the model-generated repro is a trustworthy tiebreak, per
-    docs/swebench-solver-design.md §5. The 2x2 keys `resolved_and_passed` /
+    docs/swebench/swebench-solver-design.md §5. The 2x2 keys `resolved_and_passed` /
     `resolved_and_failed` / `reproduced_and_passed` / `reproduced_and_failed` name the intersection
     of (repro verdict, oracle grade); `other`-verdict cells are EXCLUDED (they carry no signal for
     the tiebreak question). `repro_kappa` is Cohen's κ over the 2x2 (chance-corrected agreement —

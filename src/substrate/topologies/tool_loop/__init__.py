@@ -32,7 +32,7 @@ Extensions, both native to the substrate (not built here, but the shape is one T
     Producer `deterministic=False` (like `coding_flow`'s real gate). The run still produces a
     replayable record; it just is not byte-identical re-execution.
 
-These are worked out as topology sketches in `docs/tool-loop-futures.md`.
+These are worked out as topology sketches in `docs/tool-loop/tool-loop-futures.md`.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ _LOOP_DISCIPLINE = (
 # The tool registry lives in tools.py — PURE (the calculator) for the deterministic CI demo, plus
 # the real READ-ONLY and WRITE/EXEC suite a real agent passes in. CALCULATOR is the default so the
 # committed record stays byte-stable; a real run passes FULL_SUITE (deterministic=False). The suite
-# design is grounded in the source of opencode / Cline / aider — see docs/tool-loop-tool-suite.md.
+# design is grounded in the source of opencode / Cline / aider — see docs/tool-loop/tool-loop-tool-suite.md.
 
 
 class ToolCall(Struct, frozen=True):

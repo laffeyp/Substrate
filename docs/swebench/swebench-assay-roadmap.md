@@ -4,7 +4,7 @@
 
 Make SWE-bench a benchmark that **any substrate orchestration of the right shape** can be run against and measured — the same way `coding.py` already does for a firewalled coding benchmark. Not one bespoke solver. The substrate lets you build many different orchestrations (of any producers, models or not, mixed however); the assay layer runs all of them through one harness and measures how they differ.
 
-This realizes `docs/benchmarking-design-round1.md` (the "assay" layer) for SWE-bench specifically.
+This realizes `docs/benchmarking/benchmarking-design-round1.md` (the "assay" layer) for SWE-bench specifically.
 
 ## What already exists (verified, cite before trusting) — the harness is built
 

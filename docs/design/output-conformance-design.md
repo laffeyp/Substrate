@@ -1,6 +1,6 @@
 # Output-conformance probe — topology design (v1)
 
-*Status: architecture-band design. No code yet. Author: reviewer, 2026-08-09. Target: a general Substrate topology that measures whether a prompt intervention moves output measurably closer to a specified target property, on a fixed case set, under matched compute, graded by a stack of mechanical checks + a family-disjoint judge + a human ratification sample. Read `docs/benchmarking-design-round1.md` and `docs/benchmarking-design-round2.md` first; the assay contract there is what this topology consumes.*
+*Status: architecture-band design. No code yet. Author: reviewer, 2026-08-09. Target: a general Substrate topology that measures whether a prompt intervention moves output measurably closer to a specified target property, on a fixed case set, under matched compute, graded by a stack of mechanical checks + a family-disjoint judge + a human ratification sample. Read `docs/benchmarking/benchmarking-design-round1.md` and `docs/benchmarking/benchmarking-design-round2.md` first; the assay contract there is what this topology consumes.*
 
 *Provenance: motivated by a live question — does a specific `UserPromptSubmit` hook actually produce prose in a target register — but the question generalises. The interesting object is the topology, not any one hook. The register case is the first worked instance (§8); the topology takes the target and the grader as parameters (§5, §6).*
 

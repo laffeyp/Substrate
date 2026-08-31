@@ -1,7 +1,7 @@
 """SWE-bench external-grader Adapter — Sprint 5.
 
 Binds the assay layer's external-grader Oracle to the OFFICIAL swebench evaluation harness, per
-docs/swebench-bridge-mapping.md (reverse-engineered from the real princeton-nlp/SWE-bench source, pin
+docs/swebench/swebench-bridge-mapping.md (reverse-engineered from the real princeton-nlp/SWE-bench source, pin
 4.1.0). The harness grades by running each instance in Docker and writing a per-instance report.json
 with a `resolved` bool — an EXTERNAL, non-deterministic system, so this is an external-grader Oracle
 (run-and-observe, NOT replayable), exactly the class the design reserves for it (design §3).
@@ -324,7 +324,7 @@ def read_run_report(path: Path | str) -> dict[str, Any]:
     if schema != 2:
         raise ValueError(
             f"swebench run-report schema_version 2 expected; got {schema!r} — "
-            "re-verify docs/swebench-bridge-mapping.md against the pinned swebench"
+            "re-verify docs/swebench/swebench-bridge-mapping.md against the pinned swebench"
         )
     return data
 

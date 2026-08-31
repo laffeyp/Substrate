@@ -3,7 +3,7 @@
 Designed by reading the SOURCE of three reference agents (not blog summaries) — opencode's
 `packages/core/src/tool/`, Cline's `sdk/packages/core/src/extensions/tools/definitions.ts` +
 `apps/cli/src/runtime/tool-policies.ts`, and aider's `coders/editblock_coder.py` (findings in
-docs/tool-loop-tool-suite.md). The tool SHAPE is adopted from all three: a tool is a typed `name` +
+docs/tool-loop/tool-loop-tool-suite.md). The tool SHAPE is adopted from all three: a tool is a typed `name` +
 schema + an `execute` that returns a STRUCTURED result OR a typed failure the model reads (errors
 are observations, never a crash — the loop catches a tool exception OR a non-encodable return
 alike); output is CAPPED to protect the context; surgical `edit_file` (search/replace) is the
@@ -26,7 +26,7 @@ record byte-reproducible; real-I/O tools are `deterministic=False`.
   - WRITE/EXEC : edit_file, write_file, bash               (deterministic=False — mutates the host, ungated)
 
 A real agent topology passes `FULL_SUITE`; the committed CI demo uses `CALCULATOR` (pure) so the
-record stays replayable. NEXT (docs/tool-loop-tool-suite.md): per-tool msgspec input schemas; an
+record stays replayable. NEXT (docs/tool-loop/tool-loop-tool-suite.md): per-tool msgspec input schemas; an
 OPT-IN `pause_await_input` gate for operators who want one; a substrate-native `delegate` tool.
 
 SAFETY: `edit_file`/`write_file`/`bash` mutate the host — by design, ungated by default. An operator

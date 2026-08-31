@@ -11,7 +11,7 @@ Read in full for this review:
 - Substrate package surface: `README.md`, `src/substrate/api.py`, `types.py`, `protocols.py`, `kernel/topology.py`.
 - The topology under review: every file in `src/substrate/topologies/swebench_solver/` (`__init__.py`, `records.py`, `localize.py`, `localize_elements.py`, `repair.py`, `applier.py`, `reproduction.py`, `repro_base_validate.py`, `select.py`, `select_regression.py`, `select_exec.py`, `select_docker.py`, `assemble.py`).
 - The assay wiring: `src/substrate/assay/swebench.py`, `swebench_workspace.py`, `swebench_suite.py`, `swebench_matrix.py`, `swebench_host.py`, `swebench_agent.py`, `swebench_container.py`.
-- Design docs: `docs/swebench-solver-design.md`, `docs/swebench-close-the-loop-roadmap.md` (round 3), `docs/swebench-assay-roadmap.md`, `docs/swebench-bridge-mapping.md`.
+- Design docs: `docs/swebench/swebench-solver-design.md`, `docs/swebench/swebench-close-the-loop-roadmap.md` (round 3), `docs/swebench/swebench-assay-roadmap.md`, `docs/swebench/swebench-bridge-mapping.md`.
 - Confirmatory runner: `scripts/assay_swebench_confirmatory.py`.
 
 Load-bearing claims re-verified against the code by targeted grep before writing.
@@ -124,7 +124,7 @@ Fix. A module-level frozen namespace whose attributes are the view-name literals
 
 ### F11 — Comparator model ids in the roadmap do not resolve to shipped names
 
-`docs/swebench-close-the-loop-roadmap.md:135` names `kimi-k2.6, glm-5.1, nemotron-3-super` as the "R-19 thinking trio" for the ensemble arm. Kimi K2, GLM-4, and Nemotron-4-340B are shipped and pullable; k2.6, glm-5.1, and nemotron-3-super are not names I can resolve to anything in the public model catalogues or on Ollama. Sprint 160-pass1's `SWEBENCH_MODELS` requires the caller to supply names, so this is not a runtime bug; it is a documentation issue that will bite whoever fills in the pre-registration. Fix by verifying against `ollama pull` (or the equivalent registry) before the pre-reg commits.
+`docs/swebench/swebench-close-the-loop-roadmap.md:135` names `kimi-k2.6, glm-5.1, nemotron-3-super` as the "R-19 thinking trio" for the ensemble arm. Kimi K2, GLM-4, and Nemotron-4-340B are shipped and pullable; k2.6, glm-5.1, and nemotron-3-super are not names I can resolve to anything in the public model catalogues or on Ollama. Sprint 160-pass1's `SWEBENCH_MODELS` requires the caller to supply names, so this is not a runtime bug; it is a documentation issue that will bite whoever fills in the pre-registration. Fix by verifying against `ollama pull` (or the equivalent registry) before the pre-reg commits.
 
 ### F12 — The confirmatory writeup obligations don't include SoTA baseline
 

@@ -57,7 +57,7 @@ these through repair machinery trips a red bar in CI.
 
 This turns the assay roadmap's central claim — *any topology of the right
 shape is a valid SWE-bench arm* — from a docstring at
-`docs/swebench-assay-roadmap.md:5-8` into two working arms of structurally
+`docs/swebench/swebench-assay-roadmap.md:5-8` into two working arms of structurally
 different topologies. It is the largest engineering-to-signal move the
 holistic review ranked, and it shipped.
 
@@ -265,7 +265,7 @@ unshipped.
 `kernel/composition.py:84` still houses `embedded_substrate` — the
 substrate-as-Producer primitive designed to factor a shared sub-topology
 across three consumers (`swebench_solver`, `coding_flow`, `code_evolution`).
-The round-3 solver design at `docs/swebench-solver-design.md:82-86` called
+The round-3 solver design at `docs/swebench/swebench-solver-design.md:82-86` called
 this out explicitly: best-of-N + correction loop is duplicated across the
 three topologies today; factoring via `embedded_substrate` would give one
 contract. No consumer has appeared. This is the largest Substrate-primitive
@@ -418,5 +418,5 @@ the shape a healthy application takes when the substrate under it is real.
 `process/BLACKBOARD.md ## Surfaced for review` and `## Decisions`
 (2026-08-10 and 2026-08-11 entries);
 `docs/NORTH-STAR-2026-08-10-v5.md`;
-`docs/swebench-assay-roadmap.md`;
+`docs/swebench/swebench-assay-roadmap.md`;
 `sdd-kit-2/AGENTS.md`.*

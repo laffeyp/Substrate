@@ -3,7 +3,7 @@
 The file-level localizer at `localize.py` names the SUSPECT FILES; this module reads those files
 and enumerates their AST elements (top-level functions + methods on classes), so the Repairer's
 `edit_context` can be trimmed from "the whole suspect file" to "just the classes/functions the
-model might need to touch" (Agentless-style, per docs/swebench-solver-design.md §5). Additive
+model might need to touch" (Agentless-style, per docs/swebench/swebench-solver-design.md §5). Additive
 alongside the file-level path — the roadmap card scopes it as an ablation arm, not a replacement.
 The existing `SuspectElements` record (records.py:51-55) has been defined-but-unemitted since
 sprint 138; this module is what emits it.

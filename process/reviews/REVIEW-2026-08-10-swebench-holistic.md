@@ -31,7 +31,7 @@ topology using typed events, producers, views, triggers, a watchdog, and the
 `SelectedPatch` output the assay grader consumes. The assay Suite/Arm/Case
 scaffolding sits on `assay/suite.py`'s generic primitives. The bridge to the
 external `swebench` package is documented at
-`docs/swebench-bridge-mapping.md` with a runtime `verify_constants` check. The
+`docs/swebench/swebench-bridge-mapping.md` with a runtime `verify_constants` check. The
 Oracle taxonomy is honored — SWE-bench grades run through `ExternalGraderOracle`
 with `replayable=False`. The v3 design routes vocabulary changes through the
 proper SDD halts. Pre-registration exists and gates the runner. The firewall is
@@ -73,7 +73,7 @@ and the whole assay `Suite/Arm/Case` shape.
 
 The SWE-bench work does not use: `embedded_substrate` (the nested-topology
 composition that the round-3 solver design at
-`docs/swebench-solver-design.md:82-86` explicitly said would factor the "best-of-N
+`docs/swebench/swebench-solver-design.md:82-86` explicitly said would factor the "best-of-N
 plus correction loop" once for three consumers, `coding_flow`, `swebench_solver`,
 and `code_evolution`); `attach`/`LiveRecord` for observing a running run;
 `explain_producer` or `first_divergence` for post-run debugging; `run_graph` /
@@ -136,7 +136,7 @@ by one. They read as five decisions when they are one parameter table. This
 matters because a new arm — say, a `tool_loop`-based arm — needs a new
 factory in a file dedicated to variants of the same topology, which is exactly
 the wrong signal for "any topology of the right shape is a valid arm" (the
-North Star's assay-roadmap claim at `docs/swebench-assay-roadmap.md:28-32`).
+North Star's assay-roadmap claim at `docs/swebench/swebench-assay-roadmap.md:28-32`).
 
 The right move: one `swebench_repair_arm(name, role, *, models, n, max_rounds)`
 factory, plus a data table naming the five current arms. Every future SWE-bench
@@ -282,7 +282,7 @@ against the budget.
 
 ### 8. The North Star claim of topology-agnostic assay is not being executed
 
-`docs/swebench-assay-roadmap.md:5-8` says the goal is "make SWE-bench a
+`docs/swebench/swebench-assay-roadmap.md:5-8` says the goal is "make SWE-bench a
 benchmark that any substrate orchestration of the right shape can be run
 against and measured — the same way `coding.py` already does for a firewalled
 coding benchmark. Not one bespoke solver."
@@ -469,7 +469,7 @@ Finding 6 landed.
 
 **9. Consider factoring `swebench_repair_topology`'s "best-of-N plus
 correction loop" as an `embedded_substrate` sub-topology.** The round-3
-solver design at `docs/swebench-solver-design.md:82-86` says this shape is
+solver design at `docs/swebench/swebench-solver-design.md:82-86` says this shape is
 consumed by three topologies (`swebench_solver`, `coding_flow`,
 `code_evolution`). Factoring it via `embedded_substrate` (the
 `kernel/composition.py:84` primitive designed exactly for this) removes the
@@ -507,10 +507,10 @@ than parameterized variants of the same topology.
 `docs/DESIGN-2026-08-10-swebench-confirmatory-revert.md`,
 `docs/POSTMORTEM-2026-08-10-swebench-topology-drift.md`,
 `docs/NORTH-STAR-2026-08-10-v5.md`,
-`docs/swebench-first-principles-2026-08-09.md`,
-`docs/swebench-solver-design.md`,
-`docs/swebench-close-the-loop-roadmap.md`,
-`docs/swebench-assay-roadmap.md`,
+`docs/swebench/swebench-first-principles-2026-08-09.md`,
+`docs/swebench/swebench-solver-design.md`,
+`docs/swebench/swebench-close-the-loop-roadmap.md`,
+`docs/swebench/swebench-assay-roadmap.md`,
 `docs/adding-a-topology.md`,
 `docs/review/REVIEW-2026-08-10-swebench-confirmatory-revert-v2.md`,
 `docs/review/REVIEW-2026-08-09-sdd-conformance-swebench-additions.md`,

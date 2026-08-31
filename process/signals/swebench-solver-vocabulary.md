@@ -13,7 +13,7 @@ coding_flow's), registered in `process/WORKING_AGREEMENT.md`; this doc locks the
 dual-contract audit, the shared-sub-topology reconciliation (review #57), and (v0.2) the general assay
 Result closed sets that the SWE-bench oracle raises. Strict validator-extras (project posture).
 
-Design: `docs/swebench-solver-design.md`. Vanilla non-agentic solver: LOCALIZE -> REPAIR -> SELECT.
+Design: `docs/swebench/swebench-solver-design.md`. Vanilla non-agentic solver: LOCALIZE -> REPAIR -> SELECT.
 
 ## A. The SHARED best-of-N + correction contract (reused, NOT re-rolled — review #57, finding 12)
 
@@ -89,7 +89,7 @@ these (#24/#38), flask-4045 seeded.
 
 - The shared loop's terminal/collect-vs-stop policy — sprint 4 (extraction), a topology parameter.
 - The in-container SELECT test-execution is a NEW bridge (#32/#46) — its bridge mapping is sprint 6,
-  distinct from the grade-harness mapping in `docs/swebench-bridge-mapping.md`.
+  distinct from the grade-harness mapping in `docs/swebench/swebench-bridge-mapping.md`.
 - `EditTarget` as a typed Struct vs the `list[str]` shorthand — `list[str]` for v1 (minimal-complete #6);
   promote to a Struct only if a downstream consumer needs structured fields.
 - Sprint 5 (the Repairer): swebench packs spec + edit-targets (from the `EditLocations` view) + prior

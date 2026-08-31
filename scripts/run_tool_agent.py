@@ -1,6 +1,6 @@
 """Run the tool-loop agent: a real local Ollama model driving substrate's tool loop.
 
-The runnable entrypoint for `docs/tool-loop-agent.md`. Give it a task and a model; it runs the
+The runnable entrypoint for `docs/tool-loop/tool-loop-agent.md`. Give it a task and a model; it runs the
 `tool_loop` topology in walkthrough mode with the real tool suite, then prints what the model did
 (the ToolCalls / ToolResults / FinalAnswer) and where the full replayable record landed.
 
@@ -12,7 +12,7 @@ Examples:
         --task "List the .py files under {workdir} and tell me how many there are."
 
 SAFETY: without --read-only the suite includes edit_file / write_file / bash, which mutate the host
-and are UNGATED (see docs/tool-loop-agent.md §5). Point --workdir at a scratch directory.
+and are UNGATED (see docs/tool-loop/tool-loop-agent.md §5). Point --workdir at a scratch directory.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 # Substrate as a tool: Producers that author and run topologies
 
-The tool-using loop (`docs/tool-loop-futures.md`) treats a tool as a leaf — a function the model
+The tool-using loop (`docs/tool-loop/tool-loop-futures.md`) treats a tool as a leaf — a function the model
 calls. This document is about the advanced case: a tool whose execution **is another substrate
 run**, and beyond that, a Producer that **authors a new topology** at runtime and runs it. The
 substrate stops being only the thing that runs agents and becomes a thing agents *use*.

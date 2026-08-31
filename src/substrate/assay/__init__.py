@@ -3,7 +3,7 @@ benchmark, distinct from the runtime's intrinsic validation (conformance / repla
 which prove the wiring runs, not that a topology beats a baseline).
 
 Working name "assay" (a test of worth); the package name is provisional pending the vocabulary
-session (docs/benchmarking-design-round1.md §8.4). Sprint 2 ships the Oracle taxonomy; later sprints
+session (docs/benchmarking/benchmarking-design-round1.md §8.4). Sprint 2 ships the Oracle taxonomy; later sprints
 add the control-ran conformance check and the control plane (Suite / Arm / Trial / Report).
 
 Application-layer: this package imports the public surface (substrate.api) and the model seam

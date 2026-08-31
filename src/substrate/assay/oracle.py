@@ -1,7 +1,7 @@
 """The Oracle taxonomy — Sprint 2 of the objective-validation ("assay") layer.
 
 An Oracle grades ONE inner run (an Arm's run on a Case) against that Case's ground truth and returns
-a typed Result. The round-1 design (docs/benchmarking-design-round1.md §3) splits Oracles into two
+a typed Result. The round-1 design (docs/benchmarking/benchmarking-design-round1.md §3) splits Oracles into two
 classes, and the split is load-bearing for honesty:
 
   - LogProjectionOracle — grades by reading a typed terminal-state value off the inner RECORD and
