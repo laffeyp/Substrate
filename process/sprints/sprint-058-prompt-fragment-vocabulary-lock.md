@@ -3,9 +3,11 @@
 ```yaml
 ---
 id: 058
-status: open
+status: closed
 phase: 8
 pass_kind: vocabulary
+closed_at: 2026-09-01
+closed_by: substrate main HEAD after this card
 ---
 ```
 

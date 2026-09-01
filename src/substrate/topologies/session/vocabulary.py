@@ -33,6 +33,10 @@ SESSION_END_REQUESTED = "SessionEndRequested"
 TRANSCRIPT_COMPACTED = "TranscriptCompacted"
 SESSION_WARNING = "SessionWarning"
 
+# v0.2 additions (session-vocabulary.md § I, sprint 058, 2026-09-01).
+PROMPT_FRAGMENT = "PromptFragment"
+PROMPT_COMPOSED = "PromptComposed"
+
 
 SESSION_KINDS: frozenset[str] = frozenset(
     {
@@ -44,8 +48,43 @@ SESSION_KINDS: frozenset[str] = frozenset(
         SESSION_END_REQUESTED,
         TRANSCRIPT_COMPACTED,
         SESSION_WARNING,
+        PROMPT_FRAGMENT,
+        PROMPT_COMPOSED,
     }
 )
+
+
+# v0.2 additions — `PromptSource` enum values for `PromptFragment.source`.
+# String enum (not `enum.Enum`) so the wire representation is the string itself;
+# msgspec serializes without extra glue. Extending the enum bumps the session
+# vocabulary version (v0.2 → v0.2.1 → v0.3 as sources land).
+PROMPT_SOURCE_PER_TURN = "per_turn"
+PROMPT_SOURCE_ROLE = "role"
+PROMPT_SOURCE_BUNDLE_METHODOLOGY = "bundle_methodology"
+PROMPT_SOURCE_BUNDLE_PERSONALITY = "bundle_personality"
+PROMPT_SOURCE_PARENT_CONTEXT = "parent_context"
+PROMPT_SOURCE_TOOLS_SUITE = "tools_suite"
+PROMPT_SOURCE_USER_MESSAGE = "user_message"
+
+
+PROMPT_SOURCES: frozenset[str] = frozenset(
+    {
+        PROMPT_SOURCE_PER_TURN,
+        PROMPT_SOURCE_ROLE,
+        PROMPT_SOURCE_BUNDLE_METHODOLOGY,
+        PROMPT_SOURCE_BUNDLE_PERSONALITY,
+        PROMPT_SOURCE_PARENT_CONTEXT,
+        PROMPT_SOURCE_TOOLS_SUITE,
+        PROMPT_SOURCE_USER_MESSAGE,
+    }
+)
+
+
+def is_prompt_source(source: str) -> bool:
+    """Whether `source` is one of the seven v0.2 PromptSource enum values.
+    Callers use this the way `is_session_kind` gates kind names — at the
+    fragment producer's yield seam, not deep in the composer body."""
+    return source in PROMPT_SOURCES
 
 
 def is_session_kind(kind: str) -> bool:
@@ -58,6 +97,16 @@ def is_session_kind(kind: str) -> bool:
 __all__ = [
     "MODEL_REPLY",
     "PARK",
+    "PROMPT_COMPOSED",
+    "PROMPT_FRAGMENT",
+    "PROMPT_SOURCES",
+    "PROMPT_SOURCE_BUNDLE_METHODOLOGY",
+    "PROMPT_SOURCE_BUNDLE_PERSONALITY",
+    "PROMPT_SOURCE_PARENT_CONTEXT",
+    "PROMPT_SOURCE_PER_TURN",
+    "PROMPT_SOURCE_ROLE",
+    "PROMPT_SOURCE_TOOLS_SUITE",
+    "PROMPT_SOURCE_USER_MESSAGE",
     "SESSION_ENDED",
     "SESSION_END_REQUESTED",
     "SESSION_KINDS",
@@ -65,5 +114,6 @@ __all__ = [
     "SESSION_WARNING",
     "TRANSCRIPT_COMPACTED",
     "USER_MESSAGE",
+    "is_prompt_source",
     "is_session_kind",
 ]

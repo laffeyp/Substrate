@@ -1,5 +1,7 @@
 # session — locked topology vocabulary
 
+**Status: RATIFIED — v0.2 (2026-09-01).** Sprint 058 adds two application event kinds — `PromptFragment` and `PromptComposed` — plus the `PromptSource` enum for `PromptFragment.source`. Additive per the § H convention: §§ A-H byte-preserved from v0.1; the new material lives in § I. Ratifies the SDD entry gate for the prompt-composition arc (sprints 058-066) that rebuilds prompt composition as Producer emissions instead of inline string concatenation.
+
 **Status: RATIFIED — v0.1 (2026-08-25).** Architect ratified in `substrate/process/BLACKBOARD.md ## Decisions` on 2026-08-25 (see the entry naming this doc + sprint 202 close). Locks the eight application event kinds the daily-driver session topology emits per `TECH-SPEC-2026-08-25-round6.md` §3 + §3a. Sprint 203 (substrate-ui side v0.6 lock + pairing) dispatches on this ratification; sprint 204 (canonical-home registry + piece-0 close) follows.
 
 Designed BEFORE code (Sprint-0 discipline per sdd-kit-2 hard rule 12). The topology records are frozen msgspec Structs, topology-local, registered in `substrate/process/WORKING_AGREEMENT.md`; this doc locks their fields, the §G dual-contract audit against substrate-ui grader tags (sprint 203), and the cadence rules for ambient kinds. Strict validator-extras (project posture).
@@ -165,5 +167,58 @@ Every row's UI target must exist in `substrate-ui/signals/versions/0.6.json` at 
 ## H. Ratification signature
 
 - **v0.1** — Sprint 202 close, 2026-08-25. Locks the eight session-topology kinds ahead of piece A (sprint 205 authors the Structs). Architect ratifies in `substrate/process/BLACKBOARD.md ## Decisions` — the Decision entry unblocks piece A dispatch per sprint 204.
+- **v0.2** — Sprint 058 close, 2026-09-01. Adds two kinds (`PromptFragment`, `PromptComposed`) and the seven-value `PromptSource` enum. Additive; §§ A-H byte-preserved from v0.1. Structs live at `substrate/src/substrate/topologies/session/__init__.py`; kind-name constants at `substrate/src/substrate/topologies/session/vocabulary.py`.
 
-*Additions follow the swebench-solver-vocabulary pattern: bump the header status to `RATIFIED — v0.X`, add a new lettered section at the bottom, byte-preserve §§ A-H. Never re-flow.*
+*Additions follow the swebench-solver-vocabulary pattern: bump the header status to `RATIFIED — v0.X`, add a new lettered section at the bottom, byte-preserve prior sections. Never re-flow.*
+
+## I. v0.2 — prompt composition (2026-09-01, sprint 058)
+
+Two Structs and one enum name the fragment / composer shape the prompt-composition arc (sprints 058-066) rebuilds around. Motivation: every existing composition site (`session/__init__.py::_model_factory` at ~L301/L334/L349, `session/transcript.py::_render`, `tool_loop/delegate.py::_prefix_context_slice`) builds prompt text via inline f-string or `"\n\n".join(parts)`. The composed prompt reaches the model but leaves zero record trace. Replay cannot reconstruct which fragment came from where; `record diff` cannot show a fragment-level change; a View cannot count fragments per session or measure tokens per source. Two typed events fix that at the primitive layer, without adding kernel vocabulary.
+
+### PromptFragment
+
+Emitted by each fragment-source Producer (sprints 060-064). One per source per relevant firing: session-open sources fire once at `substrate.RunStarted`; turn-scoped sources fire once per relevant turn.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `source` | `str` | One of the seven `PromptSource` values below. Identifies which producer emitted this fragment. |
+| `text` | `str` | The fragment contents, as the model will read them. Verbatim. |
+| `precedence` | `int` | Composer ordering key. Lower fires earlier in the composed text. Reserved band: `role=0`, `bundle_personality=3`, `bundle_methodology=5-9`, `per_turn=10`, `wrap_up=15`, `tools_suite=20`, `parent_context=30`, `user_message=100`. |
+| `provenance` | `dict[str, Any]` | Source-specific audit trail. `role`: `{"role_name": <str>, "resolved_from": <path>}`. `bundle_*`: `{"bundle_name": <str>, "extends_chain": [<names>]}` or `{"chain_position": <int>}`. `parent_context`: `{"parent_record_root": <str>, "parent_seq_range": [lo, hi], "kinds": [...]}`. `per_turn`, `tools_suite`, `user_message`: `{}` or small source-specific dicts. Not typed further at this layer; the source's own tests pin its provenance shape. |
+
+Stratum: **event**. Multiple per session (one per source per firing); zero when a source's input is empty (empty per_turn, no bundle, no parent context).
+
+### PromptComposed
+
+Emitted by the composer Producer (sprint 059) exactly once per model firing. Carries the assembled prompt plus the seq references of every fragment that composed it, so a reader can trace back through the record without re-executing the composition.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `text` | `str` | The assembled prompt the model receives. Bytes-identical to what the driver reads. |
+| `fragment_seqs` | `tuple[int, ...]` | Seq of every `PromptFragment` that composed into `text`, in composition order (lowest precedence first). Empty tuple when the cohort was empty (`text == ""`). |
+| `total_tokens` | `int` | Estimated token count of the composed text (chars/4 heuristic per `transcript.py`). |
+| `strategy` | `str` | `"precedence_join"` in v0.2. Leaves room for a v0.3 template strategy. |
+
+Stratum: **event**. Exactly one per model firing anchor (per turn in the common case; the wrap-up path may fire the composer a second time on the same turn — sprint 064 pins the choice).
+
+### PromptSource enum
+
+Seven string values name the initial fragment sources. Extending the enum bumps the session vocabulary version (v0.2 → v0.2.1 → v0.3 as sources land in sprints 060-064). Kind-name constants at `session/vocabulary.py`.
+
+| Value | Meaning |
+|---|---|
+| `per_turn` | Manifest `per_turn` string, session-scoped, precedence 10. Sprint 060 wires. |
+| `role` | Four-layer role prompt (`session/roles.py::resolve_role_prompt`), session-scoped, precedence 0. Sprint 061 wires. |
+| `bundle_methodology` | Bundle methodology slot text (walking the extends chain), session-scoped, precedence 5.0-5.9. Sprint 062 wires. |
+| `bundle_personality` | Bundle personality slot (caller-wins across extends chain), session-scoped, precedence 3. Sprint 062 wires. |
+| `parent_context` | Delegate context slice from parent record, session-scoped, precedence 30. Sprint 063 wires. |
+| `tools_suite` | `suite_describe(tools)` output, session-scoped, precedence 20. Sprint 064 wires. |
+| `user_message` | Current turn's UserMessage text, turn-scoped, precedence 100. Sprint 064 wires (uniform shape). |
+
+### Cadence
+
+`PromptFragment` fires at its source's own trigger anchor (`substrate.RunStarted` for session-scoped sources; `UserMessage` for turn-scoped sources). `PromptComposed` fires on the model producer's input anchor, after the current turn's fragment cohort has landed. Grader invariant: every `PromptComposed{seq=S}` at model firing M has `fragment_seqs` containing only fragments whose seq is strictly less than S; the composition is causal.
+
+### Dual-contract audit (v0.6 substrate-ui pairing not yet authored)
+
+The § G table (v0.1) pairs every substrate session kind with a substrate-ui grader tag. The v0.2 pair extends by two rows once sprint 059 lands a live emit site: `PromptFragment` pairs with a UI tag TBD when composer telemetry surfaces in the console; `PromptComposed` pairs with a UI tag TBD when the prompt inspector surfaces. Both are companion-sprint work on the substrate-ui side; not blocking for v0.2 ratification.

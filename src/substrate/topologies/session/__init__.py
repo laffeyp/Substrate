@@ -119,6 +119,28 @@ class SessionWarning(Struct, frozen=True):
     driver_context_tokens: int
 
 
+# v0.2 additions (session-vocabulary.md § I, sprint 058, 2026-09-01). Two Structs
+# name the fragment/composer shape the prompt-composition arc rebuilds around.
+# `PromptFragment` is emitted by each fragment-source Producer (sprints 060-064);
+# `PromptComposed` is emitted by the composer Producer (sprint 059) once per
+# model firing, carrying the assembled prompt plus fragment provenance so a
+# record reader can trace which fragments composed each turn.
+
+
+class PromptFragment(Struct, frozen=True):
+    source: str  # one of session/vocabulary.py::PROMPT_SOURCES
+    text: str
+    precedence: int
+    provenance: dict[str, Any]
+
+
+class PromptComposed(Struct, frozen=True):
+    text: str
+    fragment_seqs: tuple[int, ...]
+    total_tokens: int
+    strategy: str  # "precedence_join" in v0.2
+
+
 # Sprint 209a wires the four core producer bodies. The model producer reads the
 # just-appended UserMessage / ToolResult and yields ToolCall / ModelReply / FinalAnswer.
 # The tool producer is verbatim from `tool_loop` — same tool seam, same error-as-observation
@@ -791,6 +813,8 @@ __all__ = [
     "ModelFailures",
     "ModelReply",
     "Park",
+    "PromptComposed",
+    "PromptFragment",
     "RenderedTranscript",
     "SessionEnded",
     "SessionEndRequested",
