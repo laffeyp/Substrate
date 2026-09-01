@@ -44,6 +44,7 @@ from typing import Any
 
 from ... import api
 from ...adapters import DeterministicResponder, OllamaResponder, Responder
+from ...session_registry import SessionEndedMidTurn, SessionRegistry
 from .tools import Tool, full_suite
 
 
@@ -345,7 +346,10 @@ def make_delegate(
     # Sprint 212 added the daemon-injected fields; sprint 213a wires paths 2/3/4
     # against them and stubs path 1 for sprint 213b. Every kwarg defaults None so
     # every existing `make_delegate(...)` call in the tree keeps working.
-    session_registry: Any = None,
+    # Sprint 054 phase C: retyped `Any` -> `SessionRegistry | None` after the
+    # registry moved into substrate (was substrate-ui-side, F-API-6 forbade the
+    # import from here, hence the Any escape hatch — no longer needed).
+    session_registry: "SessionRegistry | None" = None,
     parent_session_id: str | None = None,
     parent_record_root: Path | None = None,
     # Sprint 213a: path 2 needs a caller-supplied string → Responder resolver. The
@@ -489,17 +493,15 @@ def make_delegate(
                 _final_manifest, reviewer_root = session_registry.turn_sync(
                     resolved, resume_event, timeout_seconds=per_call_timeout
                 )
-            except Exception as exc:
-                # SessionEndedMidTurn lives in substrate-ui/session_registry.py;
-                # F-API-6 forbids substrate from importing that module. Duck-typed
-                # catch on the class name is the least-bad guard under the
-                # constraint (review finding 15). Any rename of the exception on
-                # the substrate-ui side must be paired with an update here.
-                if type(exc).__name__ == "SessionEndedMidTurn":
-                    raise ValueError(
-                        f"delegate: {SESSION_ENDED_MID_DELEGATE} ({per_call_session_name!r}): {exc}"
-                    ) from exc
-                raise
+            except SessionEndedMidTurn as exc:
+                # Sprint 054 phase C: the exception is imported directly now
+                # that SessionRegistry lives in substrate. The pre-054 hack —
+                # `if type(exc).__name__ == "SessionEndedMidTurn"` with a
+                # bare `Exception` catch — was the workaround for the wrong
+                # side of the F-API-6 boundary. Real typed catch replaces it.
+                raise ValueError(
+                    f"delegate: {SESSION_ENDED_MID_DELEGATE} ({per_call_session_name!r}): {exc}"
+                ) from exc
             # The reviewer's tail FinalAnswer for THIS TURN — scoped to seqs
             # strictly greater than the pre-turn tail snapshot (review finding 2).
             # A pre-existing FinalAnswer from an earlier turn cannot masquerade
