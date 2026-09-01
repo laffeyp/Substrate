@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 188 (roadmap v2 S2 part 2 of 2): `swebench_repair` is registered in
 `topologies/bundled.py`; the committed CI record round-trips.
 

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Input sealing — immutability by construction (technical §8.3)."""
 
 from types import MappingProxyType

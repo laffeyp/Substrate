@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 212 — every existing `make_delegate(...)` call still works.
 
 The sprint adds three new optional constructor kwargs (`session_registry`,

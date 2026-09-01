@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 229 — bundles.py loader + extends chain + seed assembler.
 
 Every case from the card's assertions block + a byte-comparable

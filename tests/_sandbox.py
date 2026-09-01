@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 052 sandbox scaffold — Layer 1 + Layer 2 helpers for live-model
 tool tests.
 

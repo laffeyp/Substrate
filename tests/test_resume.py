@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Persistent pause/resume (F-TERM-3 / F-PERS-2): a run pauses on pause_await_input,
 the process/Runtime is discarded, and a FRESH Runtime.resume() reattaches to the existing
 record, restores next_seq from the log tail, injects the external resume event so the

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Named constants and the reserved lifecycle vocabulary.
 
 Defaults are the technical spec §19 table; all are configurable at `Runtime(...)`

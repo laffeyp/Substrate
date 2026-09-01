@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Suite / Case / Arm — what an assay run executes (Sprint 4 inputs).
 
 A Suite is the PRE-REGISTERED benchmark: a frozen Case set, the Arm matrix (the control comparison),

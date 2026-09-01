@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Conway's Game of Life — a tick-based simulation (Wave 15).
 
 The canonical cellular automaton as a Substrate topology, and the shape the "simulation"

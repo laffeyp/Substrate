@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Security regression: a crafted record's $blob field must NOT path-traverse (review #20).
 
 The reviewer's PoC: a record carrying `{"input_blob": {"$blob": "sha256:../../<abs path>"}}`

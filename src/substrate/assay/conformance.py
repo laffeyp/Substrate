@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The control-ran conformance check — Sprint 3, the anti-cargo-cult enforcement surface.
 
 The round-1 design (§4.1) requires a reported result to be a delta against a control that ACTUALLY

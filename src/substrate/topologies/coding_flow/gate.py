@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The deterministic core of the coding-flow topology: parse a candidate's artifacts, write them to
 a throwaway sandbox, run the task's GATE command, and return a normalized verdict.
 

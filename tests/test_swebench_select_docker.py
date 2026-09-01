@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Unit tests for the non-Docker parts of select_docker (the image name + the firewall-keeping regression
 command). The real DockerTestRunner.run is verified by scripts/docker_runner_smoke.py against a live image."""
 

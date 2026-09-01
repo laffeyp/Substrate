@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 051 — Ollama silently truncates a prompt larger than num_ctx.
 
 Regression pin for the mismatch surfaced by the sprint 050 audit: our

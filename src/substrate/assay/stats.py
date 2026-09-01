@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Corrected statistics for the assay Report (external-review folds).
 
 Replaces "collapse k trials to a boolean, feed McNemar, accept the null on non-significance" — which

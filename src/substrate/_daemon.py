@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """HTTP client for the substrate daemon. Piece D sprint 218.
 
 Every CLI verb POSTs to `~/.substrate/daemon.sock` (UDS) with fallback to

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """EnsembleResponder — sprint 157b.
 
 Pins round-robin cycling across N backends on both the sync and async paths, the metered

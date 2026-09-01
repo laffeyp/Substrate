@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 052 — web_fetch tool comprehension via stubbed urlopen
 (Layer 1). No real network reaches the wire while the test runs.
 

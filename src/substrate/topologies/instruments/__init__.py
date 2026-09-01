@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Reusable conversation instruments (Wave 13, lifted from the recursive_strategy_refinment
 precursor's `instruments/`).
 

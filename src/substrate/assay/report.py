@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Report + paired statistics — Sprint 4 output.
 
 Per-Arm pass-rate over the Suite; each non-control Arm compared to the control by an EXACT McNemar

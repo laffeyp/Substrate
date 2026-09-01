@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Repair instrument — other-initiated repair as an emergence move.
 
 Conversation analysis (Schegloff) names other-initiated repair: an interlocutor flags that the

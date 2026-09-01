@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 224b — four shipped applications land BUNDLED CI-mode factories.
 
 Every entry runs deterministic, finalises without a terminal error, and

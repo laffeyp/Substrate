@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Role-prompt resolver — the four-layer fallback per TECH-SPEC §1.6.5.
 
 Resolution order for `<role>`:

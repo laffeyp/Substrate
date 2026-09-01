@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 208.5 — live /api/show driver-context lookup against the local Ollama daemon.
 
 The unit tests at `test_render_ollama_context_lookup.py` monkey-patch `httpx` so

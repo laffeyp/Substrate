@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 142 — firewall_check parses test ids and MUST fail closed on unparseable ones.
 
 The unittest/django test-id branch (matching `test_func (module.sub.Class)`) previously returned

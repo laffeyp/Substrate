@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 226 — substrate toolkit: run_topology + run_topology_poll.
 
 Two tools, two behaviors each: sync (await_completion=true) returns

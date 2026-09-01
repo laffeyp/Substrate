@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """best_of_n — the reusable best-of-N + correction loop (Wave-0 shared sub-topology, sprint 136).
 
 Generalizes coding_flow's pattern: a seeder fans out N Drafts; each Candidate is validated by a

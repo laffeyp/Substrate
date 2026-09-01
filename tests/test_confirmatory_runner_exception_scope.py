@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Regression pin for Sprint 169 (F2 fold), updated Sprint 199b: the cell-execution
 catch stays narrowed to `Exception`, never widened back to `BaseException`.
 

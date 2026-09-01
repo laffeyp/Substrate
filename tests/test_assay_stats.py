@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Corrected statistics — pass^k, paired bootstrap Δ-CI, TOST equivalence, BH-FDR.
 
 Deterministic (the bootstrap is seeded, so the Report is repeatable). These pin the properties the

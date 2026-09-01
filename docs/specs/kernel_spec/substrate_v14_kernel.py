@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """
 substrate_v14_kernel.py — minimal executable kernel of the v14 revision
 (sections 1 and 2 of substrate-v14-kernel-revision.md), run against the

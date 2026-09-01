@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Agency assay scorer — score the trajectory, not the artifact (RESEARCH R-13/R-16).
 
 Reproduce-then-kill for `score_agency`: each trajectory SHAPE must land the right label + score, and

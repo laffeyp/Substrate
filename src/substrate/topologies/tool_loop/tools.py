@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """tool_loop's tool suite — the real tools a tool-using agent has available (Wave 14b).
 
 Designed by reading the SOURCE of three reference agents (not blog summaries) — opencode's

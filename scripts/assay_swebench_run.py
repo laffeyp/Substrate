@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Run a REAL model over a SET of SWE-bench instances spanning multiple repos — the actual benchmark,
 no answers handed over. Reports, honestly: which instances could even be ATTEMPTED (the per-repo setup
 must succeed — non-pytest repos like django RAISE today), which RESOLVED, and what broke. This is the

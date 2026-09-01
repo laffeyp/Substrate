@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Standard Views — deterministic incremental projections over the bus (F-VIEW-2).
 
 Each declares a Subscription; the writer's subscription index consults a View only on

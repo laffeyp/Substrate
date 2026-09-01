@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 052 — bash tool comprehension via macOS sandbox-exec (Layer 2).
 
 The `bash` tool is the highest-risk surface in the suite: a full shell,

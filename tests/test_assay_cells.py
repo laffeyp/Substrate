@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Cells-file reconstruction — sprint 152 `assay_kind` dispatch.
 
 Pins the two branches of `suite_from_meta`: the pre-152 `"coding"` shape reads exactly as it did

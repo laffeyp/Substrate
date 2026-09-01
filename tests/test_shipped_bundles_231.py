@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 231 — five default bundles ship + load through bundles.load_bundle."""
 
 from __future__ import annotations

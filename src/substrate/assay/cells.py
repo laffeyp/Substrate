@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """A cells JSONL (+ its `.meta.json`) -> an assay Report — the canonical "read a finished assay run"
 seam, so the CLI (`scripts/bench_coding.py report`) and the substrate-ui server share ONE
 implementation and the arm matrix can't drift between them.

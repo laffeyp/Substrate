@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """SWE-bench Adapter/Suite wiring — the non-Docker parts. `prepare_swebench_case` (git + Docker) is
 env-gated and exercised live; here we prove an Arm builds a topology from a prepared payload and the Suite
 assembles + validates, with no I/O.

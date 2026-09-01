@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Watchdog for a running SWE-bench confirmatory sweep.
 
 Polls the cells JSONL every INTERVAL seconds and prints a one-line health report:

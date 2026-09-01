@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Kernel `Budget` primitive — Sprint 164 (initial), amended Sprint 166 (fold external F6).
 
 Additive kernel change: `producer_kind` accepts an optional `budget: Budget` kwarg.

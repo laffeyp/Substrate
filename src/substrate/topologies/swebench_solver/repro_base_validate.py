@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Base-fails-first reproduction validator — sprint 155 (roadmap Group D).
 
 The model-generated reproduction test is meant to distinguish a buggy state from a fixed state:

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 # ci_local.sh — run the EXACT CI gate stack locally, per Python version. THE DEFAULT GATE.
 #
 # As of 2026-07-22 (Architect ruling) this is the project's primary verification gate:

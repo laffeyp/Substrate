@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """intel_asymmetry — INFORMATION asymmetry: each analyst holds private intel, must reach a joint call.
 
 A thin config over the conversation engine (`../conversation.py`). The deciding analyst structures

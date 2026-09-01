@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Composition — a substrate as a Producer (technical §20; kernel "composes with itself";
 F-COMP-1..3; conformance check 7).
 

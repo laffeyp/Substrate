@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The deterministic proximity test-picker (finding 17b / review #65). Pure checkout-vs-patch logic — the
 observable is the chosen regression file set. Includes the real flask-4045 shape: the fix touches
 src/flask/blueprints.py, so test_blueprints.py is change-related and must be EXCLUDED (stem match), while an

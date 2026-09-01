@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Agency assay — score the TRAJECTORY of a tool-loop run, not the artifact (RESEARCH R-13/R-16).
 
 SWE-bench and most coding evals grade the final artifact (does the patch pass the held-out tests).

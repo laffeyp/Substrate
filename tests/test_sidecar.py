@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Off-bus sidecar tests (technical §3.8, §6.4; conformance check 14).
 
 The load-bearing property is DIAGNOSTIC INVARIANCE (check 14): enabling the diagnostic

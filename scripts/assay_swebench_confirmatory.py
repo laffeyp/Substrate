@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The confirmatory SWE-bench runner.
 
 Sprint 199b (roadmap v2 S7b) rewrites the runner around `assay.run.run_suite_with_salvage`

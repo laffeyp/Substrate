@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 053 — live-model standing sub-agent end-to-end.
 
 The spec (product §6, tech §5) says: a standing sub-agent is a named

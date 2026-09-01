@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Narration — the legible prose projection of a run record (Wave 14).
 
 A pure, deterministic projection from the immutable log to a human-readable account of

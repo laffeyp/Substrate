@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Container-backend coding AGENT — a read/edit/bash loop that solves inside the live instance container.
 
 The executing arm: unlike the host backend's single blind file pick, the agent can read several files, edit,

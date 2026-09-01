@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Real-model demo suite — every application's CLAIM, proven against a LIVE local model.
 
 Deterministic CI proves only the wiring; per the spec it "sanitizes away the thing each topology

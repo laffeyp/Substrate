@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Generate committed CI-mode run records for the bundled topologies.
 
 SINGLE SOURCE: the records are generated from the BUNDLED REGISTRY — the exact factories behind

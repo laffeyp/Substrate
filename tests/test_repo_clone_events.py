@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 190 (roadmap v2 S5.5): `_mother_clone` emits typed events on stderr.
 
 The B5 GitHub-clone boundary runs in the prep phase before any substrate topology starts.

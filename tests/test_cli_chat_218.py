@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 218 — CLI `chat` verb + bare dispatch + config.toml defaults.
 
 Four behaviors covered:

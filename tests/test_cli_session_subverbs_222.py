@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 222 — CLI session subverbs (ls, end, rm, set-name).
 
 Every session-mutating subverb runs against a real substrate-ui daemon

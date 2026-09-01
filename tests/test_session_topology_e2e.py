@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 210 — piece-A observation contract end-to-end (in-process discharge).
 
 **Scope amendment folded 2026-08-26.** The sprint card names a `substrate chat

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Observation contract for the SELECT test-exec seam (sprint 140). The parsers are pure units; the
 validate factory is exercised with a STAND-IN TestRunner (the real Docker runner is the gate-#3
 integration). TestResults is the observable."""

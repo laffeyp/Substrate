@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 199 + 199a: kernel enforcement of `Budget.wall_seconds`, structured payload.
 
 A producer_kind that declares `Budget(wall_seconds=Cap(limit=..., reason=...))` and whose

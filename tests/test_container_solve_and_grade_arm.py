@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 199d (roadmap v2 S7b follow-on): `container_solve_and_grade_arm` +
 `_backend_topology_with_grade`.
 

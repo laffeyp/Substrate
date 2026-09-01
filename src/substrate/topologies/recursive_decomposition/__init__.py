@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Recursive decomposition topology — planner spawning solvers spawning solvers (Sprint 132).
 
 A planner Producer emits N subtask events; ONE Trigger (PerEvent) on the subtask kind fires a

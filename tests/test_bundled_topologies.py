@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Bundled topology registry — the newcomer's `substrate run --topology <name>` works (review
 #16 HAT B). Each bundled name resolves, runs to a record, and exits 0 — no network, no config.
 """

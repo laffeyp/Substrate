@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Base-fails-first reproduction validator — sprint 155.
 
 Observation contract for `repro_base_validate_factory`: given a repro code and a fake runner

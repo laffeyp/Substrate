@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Code review topology — N-LLM ensemble with role-distinct system prompts (Sprint 130).
 
 Five reviewer Producers (security, performance, style, correctness, clarity) stream

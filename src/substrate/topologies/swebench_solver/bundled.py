@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """CI-mode factory for `swebench_repair_topology` — Sprint 188 (roadmap v2 S2 part 2 of 2).
 
 `bundled.py`'s zero-arg factories construct fully-configured topologies with deterministic

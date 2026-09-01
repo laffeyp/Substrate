@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """code_evolution — the evolutionary loop's decisions (pure) + the topology wiring (integration).
 
 The EA decisions (selection, terminate-at-budget, exhaust, stagnation) are a PURE function, tested

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """N-PERF-1 performance floor (product N-PERF-1 as amended by A2.1; technical §18;
 conformance check 15).
 

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """NET #2 (review #69): smoke the REAL regression SEAM end to end on the live flask-4045 image — the seam
 the gold-fed solve sidestepped with _PassRunner. This drives the ACTUAL firewall-clean regression command
 (proximity picker -> build_regression_command, reusing swebench's own install + test_cmd) through the real

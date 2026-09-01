@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Run fanout_review against a real repo with real local models (walkthrough, application-parity W1.1).
 
 The review panel over the changed files of a git diff: N role reviewers critique in parallel, a

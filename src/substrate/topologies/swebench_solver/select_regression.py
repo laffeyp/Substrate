@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """SELECT regression-set choice — the firewall-clean, deterministic test picker (finding 17b, review #65).
 
 The problem (review #65): at base_commit the repo's existing tests encode the OLD (buggy) behavior, and

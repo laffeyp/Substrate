@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 224 — four shipped application manifests parse and match signatures.
 
 Card's dual contract: each manifest's [inputs] schema matches its

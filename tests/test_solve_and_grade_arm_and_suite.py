@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 197 (roadmap v2 S6 consumer): arm + suite builders for the solve-and-grade topology.
 
 `swebench_solve_and_grade_arm` returns an Arm whose `build(case)` produces a topology that

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 213a — path 3: `delegate(task, context=...)` prefixes an extracted slice
 of the parent's record to the child's task.
 

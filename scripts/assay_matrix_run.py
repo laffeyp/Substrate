@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Run the SWE-bench matrix: host + container backends as Arms over a frozen repo-spanning set, graded by
 the official harness, compared with the real assay stats (paired McNemar/bootstrap + power floor). Prints
 the leaderboard. Env-gated (Docker + a live model). Slow — each (arm x case) is a real solve + grade.

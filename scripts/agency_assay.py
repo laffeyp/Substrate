@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Agency assay — run one task across models and score each run's TRAJECTORY, not its artifact.
 
 This measures the thing SWE-bench structurally can't (RESEARCH R-13): did the model actually run its

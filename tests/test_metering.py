@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """ModelUsage at the Responder seam — Sprint 1 of the objective-validation layer.
 
 The matched-compute comparison the benchmarking layer rests on needs per-model-call token/latency

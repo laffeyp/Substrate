@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """prisoners_dilemma — PAYOFF asymmetry: a one-shot game with a defect/cooperate decision.
 
 A thin config over the conversation engine (`../conversation.py`). The deciding player (the

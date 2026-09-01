@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 199d observation contract: end-to-end fire of `_backend_topology_with_grade`
 against a real Runtime + real Docker grader.
 

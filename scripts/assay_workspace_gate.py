@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Step-1 anti-fake gate: the GOLD patch, round-tripped through the NEW workspace seam, must grade resolved.
 
 Clone flask-4045 at base_commit (host_clone) -> git apply the gold source fix -> workspace_diff (the seam

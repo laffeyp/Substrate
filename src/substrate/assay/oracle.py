@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The Oracle taxonomy — Sprint 2 of the objective-validation ("assay") layer.
 
 An Oracle grades ONE inner run (an Arm's run on a Case) against that Case's ground truth and returns

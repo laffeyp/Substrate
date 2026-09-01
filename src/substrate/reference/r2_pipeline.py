@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """R-2 — Pipeline with structured error cascade + halt-with-resume (product §8; §0.1).
 
 This is the integrated error-handling demonstration, run on a PERSISTENT bus so the

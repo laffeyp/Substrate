@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """ASSEMBLE — the full swebench_solver topology (sprint 141): LOCALIZE -> REPAIR -> SELECT, one
 event-sourced graph terminating on SelectedPatch.
 

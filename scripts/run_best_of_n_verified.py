@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Run best_of_n_verified with real local models (walkthrough, application-parity W1.2).
 
 Generate N candidates for a task with one model, verify each with an INDEPENDENT judge model

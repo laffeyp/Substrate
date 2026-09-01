@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Bundled topology registry — makes `substrate run --topology <name>` work (review #16).
 
 The CLI advertises `--topology <name>` and an error that names a registry, but the registry

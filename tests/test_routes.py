@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Routes + same-cycle staging (kernel Decision #8) and the unsealable-input path."""
 
 from msgspec import Struct

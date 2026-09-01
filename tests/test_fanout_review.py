@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Observation contract for fanout_review (sprint 137).
 
 CI path: a throwaway git repo gives `changed_files` a real diff; DeterministicResponders drive

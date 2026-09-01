@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The append cycle — the single-writer sequencer (technical §6.2, §8).
 
 Extracted from the Runtime God-class: AppendCycle owns the six-step append cycle and its

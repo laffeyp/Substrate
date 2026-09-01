@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 050 — live-model compaction end-to-end.
 
 The unit tests under tests/test_render_*.py feed synthetic event lists into

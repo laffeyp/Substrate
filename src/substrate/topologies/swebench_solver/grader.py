@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Grade producer factory — Sprint 195 (roadmap v2 S6, part 1 of 2).
 
 A substrate producer that wraps `assay/swebench.py::run_swebench_one` and emits a single

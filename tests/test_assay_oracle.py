@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Oracle taxonomy — Sprint 2 of the objective-validation layer.
 
 Two Oracle classes, the split the round-1 design (docs/benchmarking/benchmarking-design-round1.md §3) makes for

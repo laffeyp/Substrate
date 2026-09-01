@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Generate docs/api.md from the live `substrate.api.__all__` and the symbols' docstrings.
 
 The API reference is GENERATED, never hand-written, so it cannot drift from the code. Run

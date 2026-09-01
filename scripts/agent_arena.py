@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Run the tool-loop agent WILD in a disposable container, to surface crashes and edge cases.
 
 The product is host-native (direct fs, like Claude Code) — this is a TEST harness, not the

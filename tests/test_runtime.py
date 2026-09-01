@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """End-to-end runtime tests against the design-spec event-sequence oracle (§3.2, §3.3).
 
 These are the anti-drift proof: a topology runs, and the persisted record's event

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The shared best-of-N + correction record contract — the loop's vocabulary, in its CANONICAL home.
 
 Moved here from coding_flow (review #61): the shared/lower loop module must not import its records from a

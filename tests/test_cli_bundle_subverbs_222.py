@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 222 — CLI bundle subverbs (create, ls, show, edit).
 
 Bundle subverbs are pure filesystem operations (piece H sprint 229 ships

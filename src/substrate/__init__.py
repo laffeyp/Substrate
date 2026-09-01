@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Substrate — a concurrent streaming dataflow runtime.
 
 You bring computations (Producers) that take typed input and emit a stream of

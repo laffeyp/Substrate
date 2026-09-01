@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Session registry — the daemon-side name index + manifest catalog (sprint 211).
 
 Piece C per TECH-SPEC-2026-08-25-round6 §5. Named standing sessions are the

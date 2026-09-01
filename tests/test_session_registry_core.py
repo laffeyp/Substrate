@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 054 Phase A — substrate-side SessionRegistry core contract.
 
 The class moved from substrate-ui into substrate; this test pins the

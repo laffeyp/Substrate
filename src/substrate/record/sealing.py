@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Input sealing — immutability by construction (technical spec §8.3 / F-PROD-3).
 
 When a Trigger fires, the resolved input is sealed by a recursive structural walk so a

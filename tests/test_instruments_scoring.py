@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Proper scoring rules — formulas, registry, and the properness guarantee."""
 
 import pytest

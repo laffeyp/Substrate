@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """SWE-bench external-grader Adapter — Sprint 5. Pure binding only: no Docker, no swebench installed.
 
 Covers what the Adapter does WITHOUT the harness: forming the three-field prediction (no invented

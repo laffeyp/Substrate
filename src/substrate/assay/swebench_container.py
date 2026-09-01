@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Container backend — a LIVE instance container an executing topology edits and runs tests in.
 
 The faithful workspace: bring up the instance's eval image (repo at `/testbed`, deps installed), keep it

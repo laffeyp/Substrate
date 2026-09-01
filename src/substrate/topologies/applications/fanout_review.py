@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """fanout_review — the code-review panel on a REAL git diff (application-parity W1.1).
 
 The agent-CLI "fan out a review over the changed files" pattern is `code_review_topology`

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """substrate.adapters — the model / tool adapter layer (a peer of substrate.api).
 
 Home for the concrete backends a topology's Producers call: the `Responder` implementations

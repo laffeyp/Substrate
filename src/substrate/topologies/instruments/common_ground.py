@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Common-ground instrument — accreting shared state as a side-effect of every turn.
 
 Real interlocutors accrete common ground (Clark 1996) as a side-effect of each utterance;

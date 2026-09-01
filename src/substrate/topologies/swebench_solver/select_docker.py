@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """DockerTestRunner — run an instance's tests in its container with a candidate patch applied.
 
 Implements the TestRunner protocol. Env-gated (needs Docker + the per-instance swebench eval image). On

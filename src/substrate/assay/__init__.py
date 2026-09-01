@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The objective-validation ("assay") layer — benchmark a topology's OUTCOME against an external
 benchmark, distinct from the runtime's intrinsic validation (conformance / replay / observation,
 which prove the wiring runs, not that a topology beats a baseline).

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The SWE-bench workspace adapter — turn ANY topology's edits to a repo checkout into a model_patch.
 
 This is the whole bridge between "a topology that codes" and SWE-bench: the topology changes a checkout of

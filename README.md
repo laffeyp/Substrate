@@ -1,9 +1,40 @@
 # Substrate
 
+## Licensing and use
+
+This project is licensed under the **PolyForm Noncommercial License 1.0.0**.
+Source-available; noncommercial use only.
+
+Permitted uses include personal, research, educational, hobbyist,
+government, and nonprofit charitable use. Commercial use of any kind
+is not permitted under this license. See `LICENSE` for the full text
+and the additional statements on AI-mediated derivation and clean-room
+reimplementation that ride alongside it.
+
+### Position on machine learning
+
+The licensor does not consent to the use of this software, its
+documentation, or its records as training data for AI or machine
+learning systems. Training crawlers should honor the `robots.txt` and
+`ai.txt` at the repository root or any hosted docs site.
+
+A reimplementation produced by exposing this codebase to an AI or ML
+system is a derivative work and is subject to the PolyForm Noncommercial
+License in full — that is, no commercial use of the derivative work.
+
+A reimplementation produced from the published specifications alone,
+without exposing this codebase to the AI or ML system, is independent
+creation (the clean-room pattern) and is not restricted by this license.
+Reading the specs and reimplementing from them is permitted for any
+purpose, including commercial. See `LICENSE` Sections A and B for the
+full statement.
+
+---
+
 ![Substrate — a Python runtime that coordinates models and anything else you want through a single append-only log](.github/assets/substrate-banner-1600x400.png)
 
 [![PyPI](https://img.shields.io/pypi/v/substrate-kernel)](https://pypi.org/project/substrate-kernel/)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![License](https://img.shields.io/badge/license-PolyForm--NC--1.0.0-blue)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)](pyproject.toml)
 
 A Python 3.12+ runtime for running many computations together. You hand it model calls, transforms, subprocesses, parsers, simulators — anything that takes typed input and emits typed events. It runs them concurrently and coordinates them through one append-only log. Every event, and every runtime decision about what to start next, lands on that log. You replay the log, diff it, or inspect any point.

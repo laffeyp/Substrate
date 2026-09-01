@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 208 — Ollama /api/show driver context lookup + 60-s TTL cache.
 
 Live daemon lookup happens through `OllamaResponder.context_tokens()`, verified

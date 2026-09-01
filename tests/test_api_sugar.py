@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Authoring-API sugar (review #23 items 2-4, Architect-ratified): producer_kind(start=fn)
 + public ProducerFactory; b.instrument() builder helper; Responder on substrate.api.
 

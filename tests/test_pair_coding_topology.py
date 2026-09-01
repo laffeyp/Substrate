@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Pair coding topology — CI MODE structural tests (Sprint 131).
 
 Deterministic driver + navigator, asserting the wiring: the driver streams chunks in

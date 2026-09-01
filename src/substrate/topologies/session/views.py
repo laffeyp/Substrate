@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Session-topology Views (piece A, sprint 205).
 
 `model_failures` filters the reserved `substrate.ProducerFailed` stream down to the

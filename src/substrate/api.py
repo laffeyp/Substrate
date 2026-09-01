@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The public API surface (F-API-1). Everything else is private; the CLI is required
 to import only from here (F-API-6, enforced by import-linter in CI).
 

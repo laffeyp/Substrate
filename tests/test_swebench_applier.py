@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Observation contract for the SEARCH/REPLACE applier (sprint 135, gate #2).
 
 The applier is DETERMINISTic given (candidate text, repo state), so its observation contract is an

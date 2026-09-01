@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The SWE-bench workspace diff seam: turn a changed checkout into a model_patch, dropping test-file edits
 (which collide with the held-out test_patch and cause false not-resolves). git is real; no Docker."""
 

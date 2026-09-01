@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Tests for the frame format and torn-tail recovery (technical §3.3)."""
 
 import substrate.record.framing as framing

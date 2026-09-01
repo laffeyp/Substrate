@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Tool-using loop topology — the classic model -> tool -> model agent loop (Wave 14).
 
 A `model` Producer reads the task and the tool results so far and emits EITHER a `ToolCall`

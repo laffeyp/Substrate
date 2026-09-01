@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """pair_coding session-composite — TECH-SPEC §7.3.
 
 Two related sessions open together: a builder session driven by

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 221 — CLI REPL slash-command router (nine slashes).
 
 Sprint 224b rewrite: state-mutating slashes (`/model`, `/tools`, `/list`)

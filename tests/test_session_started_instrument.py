@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 240 — SessionStarted instrument fires on RunStarted.
 
 Builds a session_topology, drives one turn against DeterministicResponder,

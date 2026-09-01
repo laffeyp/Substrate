@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """debate — POSITIONAL asymmetry: two advocates argue opposite stipulated sides of one claim.
 
 A thin config over the conversation engine (`../conversation.py`): same information, opposite

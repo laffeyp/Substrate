@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The on-disk envelope and its sub-structures — the canonical home for the
 core data types (WORKING_AGREEMENT canonical home registry).
 

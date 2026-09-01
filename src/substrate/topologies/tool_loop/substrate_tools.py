@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Substrate toolkit — session-facing tool wrappers over substrate's own API.
 
 Piece F. Seven tools total per TECH-SPEC §8 (line 1052-1064); this

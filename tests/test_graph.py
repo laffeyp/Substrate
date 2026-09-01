@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Graph-projection tests (Wave 12 prep): topology_graph (static structure) and run_graph
 (dynamic run-as-graph). Both are pure read-only projections — same record, same graph; they
 accept a root path or an iterable of envelopes; they cite seqs. These pin the structure/edges,

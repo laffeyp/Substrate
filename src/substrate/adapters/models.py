@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The dual-mode model seam for the reference topologies (product §8).
 
 Every reference topology is dual-mode: a CI mode with DETERMINISTIC stand-in Producers

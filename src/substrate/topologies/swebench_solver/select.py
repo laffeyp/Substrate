@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """SELECT — the swebench solver's selection phase (sprint 139).
 
 Reranks the round's AppliedPatches by the solver's OWN test results into one SelectedPatch. The selection

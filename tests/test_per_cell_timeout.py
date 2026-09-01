@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 198 (roadmap v2 S8): the confirmatory runner's per-cell wall-clock derives from
 the per-repo timeout table (`assay/swebench_timeouts.json`), capped by `RUN_TIMEOUT`.
 

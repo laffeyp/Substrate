@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Proper scoring rules for participant confidence claims (lifted from the precursor).
 
 A conversation speaker that attaches a probability to a claim is making a forecast. Without a

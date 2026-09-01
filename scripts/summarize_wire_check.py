@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Summarize a wire-check cells JSONL against the S9 observation contract.
 
 Usage:

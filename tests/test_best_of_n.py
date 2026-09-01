@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Observation contract for the extracted best-of-N + correction loop (sprint 136, Wave-0).
 
 Proves the SHARED builder works standalone with deterministic stand-in factories — select-passing,

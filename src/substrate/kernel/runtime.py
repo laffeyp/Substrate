@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The Runtime: run lifecycle, the writer loop, Producer tasks, termination (technical §6, §7).
 
 One asyncio event loop. Exactly one writer driving the append cycle; N Producer tasks

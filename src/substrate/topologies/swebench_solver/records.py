@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """swebench_solver records — the locked vocabulary (sprint 133), as frozen Structs.
 
 Vocabulary doc: `process/signals/swebench-solver-vocabulary.md`. Registered in WORKING_AGREEMENT.

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 213a/b — path 1 (child_session_name) requires a session_registry.
 Sprint 054 phase C — the substrate side now owns SessionRegistry, so the
 "real registry routes correctly" case moved from substrate-ui/tests/ to

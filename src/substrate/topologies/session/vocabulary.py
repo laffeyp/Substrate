@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Session-topology vocabulary — named constants for the eight kind strings.
 
 TECH-SPEC §3a locks session-vocabulary.md as the topology's kind surface;

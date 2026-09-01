@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Adversarial pair topology — writer vs vulnerability-finder, bounded refinement (Wave 13).
 
 A writer Producer emits an artifact; a vulnerability-finder Producer (fired on each artifact)

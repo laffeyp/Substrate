@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Natural-conversation ablation — the emergence delta is the demo (Wave 13).
 
 Same two thin speakers, same question. WITHOUT instruments: only Turn events — two parallel

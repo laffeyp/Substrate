@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """
 substrate_proof.py — executable demonstrations of findings 1-3 against
 Substrate DRAFT v13, plus the textual contradiction (finding 4).

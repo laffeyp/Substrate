@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Content-addressed blob store for oversized payloads (technical spec §3.7).
 
 Payloads whose canonical encoding exceeds BLOB_THRESHOLD_BYTES are stored here and

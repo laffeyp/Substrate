@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Observation contract for the reproduction-test generator (sprint 144): the fence-stripping parser, the
 producer emitting a ReproductionTest, and the death-catch (a model error -> empty test, not a wedge)."""
 

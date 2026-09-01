@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Observation contract for the SELECT logic (sprint 139) — pure + deterministic given recorded
 TestResults (design §4). The rerank: regression filter, reproduction preference, majority vote, fallback."""
 

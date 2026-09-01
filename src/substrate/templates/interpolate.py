@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Tiny home-rolled interpolator for the Mad Lib bundle wizard.
 
 TECH-SPEC §9 line 57-60 asks for `{{slot_name}}` substitution and

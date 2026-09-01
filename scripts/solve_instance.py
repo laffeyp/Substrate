@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """EXPLORATORY real-MODEL solve of ONE SWE-bench instance through the full topology (review #69 NET: keep
 the first real-model solve EXPLORATORY — a single instance, NOT a reported resolve-rate; the power gates +
 the exclude-disclosure gate the RATE, not this).

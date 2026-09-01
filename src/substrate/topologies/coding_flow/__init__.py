@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """coding_flow — best-of-N code generation with build-validation and a correction loop.
 
 The precursor (prompt-factory) orchestrated open-source models to write code ONE candidate at a

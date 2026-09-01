@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Power simulation for the equivalence verdict — checkable, not asserted.
 
 Question (the builder's plan): does "10 problems + trials>1" let `full` EARN `equivalent`? Run synthetic

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Bank verification — every firewalled problem is solvable AND the firewall is fair.
 
 For each problem, a reference solution is run through BOTH the dev gate and the held-out gate (full

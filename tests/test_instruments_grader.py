@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Grader instrument — the cheap-talk loop closes (Grade events on the bus → scored payoff)."""
 
 import pytest

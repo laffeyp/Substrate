@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprints 153 + 154 — Result.grader_error_band + ArmReport.model_ensemble_id/split_id.
 
 Both are additive with safe defaults: existing callers unchanged. These tests lock (a) that the

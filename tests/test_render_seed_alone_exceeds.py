@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 208 — seed-alone-exceeds guard fires exactly one SessionWarning at open.
 
 The topology registers a `session_warning` producer_kind unconditionally, and

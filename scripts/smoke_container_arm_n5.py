@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Behavioral smoke: `container_arm` against 5 Lite instances, read the record.
 
 Sprint 180 (closes external round-2 R1). The paper cites `container_arm` in three places

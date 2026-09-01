@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Run research_sweep over a real document set with real models (walkthrough, application-parity W1.3).
 
 Fan a reader over each document to extract findings for a question, run a completeness critic over

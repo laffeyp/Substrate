@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 230 — bundle slot declaration + binding + fallback tests.
 
 Four ways the binding resolves a slot value:

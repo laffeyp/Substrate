@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """delegate — a tool that hands a subtask to a CHILD agent and folds the answer back (application-parity W2.1).
 
 The "subagent" the CLI products ship, on substrate: a tool-using agent calls `delegate(task)` mid-run;

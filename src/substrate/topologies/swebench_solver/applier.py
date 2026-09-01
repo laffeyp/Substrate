@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The SEARCH/REPLACE applier — REPAIR's deterministic core (design §4b, KIT_DIARY finding 11).
 
 The one component where a v1 shortcut poisons the MEASUREMENT, not just lowers it: a candidate that

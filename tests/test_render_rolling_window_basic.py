@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 207 — rolling-window renderer keeps K most recent turns.
 
 Ten synthetic turns, K forced to 5 via a small `driver_context_tokens`. The last

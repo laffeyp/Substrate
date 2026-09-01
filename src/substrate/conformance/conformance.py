@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The 17-check conformance suite — the v1.0 release gate (product §7; CT-5 spine).
 
 Each check builds the smallest canonical topology that exercises one product-§7 property,

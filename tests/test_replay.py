@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Replay engine tests (technical §12): Level 1 (stream/counts), Level 2 (input-hash
 verification, D-5), Level 3(a) precondition gate (honest refusal), Level 3(b) deferred."""
 

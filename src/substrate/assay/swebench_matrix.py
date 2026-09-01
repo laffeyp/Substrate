@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The SWE-bench matrix — run the backends as Arms over a frozen set and compare them with the real stats.
 
 Each backend (host / container) becomes a one-producer substrate topology: a producer runs the backend's

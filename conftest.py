@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Pytest session hygiene — clear stale bytecode before collection.
 
 An editable install plus repeated cross-session runs can leave stale `.pyc` that SHADOWS edited

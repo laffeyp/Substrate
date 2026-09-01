@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Applications — the agent-CLI orchestration patterns as substrate topologies.
 
 Each is a real topology composed from primitives that exist and are tested, fed REAL input

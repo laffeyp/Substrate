@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Recursive decomposition topology — CI MODE structural tests (Sprint 132).
 
 Deterministic planner + solvers, asserting: ONE Trigger spawns solvers at every depth (the

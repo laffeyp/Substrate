@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Level-2 replay verification for the bundled Phase-2 topologies (S-11 tail).
 
 Each topology's CI-mode record replays at Level 2 — every substrate.TriggerFired's recorded

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 052 — write-capable fs tool comprehension: edit_file,
 write_file. Sandboxed via `tests/_sandbox.py::sandboxed_fs_tools`
 (Layer 1 path jail); Layer 3 `no_escape_guard` fixture verifies no

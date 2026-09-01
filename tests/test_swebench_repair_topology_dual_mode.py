@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 187 (roadmap v2 S2 dual-mode): `swebench_repair_topology(responders=None)`
 runs against DeterministicResponder defaults and produces a byte-stable record.
 

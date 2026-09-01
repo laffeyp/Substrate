@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Session transcript renderer — rolling-window compaction (piece A, sprint 207).
 
 The `model` Producer receives a rendered prompt each turn, not the raw event list.

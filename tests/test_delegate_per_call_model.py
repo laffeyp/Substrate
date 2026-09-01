@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 213a — path 2: `delegate(task, model=...)` spawns a child on the
 resolved driver, not the parent's default.
 

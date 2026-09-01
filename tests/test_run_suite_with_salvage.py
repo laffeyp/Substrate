@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 199 (roadmap v2 S7a): the generic per-cell orchestrator `run_suite_with_salvage`.
 
 The confirmatory SWE-bench runner has grown to 1045 lines because every generic piece — cell

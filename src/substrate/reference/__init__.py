@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Reference topologies R-1/R-2/R-3 (product §8) — acceptance tests, not product features.
 
 Dual-mode: CI mode (deterministic stand-in Producers, gated every commit) proves the wiring;

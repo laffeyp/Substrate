@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Bundled application topologies (Phase 2 — the runtime made visible).
 
 Each topology is a small, self-contained demonstration built ONLY on the public

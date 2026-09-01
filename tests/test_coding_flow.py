@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Tests for the coding_flow topology — best-of-N codegen + build-validation + a correction loop.
 
 The validator runs a REAL gate (ruff + mypy + pytest in a subprocess), so the run is not

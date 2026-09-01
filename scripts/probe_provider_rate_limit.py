@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Probe the actual behavior of a provider's rate-limit surface at rising concurrency.
 
 Sprint 178 (closes external round-2 M4): the 2026-08-12 halt's reason (2) named a load-

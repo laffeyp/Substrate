@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 206 — session_topology refuses all_completed at build time.
 
 `all_completed` compares started vs ended Producer counts. A pausable topology on

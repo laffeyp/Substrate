@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Pre-registration gate for confirmatory assay runs — sprint 151.
 
 A confirmatory run is a bet with pre-declared stakes. `docs/benchmarking/benchmarking-preregistration-template.md`

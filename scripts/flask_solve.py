@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """First real solve, gold-fed (controlled): take flask-4045's known fix, reshape it into the find/replace
 edits the solver speaks, apply it through our applier on a real flask checkout, and confirm it round-trips.
 

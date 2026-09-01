@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 217c — Runtime.cancel_producer(instance) with the v0.3 provenance annotation.
 
 Nine tests covering the primitive contract:

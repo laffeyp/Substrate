@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Structural protocols the user implements: the two kernel primitives (Producer, View),
 plus the application-layer model seam (Responder).
 

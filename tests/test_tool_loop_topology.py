@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Tool-using loop — CI structural + determinism tests (Wave 14).
 
 Covers the three behaviors the loop is built around: the model -> tool -> model chain with the

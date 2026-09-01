@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Host-backend coding step — the non-network parts (file pick parsing). The clone+grade integration is
 env-gated and run live."""
 

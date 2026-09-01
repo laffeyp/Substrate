@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Gold-differential harness-binding pins for `substrate.assay.swebench` (sprint 146a).
 
 Restores the coverage the deleted `scripts/swebench_smoke.py` provided — an end-to-end run of

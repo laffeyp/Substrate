@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 200a (roadmap v2 S9 close): `SwebenchLogProjectionOracle` distinguishes
 essential-producer failure from Draft-Exhausted at the row level.
 

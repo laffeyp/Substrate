@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Per-run mutable state for the Runtime (extracted from the Runtime God-class).
 
 `RunPhase` replaces the four ad-hoc booleans (terminated/paused/failed/record_closed)

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Typed exception hierarchy for the SWE-bench runner (F4, holistic review 2026-08-10).
 
 Substrate ships its own exception hierarchy at `src/substrate/errors.py` for record + runtime

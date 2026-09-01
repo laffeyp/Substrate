@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Application registry — scan `applications/*.manifest.toml` at daemon boot.
 
 TECH-SPEC §7.6 (round 6) locks the flat manifest shape: one

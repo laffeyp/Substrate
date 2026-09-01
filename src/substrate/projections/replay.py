@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The replay engine — honest tiers of reconstruction from a record (technical §12).
 
 Levels (the honesty ladder — a record admits exactly the tiers its content supports):

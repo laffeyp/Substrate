@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """best_of_n_verified — generate N candidates, verify each, select the survivor (application-parity W1.2).
 
 The agent-CLI "best of N with verification" pattern, as a general application on real input. It

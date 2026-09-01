@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """CI-mode wrapper for `session_topology` — sprint 209b.
 
 `session_topology`'s production termination is `pause_await_input(Park)` — the

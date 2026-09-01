@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """natural_conversation — the emergence ablation (the flagship composition demo).
 
 Two THIN speakers (no character prescription) on one substantive question, over the conversation

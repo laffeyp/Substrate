@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The assay control plane + control-ran guard + paired Report — Sprints 3 & 4.
 
 End-to-end and deterministic, no network: two Arms (a baseline that always answers "20" and a full

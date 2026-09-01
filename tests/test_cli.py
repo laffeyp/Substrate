@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """CLI tests (design §5; F-CLI-1..6, F-API-6).
 
 Two jobs: (1) ENFORCE F-API-6 — `substrate.cli` may import only `substrate.api` among

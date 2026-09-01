@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 052 — live-model tool-comprehension suite.
 
 The bar: for every tool the substrate ships in the session's tool suite,

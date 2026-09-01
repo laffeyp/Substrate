@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The run record on disk: the writer, the reader, recovery, and the manifest
 (technical spec §3, §5).
 

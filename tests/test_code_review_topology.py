@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Code review topology — CI MODE structural tests (Sprint 130).
 
 Deterministic stand-in reviewers (no network), asserting the wiring the topology exists to

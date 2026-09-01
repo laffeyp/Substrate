@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 195 (roadmap v2 S6 part 1 of 2): `grade_producer_factory` wraps
 `run_swebench_one` as a Substrate producer emitting `GradeResult` on the record.
 

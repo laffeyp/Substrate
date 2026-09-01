@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Verify DockerTestRunner against the LIVE flask-4045 image: pull it, apply the gold patch, run flask's
 own blueprint tests in the container, confirm they run and pass (regression holds). Real, slow."""
 

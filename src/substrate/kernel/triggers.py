@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Firing policies and cooldowns (kernel §6; technical §10).
 
 A firing policy decides, given a satisfying event, whether the Trigger fires now and

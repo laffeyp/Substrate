@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The coding task the flow builds + validates. A task is shape-agnostic: a spec for the drafters, a
 free-form GATE command, a set of fixed `fixtures` always written into the sandbox (here the test
 file the candidate is validated against), and — for CI — canned good/buggy candidate responses so

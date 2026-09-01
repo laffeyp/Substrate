@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Game of Life — CI structural + determinism tests (Wave 15).
 
 The blinker is a period-2 oscillator (vertical -> horizontal -> vertical), so a two-generation

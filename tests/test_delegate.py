@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Observation contract for delegate (sprint 141, application-parity W2.1).
 
 CI, deterministic, no network: a parent tool_loop scripted to call `delegate` once; the child is the

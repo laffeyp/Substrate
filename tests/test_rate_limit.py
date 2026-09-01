@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Rate-limit shim spike (design DESIGN-2026-08-11-responder-rate-limit-shim.md).
 
 Three pure unit tests, no live network:

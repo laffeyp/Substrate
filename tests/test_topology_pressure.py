@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Pressure + end-to-end tests for the bundled Phase-2 topologies.
 
 Beyond the happy-path structural tests, this exercises: the CLI end-to-end over the committed

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Typed exceptions raised before/around a run (design spec §6.3).
 
 Things that happen *during* a run land on the log as events; these are the

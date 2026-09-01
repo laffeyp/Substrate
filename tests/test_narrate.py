@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Narration projection tests (Wave 14).
 
 Narration is a pure, deterministic, read-only projection over a run record: same log ->

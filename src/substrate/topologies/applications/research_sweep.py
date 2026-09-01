@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """research_sweep — fan out readers over a document set, critique gaps, synthesize (application-parity W1.3).
 
 The map-reduce of the application library: where fanout_review and best_of_n_verified fan out over ONE

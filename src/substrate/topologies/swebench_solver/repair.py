@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """REPAIR — the swebench solver's repair phase (sprint 137).
 
 Nests the shared best-of-N + correction loop (`topologies/best_of_n`) with two swebench-specific factories:

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """End-to-end observation contract for the full swebench_solver topology (sprint 141): LOCALIZE -> REPAIR
 -> SELECT on a FIXTURE repo with deterministic responders + a stand-in runner. The record is the
 observable — a SelectedPatch with the resolving diff comes out the far end of the whole pipeline.

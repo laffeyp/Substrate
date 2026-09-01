@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Verify the REAL substrate coding topology resolves SWE-bench instances — localize -> best-of-N repair ->
 first applyable patch, run as an Arm through run_arm_on_case, graded by the official harness. The substrate
 producers do the coding (not a function in a shell). Env-gated (git + Docker + a live model). Slow.

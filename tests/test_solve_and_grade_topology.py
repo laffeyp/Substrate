@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 196 (roadmap v2 S6 part 2 of 2): `swebench_solve_and_grade_topology` runs the
 repair loop + grade producer end-to-end; `SwebenchLogProjectionOracle` projects
 `GradeResult` off the record.

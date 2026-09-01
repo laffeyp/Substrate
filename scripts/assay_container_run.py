@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Container-backend score: run the executing agent over the SAME repo-spanning set as the host backend,
 to compare. Real model, live containers, official grading. Env-gated, slow.
 

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Behavioral smoke: fire the light topology + fixed rate-limit wrapper + real Ollama on 3-10 Lite instances.
 
 Sprint 179 (closes external round-2 M5). Between the last live assay run (2026-08-11 20:41)

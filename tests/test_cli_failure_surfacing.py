@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """CLI surfaces authoring failures + clean inspect errors (review #19 DX-1, CLI-1).
 
 A run that finalises while Producers/inputs/predicates failed must LOOK broken to the author

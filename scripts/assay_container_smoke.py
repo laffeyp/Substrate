@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Live smoke of the container backend on flask-4045: env works, network is OFF (lockdown), an edit lands
 in /testbed, the in-container diff captures it, and the baseline (pre-edit) diff is clean. Env-gated."""
 

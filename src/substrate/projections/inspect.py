@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Inspection, provenance, divergence — the read-side query surface (technical §14).
 
 All functions are deterministic queries over a recorded run record (a root path or an

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The SWE-bench Adapter + Suite — wire substrate topologies as Arms over real SWE-bench instances.
 
 The assay harness (suite.py / run.py / report.py / oracle.py) is generic and already proven by the

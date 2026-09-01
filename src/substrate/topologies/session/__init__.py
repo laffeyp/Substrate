@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Session topology — the daily-driver tool_loop with pause_await_input on FinalAnswer.
 
 The session lives for the length of a driver conversation. A UserMessage opens a turn;

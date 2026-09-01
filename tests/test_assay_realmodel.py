@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Real-model coverage for the assay layer's model-bearing path (Ollama present).
 
 The rest of the assay suite is deterministic CI (a stand-in responder), which proves the WIRING. The

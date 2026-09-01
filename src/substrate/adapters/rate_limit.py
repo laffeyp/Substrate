@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Provider-agnostic rate-limit wrapper for Responders (design DESIGN-2026-08-11).
 
 Every LLM provider has capacity limits — Ollama Cloud caps concurrent MODELS per

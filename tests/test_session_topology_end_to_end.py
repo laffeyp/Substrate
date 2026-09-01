@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 209a — session_topology one-turn end-to-end with real Producer bodies.
 
 Proves the four Producer bodies wired at sprint 209a work together with the

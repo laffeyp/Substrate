@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """R-1 — Ensemble + adjudicator (product §8).
 
 N candidate Producers stream answers to one question; a Bus-view Predicate ("≥ K

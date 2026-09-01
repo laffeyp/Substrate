@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """`substrate score` — the calibration payoff is surfaced as a result (review #18)."""
 
 import re

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Observation contract for the REPAIR phase (sprint 137).
 
 Runs the shared best-of-N + correction loop with the swebench drafter (deterministic stand-in responders)

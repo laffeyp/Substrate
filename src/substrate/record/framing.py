@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The frame format and torn-tail recovery (technical spec §3.3).
 
 One event = one frame = one line. Two canonical forms exist per event and MUST be

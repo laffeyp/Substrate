@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Conversation topology — CI structural + pressure tests (Wave 13).
 
 The N-speaker turn-based substrate under debate / prisoner's dilemma / intel asymmetry:

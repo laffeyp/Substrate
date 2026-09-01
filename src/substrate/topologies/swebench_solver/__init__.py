@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """swebench_solver — a vanilla non-agentic SWE-bench solver as a Substrate topology.
 
 Design: `docs/swebench/swebench-solver-design.md`. Three plain phases, no tool use: LOCALIZE (issue + repo ->

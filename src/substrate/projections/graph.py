@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Graph projections — the structure and the run-as-graph the UI's graph surfaces render.
 
 Two pure, deterministic, read-only projections (F-OBS-6: no bus emission, no record mutation),

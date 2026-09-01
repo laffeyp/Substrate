@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Bundle loader + extends chain + seed assembler — piece H.
 
 TECH-SPEC §9 lays the on-disk shape at `~/.substrate/bundles/<name>/`:

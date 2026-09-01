@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """SELECT test-execution — the run-and-observe seam that produces TestResults (sprint 140).
 
 For each applied patch (design §4): run the repo-DERIVED regression set + the solver's GENERATED

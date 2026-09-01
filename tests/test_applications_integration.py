@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """W1.INT — the application library, mounted end-to-end (sprint 140).
 
 The wave-boundary proof (technique #16): all three W1 applications build and run to their terminal

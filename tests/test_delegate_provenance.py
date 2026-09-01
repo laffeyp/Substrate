@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 213a — provenance both ways: parent's ToolResult cites the child, and
 the child's `RunStarted.baseline` cites the parent (session_id + seq_at_call).
 

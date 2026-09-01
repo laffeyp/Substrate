@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The control plane — run each Arm on each Case, grade, collect (Sprint 4 execution).
 
 Each Arm is a normal top-level run at its OWN minted root — not a meta-topology — and the Oracle reads

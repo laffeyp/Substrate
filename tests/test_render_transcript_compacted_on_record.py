@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 207 — TranscriptCompacted seq math against a real on-disk record.
 
 The unit tests in `test_render_rolling_window_basic.py` and

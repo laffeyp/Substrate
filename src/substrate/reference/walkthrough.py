@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Walkthrough-mode runner for the reference topologies (product §8).
 
 `python -m substrate.reference.walkthrough <r1|r2|r3> <root> [<inner_root>]` runs a reference

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Reference topologies R-1/R-2/R-3 — CI MODE (product §8).
 
 These run the three reference topologies with DETERMINISTIC stand-in Producers (no network,

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Conversation topology — the general N-speaker turn-based substrate (Wave 13).
 
 The shape every conversation demo lifted from the recursive_strategy_refinment precursor

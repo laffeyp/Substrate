@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Live attach — the read-only follower (technical §13, F-PERS-4).
 
 `attach(root)` opens a run record that may still be growing and lets a reader follow it

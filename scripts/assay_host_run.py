@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """First HONEST score: run the host-backend coding step over a SET of real SWE-bench instances spanning
 repos, with a real model, no answers handed over, and grade each with the official harness. Reports the
 real resolved count (expected low). Env-gated (git + Docker + image pulls + a live model). Slow.

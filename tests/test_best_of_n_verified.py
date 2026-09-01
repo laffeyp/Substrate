@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Observation contract for best_of_n_verified (sprint 138, application-parity W1.2).
 
 CI: a DeterministicResponder drafter + a deterministic `check` (the substrate-preferred verifier,

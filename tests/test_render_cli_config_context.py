@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 208 — CLI drivers read context_tokens from ~/.substrate/config.toml.
 
 Claude / Codex / Gemini CLIs advertise no live introspection endpoint; users

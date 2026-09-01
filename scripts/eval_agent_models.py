@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Capability eval — give the tool-using agent REAL tasks across Ollama model tiers and report how
 each model does. The test the usage transcript demanded: write a poem, create a doc, write simple
 software. It surfaces real behavior — e.g. a model that REFUSES to write a poem because it thinks it

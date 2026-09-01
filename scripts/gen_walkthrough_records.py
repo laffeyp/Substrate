@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Generate the committed CI-mode run records for R-1/R-2/R-3 under docs/walkthroughs/records/.
 
 These records are DETERMINISTIC (deterministic stand-in Producers, no network) and small, so

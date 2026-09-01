@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 # check_deprecated_preserved.sh — CI guard for hard rule 12's audit-trail discipline.
 #
 # Sprint 175 (external F13 fold). AGENTS.md hard rule 12: "New thinking goes into new files /

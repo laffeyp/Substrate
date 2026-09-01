@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Liveness / termination regression tests (Priority-A safety net).
 
 A self-feeding Trigger — a Producer emitting an event its OWN Trigger subscribes to —

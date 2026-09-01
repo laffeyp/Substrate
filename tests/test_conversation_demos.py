@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Conversation demos — CI-mode wiring tests (Wave 13).
 
 Each demo (debate / prisoner's dilemma / intel asymmetry) is the conversation substrate plus a

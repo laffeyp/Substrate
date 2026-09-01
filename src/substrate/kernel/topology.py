@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """TopologyBuilder + the registration set + the topology registry (design §4.1).
 
 A topology is a factory function receiving a TopologyBuilder; one builder method per

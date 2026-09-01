@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Run the tool-loop agent: a real local Ollama model driving substrate's tool loop.
 
 The runnable entrypoint for `docs/tool-loop/tool-loop-agent.md`. Give it a task and a model; it runs the

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Record-assertion test helpers (F-API-4 / technical §15).
 
 `assert_event` / `assert_no_event` / `assert_sequence` operate uniformly over a

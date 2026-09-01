@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Grader instrument — score a speaker's prior confidence claims against the next turn.
 
 The third instrument lifted from the precursor, and the one that closes the cheap-talk loop

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 213a — per-call `baseline` merges into the child's
 `TopologyBuilder.baseline(**merged)` at build time.
 

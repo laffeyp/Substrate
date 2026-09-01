@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Reproduction-test generation — the solver's own check that a patch fixes the issue (sprint 144).
 
 A model call: from the issue, write a self-contained test that prints "Issue reproduced" when the bug is

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 192 (roadmap v2 S5.4): typed events on the B4 Docker image-pull boundary.
 
 The runner's `_pull` helper emits canonical JSON events to stderr per vocab v0.3 § G.3:

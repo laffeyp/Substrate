@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Pair coding topology — driver + navigator, chunked instantiation (Sprint 131).
 
 A driver Producer streams code one chunk at a time; a navigator Producer, fired on each of

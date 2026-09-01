@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """TerminationPolicy + the standard recipe set (kernel §8; F-TERM-1, F-LIFE-2).
 
 A TerminationPolicy interprets the run state (the just-processed event, the

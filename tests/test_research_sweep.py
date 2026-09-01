@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Observation contract for research_sweep (sprint 139, application-parity W1.3).
 
 CI: DeterministicResponders drive the map-reduce reproducibly, no network. Asserts the fan-out

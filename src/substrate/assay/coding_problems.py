@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """A curated, PRE-REGISTERED bank of firewalled coding problems — breadth for the coding claims.
 
 Each problem carries DEV tests (the agent's gate) and HELD-OUT tests (the oracle's grade) on DISJOINT

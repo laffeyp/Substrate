@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Container agent — the parsing + edit logic (no Docker, no model)."""
 
 from substrate.assay.swebench_agent import _ACTION, _apply_edit, _PATH, _SR

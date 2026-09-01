@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Off-bus sidecars — diagnostics + writer stats (technical §3.8, §6.4; F-OBS-6).
 
 The sidecars are NEVER on the bus: they are plain JSONL under `<root>/sidecar/`, keyed by

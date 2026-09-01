@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """cancel-others TerminationPolicy path (kernel §8; F-LIFE-2).
 
 Exercises the runtime CANCEL_OTHERS path: when a subject Producer (an adjudicator)

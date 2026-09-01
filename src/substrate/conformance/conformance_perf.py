@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The N-PERF-1 reference-shape append-rate probe (product N-PERF-1; technical §18).
 
 The reference shape (N-PERF-1): 50 registered Predicates and 10 Views, where subscription

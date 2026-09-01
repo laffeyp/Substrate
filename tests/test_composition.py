@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Composition tests — substrate as a Producer (technical §20; conformance check 7).
 
 Check 7: an embedded substrate exports ONLY mapped kinds; inner control-plane (substrate.*)

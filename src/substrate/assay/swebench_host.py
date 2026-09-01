@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Host backend — run a coding step on the host so its edits land in a clone, then `workspace_diff`.
 
 The first, non-executing arm, deliberately minimal: a model picks the file to change from the repo skeleton,

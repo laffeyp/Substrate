@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Element-level localizer — sprint 157a.
 
 Two subjects: the pure `extract_elements(source)` AST utility and the

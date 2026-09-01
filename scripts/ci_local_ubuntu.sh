@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 # ci_local_ubuntu.sh — the ubuntu cells of the CI matrix, run locally via Docker.
 #
 # Companion to scripts/ci_local.sh (the host-OS cells): covers the linux/glibc axis the host

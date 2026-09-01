@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 227 — inspect_record: five formats, five filters, HMAC cursor,
 token-budget cap.
 

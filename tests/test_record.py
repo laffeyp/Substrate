@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Tests for the run record writer/reader/recovery (technical §3, §5).
 
 Covers conformance check 16 (torn-tail recovery) in miniature and the

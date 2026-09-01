@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Live-attach follower tests (technical §13, F-PERS-4).
 
 The follower is read-only by construction: it never opens a file for write, never takes

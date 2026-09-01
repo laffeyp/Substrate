@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Repro-vs-oracle 2x2 + Cohen's kappa aggregation on ArmReport (sprint 158).
 
 Pins the four cell counts, the raw agreement rate, and the chance-corrected kappa across the

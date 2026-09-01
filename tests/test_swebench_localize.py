@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Observation contract for LOCALIZE (sprint 138). The parser + recall@k are pure units; the producer is
 run in a minimal topology and the SuspectFiles / EditLocations records are the observable (#24)."""
 

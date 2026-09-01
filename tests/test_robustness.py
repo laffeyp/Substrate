@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Priority-1 robustness tests: the sanitize-or-log cluster, blob offload, persistent
 locking, trigger-level logical cooldown, view-failure finalisation, and the empty-View
 registration guard. These cover the external-review findings — every ingestion point

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The firewalled coding A/B — concurrent, RESUMABLE, trial-powered. The legible run, made robust.
 
 CONTROL = a strong single model (the bar to erode; defaults to the 480B cloud coder). Arms ablate

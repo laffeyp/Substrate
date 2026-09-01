@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Inspection / provenance / divergence tests (technical §14).
 
 Close conformance check 11 (provenance closure — no dangling ProducerIds),

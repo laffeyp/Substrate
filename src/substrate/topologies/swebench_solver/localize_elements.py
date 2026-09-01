@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Element-level localizer — sprint 157a (Group E of the close-the-loop roadmap).
 
 The file-level localizer at `localize.py` names the SUSPECT FILES; this module reads those files

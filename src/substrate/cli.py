@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The `substrate` CLI (design §5; F-CLI-1..6, F-API-6).
 
 The CLI is the standing existence proof that the public API is sufficient to build a

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Persistent-bus locking (technical spec §11).
 
 Persistent mode acquires an exclusive, non-blocking advisory file lock on

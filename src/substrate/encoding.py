@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Canonical encoding — the bytes everything hashes over (technical spec §4).
 
 The product promises byte-identical replay, content-hash citations, and divergence

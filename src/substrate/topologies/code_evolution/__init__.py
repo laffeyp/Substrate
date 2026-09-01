@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """code_evolution — an evolutionary (FunSearch-style) loop for writing code on the substrate.
 
 `coding_flow` is a ONE-generation EA: N candidates, "mutation" = re-draft with gate failures, selection

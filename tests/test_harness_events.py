@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 193 (roadmap v2 S5.6): typed events on the B6 swebench-harness boundary.
 
 `run_swebench_one` at `assay/swebench.py:397` emits `HarnessCallFired` on entry, then one

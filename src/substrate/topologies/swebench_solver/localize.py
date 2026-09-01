@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """LOCALIZE — the swebench solver's localization phase (sprint 138).
 
 v1: LLM-on-repo-skeleton for file-level localization — the embedding arm is a deliberate cut, GATED on a

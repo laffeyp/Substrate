@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The firewalled coding benchmark — the legible first measurement (review cracks 1, 2, 6).
 
 A topology winning on a coding benchmark is the thing people already understand; this builds it to a

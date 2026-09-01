@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 207 — no TranscriptCompacted fires when K covers the whole record.
 
 Cadence rule per TECH-SPEC §3a and vocabulary-lock §F #6: TranscriptCompacted

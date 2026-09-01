@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Sprint 194 (roadmap v2 S5.3): typed events on the B3 Docker container-lifecycle boundary.
 
 `DockerTestRunner.run` emits `ContainerRequested` on entry, then one of `ContainerExited`

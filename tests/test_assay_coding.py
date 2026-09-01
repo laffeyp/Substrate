@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """The firewalled coding benchmark — Sprint (review cracks 1, 2, 6). Deterministic: no models.
 
 The oracle is tested directly against a constructed record. The firewall's whole point is that a

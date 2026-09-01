@@ -1,202 +1,253 @@
+                              LICENSE
 
-                                 Apache License
-                           Version 2.0, January 2004
-                        http://www.apache.org/licenses/
+This software is licensed under the PolyForm Noncommercial License 1.0.0,
+the full text of which appears below. The statements in Sections A
+through D that follow this preamble define terms used to interpret this
+license in the machine-learning context, state the Licensor's position
+on AI-mediated derivation and clean-room reimplementation, and reserve
+rights on training use.
 
-   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+The statements below supplement the PolyForm Noncommercial License;
+they do not modify its noncommercial-use limitation or its permission
+grant. Where any statement below would conflict with the PolyForm
+Noncommercial License itself, the PolyForm text prevails.
 
-   1. Definitions.
 
-      "License" shall mean the terms and conditions for use, reproduction,
-      and distribution as defined by Sections 1 through 9 of this document.
+── A. Definitions ────────────────────────────────────────────────────────
 
-      "Licensor" shall mean the copyright owner or entity authorized by
-      the copyright owner that is granting the License.
+"AI System" means any machine learning model, foundation model,
+retrieval-augmented system, autonomous agent, or software system that
+processes input through a learned function to produce output and is
+capable of generating, transforming, or reimplementing source code.
 
-      "Legal Entity" shall mean the union of the acting entity and all
-      other entities that control, are controlled by, or are under common
-      control with that entity. For the purposes of this definition,
-      "control" means (i) the power, direct or indirect, to cause the
-      direction or management of such entity, whether by contract or
-      otherwise, or (ii) ownership of fifty percent (50%) or more of the
-      outstanding shares, or (iii) beneficial ownership of such entity.
+"Inference Exposure" means providing this software, in whole or in part,
+to an AI System as training data, inference-time context, retrieval
+context, prompt content, tool output, or any equivalent mechanism by
+which the AI System may attend to this software's source, documentation,
+or run records.
 
-      "You" (or "Your") shall mean an individual or Legal Entity
-      exercising permissions granted by this License.
+"Substantially Similar" has the meaning given in *Computer Associates
+International, Inc. v. Altai, Inc.*, 982 F.2d 693 (2d Cir. 1992), and
+its successor doctrine: similarity of protected expression sufficient
+to satisfy the substantial-similarity element of a copyright
+infringement claim under 17 U.S.C. Section 501.
 
-      "Source" form shall mean the preferred form for making modifications,
-      including but not limited to software source code, documentation
-      source, and configuration files.
+"Independent Creation" means the authorship of a work that provides
+similar functionality to this software where (a) no author, and no AI
+System involved in the authorship, has had access to this software's
+source code, tests, internal design documents, or run records at any
+point during the authorship, and (b) contemporaneous records exist
+sufficient to establish (a). The standard is that of *NEC Corp. v.
+Intel Corp.*, 10 U.S.P.Q.2d 1177 (N.D. Cal. 1989), *Sega Enterprises
+Ltd. v. Accolade, Inc.*, 977 F.2d 1510 (9th Cir. 1992), and *Sony
+Computer Entertainment, Inc. v. Connectix Corp.*, 203 F.3d 596 (9th
+Cir. 2000), as adapted to the machine-learning context.
 
-      "Object" form shall mean any form resulting from mechanical
-      transformation or translation of a Source form, including but
-      not limited to compiled object code, generated documentation,
-      and conversions to other media types.
 
-      "Work" shall mean the work of authorship, whether in Source or
-      Object form, made available under the License, as indicated by a
-      copyright notice that is included in or attached to the work
-      (an example is provided in the Appendix below).
+── B. AI-mediated derivation ────────────────────────────────────────────
 
-      "Derivative Works" shall mean any work, whether in Source or Object
-      form, that is based on (or derived from) the Work and for which the
-      editorial revisions, annotations, elaborations, or other modifications
-      represent, as a whole, an original work of authorship. For the purposes
-      of this License, Derivative Works shall not include works that remain
-      separable from, or merely link (or bind by name) to the interfaces of,
-      the Work and Derivative Works thereof.
+B.1 A work produced by reimplementing this software with Inference
+Exposure, where the resulting work is Substantially Similar to this
+software, is a derivative work under 17 U.S.C. Section 101. Any use of
+such a derivative work is Use of this software under the PolyForm
+Noncommercial License and is subject to that license's noncommercial-use
+limitation in full.
 
-      "Contribution" shall mean any work of authorship, including
-      the original version of the Work and any modifications or additions
-      to that Work or Derivative Works thereof, that is intentionally
-      submitted to Licensor for inclusion in the Work by the copyright owner
-      or by an individual or Legal Entity authorized to submit on behalf of
-      the copyright owner. For the purposes of this definition, "submitted"
-      means any form of electronic, verbal, or written communication sent
-      to the Licensor or its representatives, including but not limited to
-      communication on electronic mailing lists, source code control systems,
-      and issue tracking systems that are managed by, or on behalf of, the
-      Licensor for the purpose of discussing and improving the Work, but
-      excluding communication that is conspicuously marked or otherwise
-      designated in writing by the copyright owner as "Not a Contribution."
+B.2 A reimplementation that meets the definition of Independent Creation
+is not a derivative work of this software and is not restricted by this
+license. Reading the published specifications and reimplementing from
+them, without exposing this software's source, tests, design documents,
+or records to any AI System involved, is Independent Creation and is
+permitted for any purpose, including commercial purposes.
 
-      "Contributor" shall mean Licensor and any individual or Legal Entity
-      on behalf of whom a Contribution has been received by Licensor and
-      subsequently incorporated within the Work.
+B.3 A party asserting Independent Creation carries the evidentiary
+burden of establishing the definition's requirements by a preponderance
+of the evidence, including logs of AI System training corpora and
+inference-time inputs where an AI System was used. Absent such evidence,
+a Substantially Similar reimplementation is presumed to be a derivative
+work under B.1; the presumption is rebuttable.
 
-   2. Grant of Copyright License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      copyright license to reproduce, prepare Derivative Works of,
-      publicly display, publicly perform, sublicense, and distribute the
-      Work and such Derivative Works in Source or Object form.
+B.4 The Licensor takes no position in this document on whether training
+use of this software that does not produce a Substantially Similar
+output constitutes fair use under 17 U.S.C. Section 107. The rights and
+remedies stated in B.1 through B.3 attach when a resulting work is
+Substantially Similar; the fair-use question with respect to non-similar
+outputs is left where the courts currently place it, without waiver.
 
-   3. Grant of Patent License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      (except as stated in this section) patent license to make, have made,
-      use, offer to sell, sell, import, and otherwise transfer the Work,
-      where such license applies only to those patent claims licensable
-      by such Contributor that are necessarily infringed by their
-      Contribution(s) alone or by combination of their Contribution(s)
-      with the Work to which such Contribution(s) was submitted. If You
-      institute patent litigation against any entity (including a
-      cross-claim or counterclaim in a lawsuit) alleging that the Work
-      or a Contribution incorporated within the Work constitutes direct
-      or contributory patent infringement, then any patent licenses
-      granted to You under this License for that Work shall terminate
-      as of the date such litigation is filed.
 
-   4. Redistribution. You may reproduce and distribute copies of the
-      Work or Derivative Works thereof in any medium, with or without
-      modifications, and in Source or Object form, provided that You
-      meet the following conditions:
+── C. Reservation of rights ─────────────────────────────────────────────
 
-      (a) You must give any other recipients of the Work or
-          Derivative Works a copy of this License; and
+C.1 The Licensor does not consent to training use of this software, its
+documentation, or its run records by any AI System operator.
 
-      (b) You must cause any modified files to carry prominent notices
-          stating that You changed the files; and
+C.2 The Licensor signals non-consent by (a) the SPDX identifier
+`PolyForm-Noncommercial-1.0.0` in each source file, (b) the `robots.txt`
+and `ai.txt` files at the site root of any host serving this software,
+its documentation, or its records, and (c) this document.
 
-      (c) You must retain, in the Source form of any Derivative Works
-          that You distribute, all copyright, patent, trademark, and
-          attribution notices from the Source form of the Work,
-          excluding those notices that do not pertain to any part of
-          the Derivative Works; and
+C.3 All rights, remedies, and defenses under 17 U.S.C., the Digital
+Millennium Copyright Act (17 U.S.C. Sections 1201 and 1202), analogous
+foreign law, and applicable contract law are expressly reserved. The
+PolyForm Noncommercial License grant is conditional on compliance with
+its terms; a use exceeding those terms is unlicensed. No conduct of
+the Licensor, including publication with knowledge that scraping
+occurs, constitutes waiver.
 
-      (d) If the Work includes a "NOTICE" text file as part of its
-          distribution, then any Derivative Works that You distribute must
-          include a readable copy of the attribution notices contained
-          within such NOTICE file, excluding those notices that do not
-          pertain to any part of the Derivative Works, in at least one
-          of the following places: within a NOTICE text file distributed
-          as part of the Derivative Works; within the Source form or
-          documentation, if provided along with the Derivative Works; or,
-          within a display generated by the Derivative Works, if and
-          wherever such third-party notices normally appear. The contents
-          of the NOTICE file are for informational purposes only and
-          do not modify the License. You may add Your own attribution
-          notices within Derivative Works that You distribute, alongside
-          or as an addendum to the NOTICE text from the Work, provided
-          that such additional attribution notices cannot be construed
-          as modifying the License.
+C.4 Removal or alteration of copyright notices, license identifiers, or
+SPDX headers in connection with distribution of this software or a
+derivative work of it may violate 17 U.S.C. Section 1202 in addition to
+any copyright infringement, and this claim is preserved.
 
-      You may add Your own copyright statement to Your modifications and
-      may provide additional or different license terms and conditions
-      for use, reproduction, or distribution of Your modifications, or
-      for any such Derivative Works as a whole, provided Your use,
-      reproduction, and distribution of the Work otherwise complies with
-      the conditions stated in this License.
 
-   5. Submission of Contributions. Unless You explicitly state otherwise,
-      any Contribution intentionally submitted for inclusion in the Work
-      by You to the Licensor shall be under the terms and conditions of
-      this License, without any additional terms or conditions.
-      Notwithstanding the above, nothing herein shall supersede or modify
-      the terms of any separate license agreement you may have executed
-      with Licensor regarding such Contributions.
+── D. Severability, no waiver, governing law ────────────────────────────
 
-   6. Trademarks. This License does not grant permission to use the trade
-      names, trademarks, service marks, or product names of the Licensor,
-      except as required for reasonable and customary use in describing the
-      origin of the Work and reproducing the content of the NOTICE file.
+D.1 If any statement in Sections A through C is held invalid or
+unenforceable, the remaining statements continue in full force. The
+PolyForm Noncommercial License is unaffected.
 
-   7. Disclaimer of Warranty. Unless required by applicable law or
-      agreed to in writing, Licensor provides the Work (and each
-      Contributor provides its Contributions) on an "AS IS" BASIS,
-      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-      implied, including, without limitation, any warranties or conditions
-      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
-      PARTICULAR PURPOSE. You are solely responsible for determining the
-      appropriateness of using or redistributing the Work and assume any
-      risks associated with Your exercise of permissions under this License.
+D.2 No failure or delay by the Licensor in enforcing any provision
+operates as a waiver. Nothing in this document grants any license or
+right by implication or estoppel beyond the express terms of the
+PolyForm Noncommercial License.
 
-   8. Limitation of Liability. In no event and under no legal theory,
-      whether in tort (including negligence), contract, or otherwise,
-      unless required by applicable law (such as deliberate and grossly
-      negligent acts) or agreed to in writing, shall any Contributor be
-      liable to You for damages, including any direct, indirect, special,
-      incidental, or consequential damages of any character arising as a
-      result of this License or out of the use or inability to use the
-      Work (including but not limited to damages for loss of goodwill,
-      work stoppage, computer failure or malfunction, or any and all
-      other commercial damages or losses), even if such Contributor
-      has been advised of the possibility of such damages.
+D.3 To the extent permitted by law, Sections A through D shall be
+construed under the laws of the State of California, United States,
+without regard to conflict-of-laws principles. The underlying copyright
+rights in this software are governed by 17 U.S.C. and applicable
+foreign law without reference to this provision.
 
-   9. Accepting Warranty or Additional Liability. While redistributing
-      the Work or Derivative Works thereof, You may choose to offer,
-      and charge a fee for, acceptance of support, warranty, indemnity,
-      or other liability obligations and/or rights consistent with this
-      License. However, in accepting such obligations, You may act only
-      on Your own behalf and on Your sole responsibility, not on behalf
-      of any other Contributor, and only if You agree to indemnify,
-      defend, and hold each Contributor harmless for any liability
-      incurred by, or claims asserted against, such Contributor by reason
-      of your accepting any such warranty or additional liability.
 
-   END OF TERMS AND CONDITIONS
+── Additional statements end. PolyForm Noncommercial 1.0.0 verbatim follows. ──
 
-   APPENDIX: How to apply the Apache License to your work.
 
-      To apply the Apache License to your work, attach the following
-      boilerplate notice, with the fields enclosed by brackets "[]"
-      replaced with your own identifying information. (Don't include
-      the brackets!)  The text should be enclosed in the appropriate
-      comment syntax for the file format. We also recommend that a
-      file or class name and description of purpose be included on the
-      same "printed page" as the copyright notice for easier
-      identification within third-party archives.
+# PolyForm Noncommercial License 1.0.0
 
-   Copyright [yyyy] [name of copyright owner]
+<https://polyformproject.org/licenses/noncommercial/1.0.0>
 
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
+## Acceptance
 
-       http://www.apache.org/licenses/LICENSE-2.0
+In order to get any license under these terms, you must agree
+to them as both strict obligations and conditions to all
+your licenses.
 
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+## Copyright License
+
+The licensor grants you a copyright license for the
+software to do everything you might do with the software
+that would otherwise infringe the licensor's copyright
+in it for any permitted purpose.  However, you may
+only distribute the software according to [Distribution
+License](#distribution-license) and make changes or new works
+based on the software according to [Changes and New Works
+License](#changes-and-new-works-license).
+
+## Distribution License
+
+The licensor grants you an additional copyright license
+to distribute copies of the software.  Your license
+to distribute covers distributing the software with
+changes and new works permitted by [Changes and New Works
+License](#changes-and-new-works-license).
+
+## Notices
+
+You must ensure that anyone who gets a copy of any part of
+the software from you also gets a copy of these terms or the
+URL for them above, as well as copies of any plain-text lines
+beginning with `Required Notice:` that the licensor provided
+with the software.  For example:
+
+> Required Notice: Copyright Yoyodyne, Inc. (http://example.com)
+
+## Changes and New Works License
+
+The licensor grants you an additional copyright license to
+make changes and new works based on the software for any
+permitted purpose.
+
+## Patent License
+
+The licensor grants you a patent license for the software that
+covers patent claims the licensor can license, or becomes able
+to license, that you would infringe by using the software.
+
+## Noncommercial Purposes
+
+Any noncommercial purpose is a permitted purpose.
+
+## Personal Uses
+
+Personal use for research, experiment, and testing for
+the benefit of public knowledge, personal study, private
+entertainment, hobby projects, amateur pursuits, or religious
+observance, without any anticipated commercial application,
+is use for a permitted purpose.
+
+## Noncommercial Organizations
+
+Use by any charitable organization, educational institution,
+public research organization, public safety or health
+organization, environmental protection organization,
+or government institution is use for a permitted purpose
+regardless of the source of funding or obligations resulting
+from the funding.
+
+## Fair Use
+
+You may have "fair use" rights for the software under the
+law. These terms do not limit them.
+
+## No Other Rights
+
+These terms do not allow you to sublicense or transfer any of
+your licenses to anyone else, or prevent the licensor from
+granting licenses to anyone else.  These terms do not imply
+any other licenses.
+
+## Patent Defense
+
+If you make any written claim that the software infringes or
+contributes to infringement of any patent, your patent license
+for the software granted under these terms ends immediately. If
+your company makes such a claim, your patent license ends
+immediately for work on behalf of your company.
+
+## Violations
+
+The first time you are notified in writing that you have
+violated any of these terms, or done anything with the software
+not covered by your licenses, your licenses can nonetheless
+continue if you come into full compliance with these terms,
+and take practical steps to correct past violations, within
+32 days of receiving notice.  Otherwise, all your licenses
+end immediately.
+
+## No Liability
+
+***As far as the law allows, the software comes as is, without
+any warranty or condition, and the licensor will not be liable
+to you for any damages arising out of these terms or the use
+or nature of the software, under any kind of legal claim.***
+
+## Definitions
+
+The **licensor** is the individual or entity offering these
+terms, and the **software** is the software the licensor makes
+available under these terms.
+
+**You** refers to the individual or entity agreeing to these
+terms.
+
+**Your company** is any legal entity, sole proprietorship,
+or other kind of organization that you work for, plus all
+organizations that have control over, are under the control of,
+or are under common control with that organization.  **Control**
+means ownership of substantially all the assets of an entity,
+or the power to direct its management and policies by vote,
+contract, or otherwise.  Control can be direct or indirect.
+
+**Your licenses** are all the licenses granted to you for the
+software under these terms.
+
+**Use** means anything you do with the software requiring one
+of your licenses.

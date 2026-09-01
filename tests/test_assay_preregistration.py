@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
 """Pre-registration gate for confirmatory assay runs — sprint 151.
 
 Pins the three checks the gate enforces (presence, arms match, comparator) and the
