@@ -23,6 +23,7 @@ remote one (HTTP over UDS/TCP) — the seam is the same.
 from __future__ import annotations
 
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, Protocol
 
 from .tools import Tool
@@ -60,6 +61,11 @@ _RUN_TOPOLOGY_SCHEMA: dict[str, Any] = {
         "timeout_seconds": {"type": "number"},
     },
     "required": ["name", "inputs"],
+    # Sprint 049: pass named args through as ONE dict (delegate's shape).
+    # Without this the tool_loop's _named_to_positional walks the schema
+    # in property order and hands run() a positional list, and the impl
+    # here (`args[0]` must be a dict) raises ValueError on every call.
+    "x-args-passthrough": True,
 }
 
 
@@ -70,6 +76,7 @@ _RUN_TOPOLOGY_POLL_SCHEMA: dict[str, Any] = {
         "run_id": {"type": "string"},
     },
     "required": ["name", "run_id"],
+    "x-args-passthrough": True,  # sprint 049 — see _RUN_TOPOLOGY_SCHEMA.
 }
 
 
@@ -77,7 +84,7 @@ def _run_topology_impl(daemon_client: DaemonClient, args: list[Any]) -> dict[str
     """Called by the Tool's `run(args)` callable. args[0] is the tool-call
     dict (native tool-calling routes named args as one dict argument;
     text-parse pushes the parsed dict too, positional index 0)."""
-    if not args or not isinstance(args[0], dict):
+    if not args or not isinstance(args[0], Mapping):
         raise ValueError("run_topology expects one dict argument")
     payload: dict[str, Any] = dict(args[0])
     name = str(payload.pop("name"))
@@ -119,7 +126,7 @@ def _run_topology_impl(daemon_client: DaemonClient, args: list[Any]) -> dict[str
 
 
 def _run_topology_poll_impl(daemon_client: DaemonClient, args: list[Any]) -> dict[str, Any]:
-    if not args or not isinstance(args[0], dict):
+    if not args or not isinstance(args[0], Mapping):
         raise ValueError("run_topology_poll expects one dict argument")
     payload = dict(args[0])
     name = str(payload["name"])
@@ -218,6 +225,7 @@ _INSPECT_RECORD_SCHEMA: dict[str, Any] = {
         "compare_record": {"type": "string"},
     },
     "required": ["record"],
+    "x-args-passthrough": True,  # sprint 049 — hand run() the dict, not positional list.
 }
 
 
@@ -361,7 +369,7 @@ def _inspect_record_impl(
 
     from ... import api
 
-    if not args or not isinstance(args[0], dict):
+    if not args or not isinstance(args[0], Mapping):
         raise ValueError("inspect_record expects one dict argument")
     payload = dict(args[0])
     format_name = str(payload.get("format", "summary"))
@@ -551,6 +559,7 @@ _LIST_RECORDS_SCHEMA: dict[str, Any] = {
         "session_name": {"type": "string"},
         "limit": {"type": "integer"},
     },
+    "x-args-passthrough": True,  # sprint 049 — the impl reads args[0] as a dict.
 }
 
 _LIST_TOPOLOGIES_SCHEMA: dict[str, Any] = {"type": "object", "properties": {}}
@@ -574,7 +583,7 @@ def _make_list_records_impl(records_root: Path, args: list[Any]) -> dict[str, An
 
     from ... import api
 
-    filt = args[0] if args and isinstance(args[0], dict) else {}
+    filt = args[0] if args and isinstance(args[0], Mapping) else {}
     status_want = filt.get("status")
     since_ts = float(filt["since_ts"]) if "since_ts" in filt else None
     topology_want = filt.get("topology")

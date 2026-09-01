@@ -269,21 +269,45 @@ def _model_factory(
                 yield compaction
             prompt_text = rendered.prompt_text
 
-        if final:
-            text = _answer_text_from_results(results)
-            yield FinalAnswer(text=text, steps=step)
-            return
+        # Sprint 049: on either terminal condition — the wrap-up trigger's
+        # `final=True` (max step reached) or the anti-spin guard tripping
+        # after _MAX_CONSECUTIVE_FAILS failed tool calls — call the model
+        # ONE more time with a directive to answer the user in plain text
+        # (no more tools) using what it has. Before, both paths synthesised
+        # a FinalAnswer from the raw error string and the model never got
+        # to speak. The user saw "stopped after N failed tool call(s)…"
+        # (or nothing, if the UI dropped FinalAnswer text) and no
+        # explanation. Now the model composes the answer itself; the
+        # session's own record still carries the failure evidence
+        # verbatim in ToolResult events, so nothing is hidden.
         trailing_fails = 0
         for r in reversed(results):
             if r.get("ok", True):
                 break
             trailing_fails += 1
-        if trailing_fails >= _MAX_CONSECUTIVE_FAILS:
-            last_err = str(results[-1].get("error", "tool failed"))
-            yield FinalAnswer(
-                text=f"stopped after {trailing_fails} failed tool call(s): {last_err}",
-                steps=step,
+        wrap_up_reason: str | None = None
+        if final:
+            wrap_up_reason = "budget reached"
+        elif trailing_fails >= _MAX_CONSECUTIVE_FAILS:
+            wrap_up_reason = f"tool failed {trailing_fails} times in a row"
+        if wrap_up_reason is not None:
+            progress = [
+                {"tool": r.get("tool"), "ok": r.get("ok", True), "output": r.get("output", "")}
+                for r in results
+            ]
+            last_err = str(results[-1].get("error", "")) if results else ""
+            wrap_prompt = (
+                f"{prompt_text}\n\n"
+                f"Tool results so far, in order: {progress}\n\n"
+                f"You cannot call more tools this turn ({wrap_up_reason}). "
+                "Answer the user in plain text with what you have. If the tool "
+                "failed, explain why in one or two sentences and suggest a "
+                "workable next step. Do not emit a tool call — plain text only."
+                + (f"\n\nLast error was: {last_err}" if last_err else "")
             )
+            reply_text = str(await call_responder(driver, wrap_prompt))
+            yield ModelReply(text=reply_text, model_usage={}, turn_index=turn_index)
+            yield FinalAnswer(text=reply_text, steps=step)
             return
         if script is not None:
             if step < len(script):

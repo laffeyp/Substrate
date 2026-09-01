@@ -372,24 +372,25 @@ def _boom_tool() -> dict[str, Tool]:
     return {"boom": Tool(name="boom", describe="always fails", deterministic=True, run=_run)}
 
 
-def _bail_events(envs: list[dict[str, Any]]) -> list[str]:
-    return [
-        str(e["payload"].get("text", ""))
-        for e in _by_kind(envs, "FinalAnswer")
-        if str(e["payload"].get("text", "")).startswith("stopped after")
-    ]
-
-
 @pytest.mark.asyncio
 async def test_trailing_fails_counter_resets_between_turns(tmp_path: Path) -> None:
-    """Sprint 047 regression. Before the fix, the anti-spin guard counted
-    failures over the ENTIRE session (KindBuffer("ToolResult") is
-    session-wide), so a turn with 3 failures blew the guard for every
-    later turn — turn 2's first failing call became the 4th consecutive
-    fail and the model bailed immediately. Fix: `_continue_input` slices
-    the buffer to just this turn's tail (count = step_of_result + 1).
+    """Sprint 047 regression + sprint 049 contract update.
 
-    Contract: turn 2 must burn 3 fresh failures before its bail fires.
+    047: the anti-spin guard counted failures over the ENTIRE session
+    (KindBuffer("ToolResult") is session-wide), so a turn with 3
+    failures blew the guard for every later turn — turn 2's first
+    failing call became the 4th consecutive fail and the model bailed
+    immediately. Fix: `_continue_input` slices the buffer to just this
+    turn's tail (count = step_of_result + 1).
+
+    049 update: when the guard fires (or wrap-up trigger's final=True
+    fires), the model factory no longer synthesises a "stopped after N"
+    FinalAnswer — it calls the driver one more time with a "no more
+    tools, answer plainly" prompt so the model can explain to the user
+    what happened. So the assertion shifts: turn 2 must (a) burn 3
+    fresh failures before wrap-up (per-turn counter), and (b) end with
+    a ModelReply + FinalAnswer (proof the wrap-up went through the
+    driver, not the synthetic path).
     """
     root = tmp_path / "trailing-fails"
     tools = _boom_tool()
@@ -418,19 +419,26 @@ async def test_trailing_fails_counter_resets_between_turns(tmp_path: Path) -> No
             ),
         )
 
-    # Turn 1 — 3 failing calls, guard fires, session parks on FinalAnswer.
+    # Turn 1 — 3 failing calls, guard fires, driver produces a ModelReply +
+    # FinalAnswer (post-049).
     r1 = await api.Runtime(root, persistent=True).run(_build_boom(first_text="try once"))
     assert r1.status == "paused", f"turn 1 expected paused, got {r1.status}"
     envs_1 = _read(root)
     tool_results_1 = _by_kind(envs_1, "ToolResult")
-    bails_1 = _bail_events(envs_1)
-    assert len(bails_1) == 1, f"turn 1 expected 1 bail FinalAnswer, got {len(bails_1)}: {bails_1}"
-    assert "3 failed" in bails_1[0], f"turn 1 bail should cite 3 failures, got: {bails_1[0]}"
+    replies_1 = _by_kind(envs_1, "ModelReply")
+    finals_1 = _by_kind(envs_1, "FinalAnswer")
+    assert len(tool_results_1) == 3, (
+        f"turn 1 expected 3 failing tool calls before wrap-up, got {len(tool_results_1)}"
+    )
+    assert len(replies_1) == 1 and len(finals_1) == 1, (
+        f"turn 1 expected wrap-up via the driver (1 ModelReply + 1 FinalAnswer), got "
+        f"replies={len(replies_1)} finals={len(finals_1)}"
+    )
 
-    # Turn 2 — resume with a new UserMessage. The bug (pre-047) makes the
-    # first failure of turn 2 count as the 4th and bail immediately with
-    # "stopped after 4 failed tool call(s)". Post-fix, turn 2's counter
-    # is 1, not 4, and the model continues until turn 2's own 3-in-a-row.
+    # Turn 2 — resume with a new UserMessage. The 047 bug made turn 2 bail
+    # on its FIRST fail (4th session-wide). Post-fix, turn 2 gets its own
+    # fresh 3-fail budget before wrap-up. Post-049, wrap-up is another
+    # driver call — one more ModelReply + one more FinalAnswer land.
     r2 = await api.Runtime(root, persistent=True).resume(
         _build_boom(first_text="unused-on-resume"),
         resume_event=UserMessage(
@@ -445,16 +453,14 @@ async def test_trailing_fails_counter_resets_between_turns(tmp_path: Path) -> No
     envs_2 = _read(root)
     tool_results_2 = _by_kind(envs_2, "ToolResult")
     turn_2_tool_results = tool_results_2[len(tool_results_1) :]
-    bails_2 = _bail_events(envs_2)
-    # Turn 1's bail is still on the record; turn 2 adds one of its own.
-    assert len(bails_2) == 2, (
-        f"expected 2 total bail FinalAnswers (one per turn), got {len(bails_2)}: {bails_2}"
-    )
-    # The regression: pre-fix bails_2[-1] cited "4 failed"; post-fix it must cite "3".
-    assert "3 failed" in bails_2[-1], (
-        f"turn 2 bail should cite 3 failures (counter resets per turn), got: {bails_2[-1]}"
-    )
-    # And turn 2 actually got 3 attempts, not just 1.
+    replies_2 = _by_kind(envs_2, "ModelReply")
+    finals_2 = _by_kind(envs_2, "FinalAnswer")
+
     assert len(turn_2_tool_results) == 3, (
-        f"turn 2 should burn 3 failing tool calls before bailing, got {len(turn_2_tool_results)}"
+        f"turn 2 should burn 3 failing tool calls before wrap-up (counter "
+        f"resets per turn); got {len(turn_2_tool_results)}"
+    )
+    assert len(replies_2) == 2 and len(finals_2) == 2, (
+        f"turn 2 should add one more wrap-up ModelReply + FinalAnswer via "
+        f"the driver, got total replies={len(replies_2)} finals={len(finals_2)}"
     )
