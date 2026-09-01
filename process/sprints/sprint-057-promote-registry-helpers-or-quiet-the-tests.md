@@ -1,8 +1,8 @@
-# Sprint 056 — promote the private registry helpers, or stop patching them
+# Sprint 057 — promote the private registry helpers, or stop patching them
 
 ```yaml
 ---
-id: 056
+id: 057
 status: open
 phase: 7
 pass_kind: hygiene
