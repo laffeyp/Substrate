@@ -520,6 +520,72 @@ bar becomes unmeetable rather than falling back.
   its own claims. Corollary: a startup-dead run (zero steps, no logs) is an INFRASTRUCTURE
   signature — diagnose it as such before reading it as a code failure.
 
+### 2026-08-31 — piece G audit arc: five bugs the synthetic tests could not see
+
+**Sprints 044-051.** Piece G's stated bar (type into the daily-driver terminal, real model
+responds, session opens and ends cleanly) landed at sprint 044, then the arc kept surfacing
+bugs the existing tests missed. Five of them share one shape.
+
+- 39. **A `record_root=None` default silently disables the whole compaction path.** Session
+  topology's `_model_factory` guards `render_transcript(...)` on `if record_root is not None:`,
+  so a caller who forgets the kwarg gets a session that hands the driver the raw last
+  UserMessage every turn — no compaction, no `TranscriptCompacted` on the record, no on-record
+  signal that anything is missing. Every production caller (substrate-ui/server.py) threaded
+  it; the audit surfaced it because a new live-model test (sprint 050) forgot. Corollary:
+  when a topology guards a core behaviour on `is not None`, the default is the SILENT bug.
+  Fix: `warnings.warn()` at build time when the guarded kwarg is None. Better still, make
+  the kwarg required — a fresh caller cannot then get the silent no-op shape.
+
+- 40. **Ollama silently truncates when a prompt exceeds `num_ctx`.** Confirmed via live probe:
+  a 2000-token prompt with `num_ctx=512` came back with `prompt_eval_count=258`, no
+  warning field, no error, `done_reason=stop`, just the TAIL of the prompt surviving. This
+  is Ollama's design — no compaction, no signal, one knob. Substrate had TWO windows out
+  of sync: `resolve_driver_context_tokens` read `/api/show` (kimi advertises 262144), but
+  `OllamaResponder(num_ctx=32768)` was the responder default — so compaction budgeted for
+  262K while Ollama input was capped at 32K. Compaction thought it kept K turns; Ollama
+  dropped K + far more. The `TranscriptCompacted` event on the record was a lie. Fix:
+  probe `/api/show` at responder construction, pass the advertised value to
+  `OllamaResponder(num_ctx=)`, so compaction and Ollama read from the same number.
+
+- 41. **The anti-spin guard must go THROUGH the model, not around it.** The tool_loop's
+  `_MAX_CONSECUTIVE_FAILS=3` guard was porting to the session topology as-is: on the third
+  failing ToolResult, synthesize a `FinalAnswer(text=f"stopped after N failed tool call(s):
+  {last_err}")` and end the turn. The model never ran on the bail. The terminal showed
+  nothing (see finding 43) and the user watched three failed tool calls turn into silence.
+  Fix: on the bail, call the driver ONE more time with a "tools disabled this turn
+  (<reason>), answer plainly, explain the failure in one or two sentences" prompt — the
+  model composes the FinalAnswer. Every ToolResult still carries the raw error verbatim.
+  Corollary: a topology-level guard that silences the model is a UX bug even when the
+  contract is technically satisfied.
+
+- 42. **A session-wide "consecutive failures" counter is the wrong scope.** Same anti-spin
+  guard, different bug: the counter walked backwards through the SESSION-wide
+  `KindBuffer("ToolResult")`. A turn with 3 fails set the counter at 3; the next turn's
+  FIRST failing call became fail #4, and the guard tripped immediately. Fix: slice the
+  buffer to just this turn's tail (`results[-step_of_ctx-1:]`) — the ToolResult buffer is
+  append-order, so the last N results are always this turn's N.
+
+- 43. **A silent SSE stream reads as "the UI is broken."** `web/terminal.ts` opened an
+  EventSource on session open and never reconnected on error — a server restart or WiFi
+  blip left the terminal permanently deaf while the server kept receiving turns and
+  producing events. Combined with (a) no local echo of the user's Enter (only the SSE
+  UserMessage envelope's echo rendered, seconds late under a cloud driver) and (b) FinalAnswer
+  text dropped when there was no preceding ModelReply (the bail case), the terminal
+  became fully hung to the user's eye while the record kept growing on disk. Fix: reconnect
+  on error with a 1s backoff and `since_seq=lastSeq`, echo the user's message locally
+  before the network round-trip, render `FinalAnswer.text` in a distinct colour when it
+  differs from the last ModelReply.
+
+**What this says about the next kit version.** A shared pattern under these five: a
+correct-by-narrow-contract behaviour becomes a silent bug under a broader assumption the
+user has. `record_root=None` is correct if you assume "the caller is the daemon" (it always
+threads it); `num_ctx=32768` is correct if you assume "the model has a 32K window"; the
+anti-spin synthesis is correct if you assume "the user reads the record"; the SSE-no-
+reconnect is correct if you assume "the server never restarts." Every one broke under a
+live-model test the moment the assumption failed. **The kit rule:** every default that is
+also a load-bearing precondition needs either a hard failure or a loud warning when it
+holds — never silent success.
+
 ---
 
 ## Phase boundary syntheses
