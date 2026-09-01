@@ -38,7 +38,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -397,7 +397,12 @@ def make_delegate(
     def run(a: list[Any]) -> dict[str, Any]:
         # Parse per-call args from either a dict (the x-args-passthrough path from
         # tools.py::_named_to_positional) or a plain string (backwards-compat).
-        if a and isinstance(a[0], dict):
+        # Sprint 053: the runtime seals dicts as MappingProxyType before this
+        # closure sees them, so `isinstance(a[0], dict)` was False and the
+        # ELSE branch coerced the whole mapping to str, silently dropping
+        # every kwarg past `task` (including `child_session_name`). Widen to
+        # Mapping — same class as the sprint 049 substrate_tools fix.
+        if a and isinstance(a[0], Mapping):
             args_dict = dict(a[0])
         elif a:
             args_dict = {"task": str(a[0])}
