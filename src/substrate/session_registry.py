@@ -1390,6 +1390,26 @@ def _replace(m: SessionManifest, **kwargs: Any) -> SessionManifest:
     return _manifest_from_dict(data)
 
 
+# Sprint 057: public read projections over on-disk registry state. Same
+# class as `api.read_record` — pure reads, no side effects. Substrate-ui
+# and any other consumer that wants to classify a session's true status
+# without opening a Runtime imports these public names; the underscore
+# originals stay in place as the primary definitions so every internal
+# call site above keeps working unchanged.
+def scan_record_status(record_root: Path) -> SessionStatus:
+    """Return a record directory's true `SessionStatus` per the boot-scan
+    discriminator (§5): parked / interrupted / ended. Pure read — never
+    truncates a torn tail. Full contract on `_scan_record_status`."""
+    return _scan_record_status(record_root)
+
+
+def manifest_from_dict(d: dict[str, Any]) -> SessionManifest:
+    """Parse an on-disk manifest.json dict into a typed `SessionManifest`.
+    Raises `ValueError` on an unknown status or a malformed `tools` field.
+    Full contract on `_manifest_from_dict`."""
+    return _manifest_from_dict(d)
+
+
 __all__ = [
     "FreshSessionRequiresUserMessage",
     "NameCollision",
@@ -1398,4 +1418,6 @@ __all__ = [
     "SessionRegistry",
     "SessionStatus",
     "SessionTopologyFactory",
+    "manifest_from_dict",
+    "scan_record_status",
 ]
