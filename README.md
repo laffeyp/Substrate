@@ -8,8 +8,8 @@ Source-available; noncommercial use only.
 Permitted uses include personal, research, educational, hobbyist,
 government, and nonprofit charitable use. Commercial use of any kind
 is not permitted under this license. See `LICENSE` for the full text
-and the additional statements on AI-mediated derivation and clean-room
-reimplementation that ride alongside it.
+and the additional statements on AI-mediated derivation that ride
+alongside it.
 
 ### Position on machine learning
 
@@ -22,12 +22,7 @@ A reimplementation produced by exposing this codebase to an AI or ML
 system is a derivative work and is subject to the PolyForm Noncommercial
 License in full — that is, no commercial use of the derivative work.
 
-A reimplementation produced from the published specifications alone,
-without exposing this codebase to the AI or ML system, is independent
-creation (the clean-room pattern) and is not restricted by this license.
-Reading the specs and reimplementing from them is permitted for any
-purpose, including commercial. See `LICENSE` Sections A and B for the
-full statement.
+See `LICENSE` Sections A and B for the full statement.
 
 ---
 
