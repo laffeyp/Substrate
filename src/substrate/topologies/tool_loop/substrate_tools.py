@@ -89,8 +89,13 @@ def _run_topology_impl(daemon_client: DaemonClient, args: list[Any]) -> dict[str
     payload: dict[str, Any] = dict(args[0])
     name = str(payload.pop("name"))
     inputs = payload.pop("inputs")
-    if not isinstance(inputs, dict):
+    # Sprint 052: `inputs` also comes through msgspec sealing as
+    # MappingProxyType, not plain dict. Widen the check to Mapping and
+    # coerce to a plain dict for the daemon call (which expects a real
+    # dict downstream). Same class as the sprint 049 fix.
+    if not isinstance(inputs, Mapping):
         raise ValueError(f"run_topology inputs must be an object; got {type(inputs).__name__}")
+    inputs = dict(inputs)
     kwargs: dict[str, Any] = {}
     if "bundle" in payload and payload["bundle"] is not None:
         kwargs["bundle"] = str(payload["bundle"])

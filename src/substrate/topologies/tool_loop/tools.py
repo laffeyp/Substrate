@@ -415,8 +415,19 @@ def required_params(name: str, suite: dict[str, Tool] | None = None) -> list[str
     """The tool's required parameter names (schema order) — used to turn a model's under-specified
     call (too few args) into a CLEAR typed error the model can act on, instead of a raw IndexError
     from the tool body. Surfaced by a live llama3.2:1b run that re-called write_file with no args.
-    Falls back to a caller-composed tool's own schema (review C-10)."""
-    return list((_schema_for(name, suite) or {}).get("required", []))
+    Falls back to a caller-composed tool's own schema (review C-10).
+
+    Sprint 052 fix: a schema carrying `x-args-passthrough: true` produces a positional args list
+    of exactly ONE element (the whole named-args dict) via `_named_to_positional`. Its `required`
+    field is per-JSON-schema-property, not per-positional-arg — walking it directly here would
+    check the length-1 args list against a length-N required list and fail the model's call every
+    time (surfaced live: run_topology + run_topology_poll both required ≥1 named field, so the
+    check tripped even when the call was well-formed). For passthrough schemas, required = 1
+    (the passthrough dict); the impl validates the DICT keys itself."""
+    schema = _schema_for(name, suite) or {}
+    if schema.get("x-args-passthrough"):
+        return ["<args>"] if schema.get("required") else []
+    return list(schema.get("required", []))
 
 
 def _named_to_positional(
