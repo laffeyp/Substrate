@@ -19,6 +19,20 @@
 
 ---
 
+### 2026-09-01 — Sprints 054/055/057 + the AGPL relicense: four kit-worthy lessons
+
+**Findings 68-71** across the SessionRegistry-into-substrate arc and the license landing.
+
+**68. Sprint numbers ARE build order, or the number is a lie.** Sprints 055-057 were originally numbered by topic-cluster (055 = boot_scan, 056 = helper promotion, 057 = stale tests). The Architect pushed back: "if they're not necessarily to be built in this order, why are they numbered like this? Things should be built sequentially, step by step. Even if there's not a hard dependency, there's often a conceptual dependency that differs from a code dependency." Renumbered on the spot to 055 → 056 → 057 = boot_scan → stale tests → helper promotion, reflecting actual dependency: clean the red bar first (056), then hygiene (057). Class: a sprint number is a promise about build order; if the promise is broken the number becomes a false signal in every future traceback that names it. Corollary: when writing more than one card in a session, ask "what MUST come first" before assigning IDs — not after.
+
+**69. An underscore-prefixed name that appears in another module's `__all__` is a leaked private, not a private.** Sprint 054's re-export module `substrate-ui/session_registry.py` listed `_scan_record_status`, `_manifest_from_dict`, `_record_state`, `_manifest_to_dict` in its `__all__` to keep substrate-ui tests working after the move. That formalises the leak — a caller reading `__all__` sees them as sanctioned. Sprint 057 sorted the four: two are pure reads over on-disk registry state (same class as `api.read_record`) and belong public; two are dispatch-classifier and serialization helpers with no consumer-facing role and stay private. Class: `__all__` is the source of truth for what a module claims to expose; a private name that survives there is a design decision, not a placeholder — either promote it or migrate the callers off it.
+
+**70. A silent load-bearing precondition is not fixed by documenting it; it is fixed by removing it.** Sprint 054 phase A shipped `SessionRegistry` with `boot_scan()` as a manual second step every caller had to know to invoke. One unit test failed because the test author (me) forgot. Sprint 055 closed the gap in the primitive: `__init__` calls `boot_scan()` under a try/except that warns on `OSError`. Now no caller has to remember and a bad base path surfaces at construct time, not at first `get()`. The pattern generalises: any "you must call X after constructing Y" pair is a construction-time responsibility that the class is offloading to callers. Promote it inside; keep an opt-out only for real timing-control cases (mid-construction patch, subclass hook).
+
+**71. A machine-facing legal notice is not a friendly guide, and the wrong register can invert the meaning.** Round-1 `NOTICE.md` closed with "Reading the specs and reimplementing from them is permitted and encouraged." Read cold at the top of the README, that reads as an invitation. The audience of the block is automated crawlers, model training pipelines, and their operators — not human contributors. The Architect flagged both the sentence and the surrounding paragraph as warm-toned relative to the block's function. Fix: drop the whole clean-room paragraph from the paste block; rename "Position on machine learning" → "Notice to operators of AI and machine learning systems"; tighten "should honor" → "must honor". Clean-room material stays available in `LICENSE-ADDENDUM.md` where interpretive detail belongs. Bundle side: `NOTICE-2.md` replaces `NOTICE.md` as the canonical paste block. Class: register is content. A legal notice written in a friendly register is not a nicer legal notice; it is a different notice.
+
+---
+
 ### 2026-08-28 — Piece-B closure red-team: scope claims read from the spec verbatim, not from a summary
 
 **Findings 64-67.** The piece-B close carried three "still open" items in the closure summary. The first — "five missing endpoints belong to pieces E and H" — was wrong on the count. Red-team of the tech spec resolved it. Lessons:
