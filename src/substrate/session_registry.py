@@ -250,6 +250,7 @@ class SessionRegistry:
         *,
         session_topology_factory: SessionTopologyFactory | None = None,
         turn_queue_cap: int = 4,
+        auto_boot: bool = True,
     ) -> None:
         self._base = Path(base) if base is not None else _SESSIONS_BASE_DEFAULT
         self._by_name: dict[str, str] = {}
@@ -292,6 +293,33 @@ class SessionRegistry:
         # the registry can be constructed in tests that never exercise the seam.
         self._session_topology_factory: SessionTopologyFactory | None = session_topology_factory
         self._base.mkdir(parents=True, exist_ok=True)
+        # Sprint 055: hydrate from disk at construction time. A caller who
+        # passes `auto_boot=False` keeps the old shape (empty in-memory
+        # catalog until `.boot_scan()` fires). Every production caller
+        # (substrate-ui/server.py at daemon start) called boot_scan
+        # immediately after constructing, so the auto-boot is behaviourally
+        # a no-op there. New callers (tests, CLIs, MCP clients) previously
+        # got a silent bug — the registry looked empty even when disk had
+        # sessions. `boot_scan` is idempotent; the explicit call the daemon
+        # still makes at startup is safe.
+        if auto_boot:
+            try:
+                self.boot_scan()
+            except OSError as exc:
+                # Boot at construction is best-effort. A permission-denied on
+                # the base dir, or a mid-shutdown race, must NOT abort the
+                # construction — the caller can still create fresh sessions.
+                # Report loudly via warnings so the failure is not silent.
+                import warnings
+
+                warnings.warn(
+                    f"SessionRegistry(base={self._base!r}): auto-boot scan failed "
+                    f"({type(exc).__name__}: {exc}). The in-memory catalog is "
+                    "empty; call `.boot_scan()` explicitly once the underlying "
+                    "issue is resolved. Pass `auto_boot=False` to suppress this "
+                    "path and take manual control of hydration timing.",
+                    stacklevel=2,
+                )
 
     # ── boot scan ──────────────────────────────────────────────────────────
 
