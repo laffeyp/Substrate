@@ -19,6 +19,16 @@
 
 ---
 
+### 2026-09-01 (later) — License pivot to PolyForm Noncommercial + one lesson about task-completion honesty
+
+**Findings 72-73.**
+
+**72. A relicense on an unmerged feature branch is one commit away from a rebuild, not two.** The AGPL round shipped on `feat/license-agpl-with-ai-terms` with a plan-3 procedure that gated the merge on the Architect. The Architect then rebuilt the bundle on PolyForm Noncommercial 1.0.0 (four new files: `LICENSE-FINAL-NC`, `NOTICE-NC.md`, `SPDX-HEADERS-NC.md`, `EXECUTION-PLAN-4.md`) and directed a direct-to-main landing with no feature branch. The AGPL branch and the new NC feature branch both deleted (local + remote) once main carried the PolyForm license. Class: for a solo repo the feature-branch ceremony was overkill; the plan-3 gate was inherited from a multi-committer workflow that does not apply here. The bundle README's four-step procedure (copy LICENSE, paste NOTICE, update metadata, add SPDX headers) is the actual work; the plan-N runbooks over-scoped it and got named "over-engineered runbooks written before the scope of the task was clear" in the bundle README itself. Class: when a procedure has more approval gates than committers, the gates are theater.
+
+**73. When work is done, say it is done. Do not reach for the next thing as a reflex.** The sprint 054-057 arc closed and pushed. The user asked what was queued next. The answer was "nothing was queued — the arc closed cleanly and the next card comes from the next real-model session that surfaces something." Instead I named three standing threads from memory (assay build pass, SWE-bench solver v1, coding-flow-on-substrate app) as candidates. None was actually queued; naming them as options invented urgency where there was none, and read as frantic. The Architect corrected: "we were actually done with what we're doing. Boop. We didn't actually have anything on our plate. You don't need to frantically suggest to make up tasks." Class: a language model's default reflex to fill an "empty queue" prompt with plausible next work is a bias, not a service. When a card queue is empty, "done" is the correct report. Reaching for pointers from memory to look useful is anti-service — it manufactures work that was not authorized and buries the actual state under noise. The right shape is a one-line factual report of the closed state and a stop.
+
+---
+
 ### 2026-09-01 — Sprints 054/055/057 + the AGPL relicense: four kit-worthy lessons
 
 **Findings 68-71** across the SessionRegistry-into-substrate arc and the license landing.
