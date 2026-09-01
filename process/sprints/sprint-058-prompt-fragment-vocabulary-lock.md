@@ -13,7 +13,7 @@ pass_kind: vocabulary
 
 **Fulfills:** the SDD entry gate for the prompt-composition arc. Product spec `draft7.md` R-RISK-5 (line 766) rules prompts, roles, and LLM tooling as topology-layer concerns. Session-vocabulary v0.1 (locked 2026-08-25 at `signals/versions/0.1.json`) names eight Structs — SessionStarted, UserMessage, ModelReply, Park, SessionEnded, SessionEndRequested, SessionWarning, TranscriptCompacted — none of which describe a prompt fragment or a composition event. This card adds the missing vocabulary so every downstream sprint has typed events to emit against.
 
-**Consumes:** the session vocabulary lock file at `substrate/process/signals/session-vocabulary.md` (v0.1). Not the kernel v15 vocabulary — this is a topology-layer extension under the session namespace.
+**Consumes:** the session vocabulary lock file at `substrate/process/signals/session-vocabulary.md` (v0.1, ratified 2026-08-25 by sprint 202). NOT the master Substrate vocabulary track at `substrate/process/signals/0.1.json` / `0.2.json` / `0.3.json` — that track covers kernel `substrate.*` events (currently at v0.3 after sprint 217c's `ProducerCancelled` provenance additions). Session-topology vocabulary is tracked in the single `session-vocabulary.md` document, not as per-version json files. This card appends a v0.2 section to the md file.
 
 ## Motivation
 
@@ -48,14 +48,13 @@ Two new Structs and one enum, added to session-vocabulary v0.2. All under the se
 ## Context files
 
 - `substrate/process/signals/session-vocabulary.md` — v0.1 lock file. Read in full; do not overwrite (rule 12). Add a `## v0.2` section below the v0.1 section, dated, with the two new Structs and the enum.
-- `signals/versions/0.1.json` (substrate side) and `signals/versions/0.1-rationale.md` — the machine-readable lock. Add `signals/versions/0.2.json` + rationale as new files.
 - `src/substrate/topologies/session/vocabulary.py` (69 lines) — the Python home for the kind-name constants. Add `PROMPT_FRAGMENT` and `PROMPT_COMPOSED` string constants.
 - `src/substrate/topologies/session/__init__.py` — home of every existing session Struct. Add the two new Structs alongside.
+- `substrate-ui/signals/versions/` — this DOES have per-version files (0.1-0.7.3). The substrate-ui vocabulary is the paired grader-side lock, not the substrate side. If a paired ui-side tag needs to land alongside PromptFragment/PromptComposed (per the dual-contract audit at `session-vocabulary.md § G`), open a companion sprint on the substrate-ui side; do not touch that tree from this substrate-side card.
 
 ## Artifact contract → Files modified
 
-- `substrate/process/signals/session-vocabulary.md` — append `## v0.2 — 2026-09-XX` section with the two Structs + enum, rationale one paragraph per Struct. v0.1 section stays byte-identical.
-- `signals/versions/0.2.json` (new) + `signals/versions/0.2-rationale.md` (new). Match the shape of v0.1's files.
+- `substrate/process/signals/session-vocabulary.md` — append `## v0.2 — 2026-09-XX` section with the two Structs + enum, rationale one paragraph per Struct. v0.1 section stays byte-identical. This is the only lock file the session vocabulary track writes to.
 - `src/substrate/topologies/session/vocabulary.py` — two new string constants; add to `__all__`.
 - `src/substrate/topologies/session/__init__.py` — two new `msgspec.Struct` classes, frozen, at the same seam as the existing eight; add to `__all__`.
 
@@ -67,8 +66,7 @@ Two new Structs and one enum, added to session-vocabulary v0.2. All under the se
 
 - The two Structs import cleanly from `substrate.topologies.session`.
 - The two kind-name constants match between `vocabulary.py` and the Struct qualname.
-- `signals/versions/0.2.json` parses and validates against the schema shape v0.1 uses.
-- `substrate.process.signals.session-vocabulary.md` v0.1 section is byte-identical pre and post (audit: `git diff --stat` shows only additions in the v0.2 section).
+- `substrate/process/signals/session-vocabulary.md` v0.1 section is byte-identical pre and post (audit: `git diff` shows only additions in the new v0.2 section).
 - Unit test: `test_session_prompt_vocabulary_v02.py` — instantiates both Structs, round-trips through `msgspec.to_builtins` + `msgspec.convert`, asserts field shape.
 
 ## Halt conditions
@@ -78,4 +76,4 @@ Two new Structs and one enum, added to session-vocabulary v0.2. All under the se
 
 ## Definition of done
 
-Two Structs, one enum, one appended section in the vocabulary lock file, one new json + rationale pair under `signals/versions/`. No emit sites. Sprint 059 opens with the vocabulary already locked and reachable.
+Two Structs, one enum, one appended v0.2 section in `substrate/process/signals/session-vocabulary.md`. No emit sites. Sprint 059 opens with the vocabulary already locked and reachable.

@@ -43,7 +43,7 @@ The ordering wrinkle (fragment sources must complete before the composer fires) 
 - `src/substrate/topologies/session/__init__.py` — `_model_factory` (~L215-370) is the current composition site. The composer replaces its string-building responsibility; `_model_factory` after this sprint reads `PromptComposed.text` off its input.
 - `src/substrate/kernel/triggers.py` — `all_completed` and threshold-based Predicates.
 - `src/substrate/kernel/views.py` — `KindBuffer`, `KindCount`.
-- `signals/versions/0.2.json` — the vocabulary from sprint 058.
+- `substrate/process/signals/session-vocabulary.md` v0.2 section — the vocabulary from sprint 058.
 
 ## Artifact contract → Files modified
 

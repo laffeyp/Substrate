@@ -29,7 +29,11 @@ One new Producer body, one Trigger, one deletion inside `render_transcript`, one
 
 **Precedence value.** `per_turn` is a session-scoped prefix; it should land BEFORE the current UserMessage but AFTER any role prompt (which is session-open-scoped). Precedence 10 leaves room: role at 0, bundle slots at 5, per_turn at 10, tools_suite at 20, parent_context at 30, user_message at 100.
 
-**`render_transcript` deletion.** Remove the `per_turn` parameter from `render_transcript` and the prefixing at line 262-268. The transcript renderer's job returns to what its name says — rendering the transcript. The `per_turn` prefix now lives one layer up, in the composed prompt the model reads.
+**`render_transcript` deletion.** Remove the `per_turn` parameter from `render_transcript` (signature at `transcript.py:270`) and from the internal `_render` helper (`transcript.py:221`). The prefix injection is at `transcript.py:252-253` — remove. Per_turn tokens also feed the K-window budget calc at `transcript.py:176, 186, 298-299` (`_compute_k(driver_context_tokens, seed_tokens, per_turn_tokens, driver_headroom_frac)`). That dependency is real, not speculative: the budget must still account for per_turn's token cost after the migration. Two choices:
+  - (a) The composer tracks per-fragment token estimates on `PromptComposed.total_tokens` and the K-window budget is computed against that value instead of against `per_turn` in isolation. Cleaner; the composer is the authority on prompt cost.
+  - (b) `render_transcript` keeps a `session_open_fragment_tokens: int` parameter (renamed from `per_turn_tokens`) that the topology fills in at build time. Preserves the current budget-computation seam.
+
+Prefer (a) — the composer emits total_tokens as an event field precisely so downstream consumers do not need to re-derive it.
 
 **`_model_factory` update.** Pass `manifest.per_turn` into `per_turn_producer` at topology-build time, not into `render_transcript`. Same as the current `driver`, `seed`, `tools` bindings.
 
@@ -68,7 +72,7 @@ One new Producer body, one Trigger, one deletion inside `render_transcript`, one
 
 ## Halt conditions
 
-- `bridge_mapping_required` if `render_transcript` has an internal call site that assumes `per_turn` is threaded through (some compaction-budget calculation might use it). Audit and either keep the internal usage under a different name or move the budget calc to also account for the `PromptFragment(source=per_turn)` contribution.
+- `bridge_mapping_required` if choice (a) above turns out to force the composer to fire BEFORE `render_transcript` runs (K-window budget must be known so `render_transcript` can decide how many turns to keep). Composer + render currently fire on the same anchor; if the ordering cannot be made deterministic, fall back to (b).
 - `dual_contract_fail` if the live-model test does not see "ZULU-7". Debug through the record: is the `PromptFragment` on it, is it in the `PromptComposed.text`, is the driver receiving that text. Do not paper over.
 
 ## Definition of done

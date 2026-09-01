@@ -29,7 +29,7 @@ Two new fragment sources, three deletions inside `_model_factory`, one enum addi
 
 **`wrap_up_producer` Producer.** Fires ONLY on the wrap-up-trigger firing (turn ends with `final=True`). Body: yields one `PromptFragment(source=wrap_up, text="tools disabled this turn; answer plainly; explain what happened in one or two sentences", precedence=15, provenance={"reason": <turn-terminator reason>})`. This one is turn-scoped — it appears in the wrap-up turn's `PromptComposed` and no other turn.
 
-**Enum extension.** Sprint 058's `PromptSource` enum gains two values: `tools_suite` and `wrap_up`. Vocabulary bump lands in `signals/versions/0.2.1.json` (or a full 0.3 lock — decide at start based on how many other cards want to piggyback).
+**Enum extension.** Sprint 058's `PromptSource` enum gains two values: `tools_suite` and `wrap_up`. Session-vocabulary bump lands as a v0.2.1 (or v0.3) section appended to `substrate/process/signals/session-vocabulary.md`. Session vocabulary is tracked in that single md document, not as per-version json files (the `0.N.json` files under `process/signals/` are the separate master Substrate vocabulary track for kernel `substrate.*` events).
 
 **`_model_factory` deletions.** The three inline concatenations at ~L301, ~L334, ~L349 delete. The body reads `assembled_prompt` from its input (now the `PromptComposed.text` field the model producer's trigger delivers) and passes it verbatim to `call_responder(driver, prompt_text)`. No f-string composition inside the producer body.
 
@@ -51,8 +51,7 @@ Two new fragment sources, three deletions inside `_model_factory`, one enum addi
 - `src/substrate/topologies/session/tools_suite_producer.py` (new, ~50 lines).
 - `src/substrate/topologies/session/wrap_up_producer.py` (new, ~50 lines).
 - `src/substrate/topologies/session/__init__.py` — register both producers; delete the three inline concatenations in `_model_factory`; `_model_factory` body shrinks noticeably.
-- `substrate/process/signals/session-vocabulary.md` — append the two new enum values under a dated v0.2.1 (or v0.3) section. Prior versions stay byte-identical.
-- `signals/versions/0.2.1.json` (or 0.3) — new file, adds the two enum values.
+- `substrate/process/signals/session-vocabulary.md` — append the two new enum values under a dated v0.2.1 (or v0.3) section. Prior sections stay byte-identical. Session vocabulary tracks in this one md document; no per-version json file to create.
 - `tests/test_prompt_fragment_tools_suite.py` (new, ~4 tests) — deterministic driver, session with two tools (`echo`, `sleep`), assert one `PromptFragment(source=tools_suite)` on the record whose text contains both tool names.
 - `tests/test_prompt_fragment_wrap_up.py` (new, ~3 tests) — deterministic driver + scripted tool that always fails; force wrap-up; assert one `PromptFragment(source=wrap_up)` on the wrap-up turn and none on prior turns.
 
