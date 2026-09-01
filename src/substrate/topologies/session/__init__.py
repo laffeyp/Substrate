@@ -435,7 +435,30 @@ def session_topology(
     The `script` kwarg is the CI dispatch hook: a list of `(tool_name, args)` the model
     fires in order, matching `tool_loop`'s script convention; omit for the driver-parse
     path.
+
+    ``record_root`` gates transcript compaction. When ``None`` the model
+    producer skips ``render_transcript`` entirely and hands the driver the
+    raw ``assembled_prompt`` from the last UserMessage — so a long session
+    silently overruns any driver's context window. Every real caller
+    (``substrate-ui/server.py:_session_factory``) passes the manifest's
+    record path. Sprint 050 audit finding: not passing it during a
+    handful-of-turn CI test is fine, but a fresh production caller that
+    forgets is a silent bug. Warn once at build time when it is ``None``
+    so the omission surfaces at review, not at first budget-exceeded turn.
     """
+    if record_root is None:
+        import warnings
+
+        warnings.warn(
+            "session_topology(record_root=None): transcript compaction is "
+            "disabled — the model producer hands the driver the raw last-"
+            "UserMessage prompt every turn, so a long session will overrun "
+            "the driver's context window. Pass record_root=Path(<manifest."
+            "record_root>) unless this is a short-lived CI test that stays "
+            "inside one K-window of turns (see session/transcript.py). "
+            "Sprint 050 audit.",
+            stacklevel=2,
+        )
 
     # `driver_name`, `workspace_path`, `parent_session_id`, `parent_seq_at_call` are
     # placeholders on the daemon's call-site contract; sprint 213/217/225 bind them.
