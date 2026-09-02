@@ -3,9 +3,12 @@
 ```yaml
 ---
 id: 062
-status: open
+status: closed
 phase: 8
 pass_kind: wire-a-currently-dead-concept
+closed_at: 2026-09-01
+closed_by: substrate main HEAD after this card
+scope_note: live-model assertion deferred to sprint 064. Bundle fragments land on the record with correct precedence + provenance. resolve_extends does not consult the shipped-bundle fallback; the sprint added a _resolve_chain helper that falls back to load_bundle when resolve_extends trips BundleNotFoundError at the top level.
 ---
 ```
 

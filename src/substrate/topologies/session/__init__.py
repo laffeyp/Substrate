@@ -693,6 +693,29 @@ def session_topology(
                 deterministic=True,
             )
             b.initial("role_fragment", input={})
+        # Sprint 062: bundle methodology + personality fragment sources.
+        # Both fire once at session open; both read manifest.bundle via
+        # bundles.load_bundle + resolve_extends and yield one or more
+        # PromptFragment per non-empty slot in the chain. Register only
+        # when bundle is set — empty bundle default preserves existing
+        # caller behavior.
+        if bundle is not None:
+            b.producer_kind(
+                "bundle_methodology_fragment",
+                schemas=[PromptFragment],
+                schema_version=1,
+                factory=bundle_methodology_producer_factory(bundle),
+                deterministic=True,
+            )
+            b.initial("bundle_methodology_fragment", input={})
+            b.producer_kind(
+                "bundle_personality_fragment",
+                schemas=[PromptFragment],
+                schema_version=1,
+                factory=bundle_personality_producer_factory(bundle),
+                deterministic=True,
+            )
+            b.initial("bundle_personality_fragment", input={})
 
         b.trigger(
             "run-tool",
@@ -882,6 +905,10 @@ from .transcript import (  # noqa: E402
     _est_tokens,
     render_transcript,
     resolve_driver_context_tokens,
+)
+from .bundle_producer import (  # noqa: E402  # sprint 062
+    bundle_methodology_producer_factory,
+    bundle_personality_producer_factory,
 )
 from .composer import composer_factory  # noqa: E402  # sprint 059
 from .per_turn_producer import per_turn_producer_factory  # noqa: E402  # sprint 060
