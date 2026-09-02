@@ -3,9 +3,12 @@
 ```yaml
 ---
 id: 059
-status: open
+status: closed
 phase: 8
 pass_kind: primitive
+closed_at: 2026-09-01
+closed_by: substrate main HEAD after this card
+scope_note: _model_factory migration + live-model test deferred to sprint 064
 ---
 ```
 

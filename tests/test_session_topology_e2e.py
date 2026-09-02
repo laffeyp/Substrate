@@ -96,8 +96,9 @@ async def test_piece_a_ci_wrapper_observation_contract(tmp_path: Path) -> None:
     assert _count_by_kind(envelopes, "SessionEnded") == 1
     assert 2 <= _count_by_kind(envelopes, "Park") <= 3
     # SessionStarted joins the set post-sprint 240 (RunStarted instrument
-    # emits one SessionStarted envelope at seq 2). No stray application
-    # kinds beyond the ones counted above.
+    # emits one SessionStarted envelope at seq 2). PromptComposed joins the
+    # set post-sprint 059 (compose-on-user trigger fires once per UserMessage).
+    # No stray application kinds beyond the ones counted here.
     assert set(kinds) == {
         "SessionStarted",
         "UserMessage",
@@ -105,12 +106,19 @@ async def test_piece_a_ci_wrapper_observation_contract(tmp_path: Path) -> None:
         "FinalAnswer",
         "Park",
         "SessionEnded",
+        "PromptComposed",
     }
     assert _count_by_kind(envelopes, "SessionStarted") == 1
+    # Sprint 059: one PromptComposed per UserMessage (three turns).
+    assert _count_by_kind(envelopes, "PromptComposed") == 3
 
     # The ordered subsequence of un-raced kinds is stable regardless of the tail race.
     # SessionStarted leads the sequence (sprint 240 instrument at seq 2).
-    ordered_head = [k for k in kinds if k != "Park"][:11]
+    # PromptComposed fires per UserMessage (sprint 059); its position relative
+    # to ModelReply on the same turn is race-tolerant, so filter it out of the
+    # strict-ordered head assertion. UserMessage / ModelReply / FinalAnswer /
+    # SessionEnded ordering stays byte-stable.
+    ordered_head = [k for k in kinds if k not in {"Park", "PromptComposed"}][:11]
     assert ordered_head == [
         "SessionStarted",
         "UserMessage",

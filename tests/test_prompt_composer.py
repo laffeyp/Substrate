@@ -1,0 +1,143 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (C) 2026 Peter Laffey
+"""Prompt composer Producer + pure `_compose_prompt` — sprint 059.
+
+Two layers of tests:
+ - Unit tests of the pure composition function `_compose_prompt` — the join,
+   precedence ordering, empty cohort shape, provenance passthrough.
+ - Integration test — the composer is registered in `session_topology` and
+   fires on every UserMessage. In sprint 059's landing state, no fragment
+   sources exist yet; every `PromptComposed` on the record carries
+   `fragment_seqs=()` and `text=""`. The integration test verifies exactly
+   that shape.
+
+Live-model test is deferred to sprint 064 when `_model_factory` migrates
+to read `PromptComposed.text` as its input. Until then the composer runs
+in parallel with the model producer without feeding it.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+
+from substrate import api
+from substrate.topologies.session import PromptComposed
+from substrate.topologies.session.ci import ci_session_topology
+from substrate.topologies.session.composer import _compose_prompt
+
+
+def test_compose_prompt_empty_cohort() -> None:
+    """An empty cohort returns PromptComposed with empty text, empty seqs,
+    zero tokens, strategy=precedence_join. The composer does not skip on
+    empty input — the record shows the honest empty state."""
+    result = _compose_prompt([], [])
+    assert result == PromptComposed(
+        text="",
+        fragment_seqs=(),
+        total_tokens=0,
+        strategy="precedence_join",
+    )
+
+
+def test_compose_prompt_single_fragment() -> None:
+    """One fragment yields PromptComposed with that fragment's text, one seq
+    in fragment_seqs, non-zero total_tokens."""
+    fragments = [{"source": "role", "text": "You review code.", "precedence": 0, "provenance": {}}]
+    seqs = [42]
+    result = _compose_prompt(fragments, seqs)
+    assert result.text == "You review code."
+    assert result.fragment_seqs == (42,)
+    assert result.total_tokens > 0
+    assert result.strategy == "precedence_join"
+
+
+def test_compose_prompt_orders_by_precedence_ascending() -> None:
+    """Fragments join in precedence order. Lower precedence lands earlier.
+    The seq column preserves the ordering so a reader can trace the record."""
+    fragments = [
+        {"source": "per_turn", "text": "TURN", "precedence": 10, "provenance": {}},
+        {"source": "role", "text": "ROLE", "precedence": 0, "provenance": {}},
+        {"source": "tools_suite", "text": "TOOLS", "precedence": 20, "provenance": {}},
+    ]
+    seqs = [7, 3, 12]
+    result = _compose_prompt(fragments, seqs)
+    assert result.text == "ROLE\n\nTURN\n\nTOOLS"
+    assert result.fragment_seqs == (3, 7, 12)
+
+
+def test_compose_prompt_stable_ordering_within_equal_precedence() -> None:
+    """Two fragments at the same precedence order by seq (kernel arrival
+    order). Locks byte-reproducibility of the composed text across replays."""
+    fragments = [
+        {"source": "bundle_methodology", "text": "M_LATE", "precedence": 5, "provenance": {}},
+        {"source": "bundle_methodology", "text": "M_EARLY", "precedence": 5, "provenance": {}},
+    ]
+    seqs = [17, 5]  # M_EARLY at seq 5 arrived first; must land first.
+    result = _compose_prompt(fragments, seqs)
+    assert result.text == "M_EARLY\n\nM_LATE"
+    assert result.fragment_seqs == (5, 17)
+
+
+def test_compose_prompt_skips_empty_text_but_keeps_seq() -> None:
+    """A fragment with empty text does not add a blank line to the composed
+    text; the join filter drops it. Its seq stays on fragment_seqs so the
+    record still shows the fragment fired."""
+    fragments = [
+        {"source": "role", "text": "ROLE", "precedence": 0, "provenance": {}},
+        {"source": "per_turn", "text": "", "precedence": 10, "provenance": {}},
+        {"source": "user_message", "text": "ASK", "precedence": 100, "provenance": {}},
+    ]
+    seqs = [1, 2, 3]
+    result = _compose_prompt(fragments, seqs)
+    assert result.text == "ROLE\n\nASK"
+    assert result.fragment_seqs == (1, 2, 3)
+
+
+def test_compose_prompt_total_tokens_matches_estimate() -> None:
+    """total_tokens follows the chars/4 heuristic on the assembled text.
+    Downstream K-window budget calc reads this off PromptComposed directly."""
+    long_text = "x" * 400
+    fragments = [{"source": "role", "text": long_text, "precedence": 0, "provenance": {}}]
+    seqs = [1]
+    result = _compose_prompt(fragments, seqs)
+    # 400 chars / 4 chars-per-token = 100.
+    assert result.total_tokens == 100
+
+
+def test_compose_prompt_provenance_ignored_by_composer() -> None:
+    """The composer does not read `provenance` — it is source-side audit
+    data that rides on the fragment envelope. Different provenance on the
+    same text produces byte-identical PromptComposed."""
+    fragments_a = [{"source": "role", "text": "ROLE", "precedence": 0, "provenance": {"a": 1}}]
+    fragments_b = [
+        {"source": "role", "text": "ROLE", "precedence": 0, "provenance": {"resolved_from": "/x"}}
+    ]
+    assert _compose_prompt(fragments_a, [1]) == _compose_prompt(fragments_b, [1])
+
+
+def test_composer_fires_once_per_turn_with_empty_cohort(tmp_path: Path) -> None:
+    """Integration: a two-turn CI session with no fragment sources produces
+    exactly two PromptComposed events on the record (one per UserMessage),
+    each with an empty cohort. Sprint 059 landing state.
+    """
+
+    async def _run() -> None:
+        record_root = tmp_path / "ci"
+        topology = ci_session_topology(
+            turns=("hello", "/exit"),
+            session_id="s_compose_empty",
+        )
+        await api.Runtime(record_root).run(topology)
+
+    asyncio.run(_run())
+    envelopes = list(api.read_record(tmp_path / "ci"))
+    composed = [env for env in envelopes if env.get("kind") == "PromptComposed"]
+    # Two UserMessages fire two composer instances.
+    assert len(composed) == 2, f"expected 2 PromptComposed, got {len(composed)}"
+    for env in composed:
+        payload = env["payload"]
+        assert payload["text"] == ""
+        assert payload["fragment_seqs"] == []
+        assert payload["total_tokens"] == 0
+        assert payload["strategy"] == "precedence_join"

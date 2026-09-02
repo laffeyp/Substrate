@@ -648,6 +648,21 @@ def session_topology(
         b.view("results", api.KindBuffer("ToolResult"))
         b.view("user_turns", api.KindCount(USER_MESSAGE))
         b.view("model_failures", ModelFailures())
+        # Sprint 059: fragment cohort View + composer Producer.
+        # KindBuffer accumulates every PromptFragment payload the fragment-
+        # source Producers (sprints 060-064) yield. The composer's
+        # compose-on-user trigger reads it via the input builder each turn.
+        # In sprint 059's landing state, no fragment sources exist yet;
+        # every PromptComposed on the record carries fragment_seqs=() and
+        # text="". Sprints 060+ populate the cohort.
+        b.view("fragment_cohort", api.KindBuffer("PromptFragment"))
+        b.producer_kind(
+            "prompt_composer",
+            schemas=[PromptComposed],
+            schema_version=1,
+            factory=composer_factory(),
+            deterministic=True,
+        )
 
         b.trigger(
             "run-tool",
@@ -722,6 +737,21 @@ def session_topology(
                 "final": False,
                 "turn_index": _turn_index(ctx),
                 "assembled_prompt": ctx.event.payload.get("assembled_prompt", ""),
+            },
+            policy=api.PerEvent(),
+        )
+        # Sprint 059: compose-on-user trigger. Fires on every UserMessage
+        # (once per turn), reads the fragment cohort View at firing time,
+        # hands the composer producer the fragment payload list. Runs in
+        # parallel with resume-on-user; the model does not yet consume the
+        # emitted PromptComposed (sprint 064 migrates _model_factory).
+        b.trigger(
+            "compose-on-user",
+            subscription=api.Subscription(kinds=frozenset({USER_MESSAGE})),
+            predicate=lambda ctx: True,
+            starts="prompt_composer",
+            input_builder=lambda ctx: {
+                "fragments": list(ctx.views["fragment_cohort"].value()),
             },
             policy=api.PerEvent(),
         )
@@ -806,6 +836,7 @@ from .transcript import (  # noqa: E402
     render_transcript,
     resolve_driver_context_tokens,
 )
+from .composer import composer_factory  # noqa: E402  # sprint 059
 from .views import ModelFailures, producer_kind_from_lifecycle_payload  # noqa: E402
 
 __all__ = [
