@@ -44,18 +44,33 @@ class SessionEndReason(StrEnum):
 
 Use for closed sets where the full set is known: session end reasons, Park reasons, SessionWarning kinds, session status, workspace shapes, slot kinds. At the wire boundary, validate incoming strings via `SessionEndReason(raw_value)` — mismatch raises `ValueError` with the offending value named. msgspec Struct field types accept StrEnum when the wire format is a string; verify per Struct at migration time.
 
-### 2. `typing.Literal[...]` for type-checked function signatures
+### 2. `typing.Literal[...]` — allowed only over StrEnum members, never over raw strings
 
-No runtime object. mypy `--strict` enforces the value at call sites.
+Type-checker-only shape. mypy `--strict` enforces the value at call sites.
+
+**Wrong** — this reintroduces the drift the enum removes:
 
 ```python
-from typing import Literal
-
-def resolve_status(status: Literal["running", "parked", "interrupted", "ended"]) -> ...:
+# NO — raw strings back in the signature; renaming SessionStatus.RUNNING breaks nothing here
+def resolve(status: Literal["running", "parked", "interrupted", "ended"]) -> ...:
     ...
 ```
 
-Use when a function accepts one of a small closed set and the caller should know the options without importing an enum. Best when the set is small (three or four values) and the values are already validated upstream — Literal does not run at runtime, so a boundary layer with StrEnum still owns validation.
+**Right** — signature references the enum members, not the raw strings:
+
+```python
+def resolve(status: SessionStatus) -> ...:
+    ...
+```
+
+Or, for a function that accepts a subset:
+
+```python
+def resume(status: Literal[SessionStatus.PARKED, SessionStatus.INTERRUPTED]) -> ...:
+    ...
+```
+
+Rule: `Literal[...]` NEVER contains a raw string. If the values aren't already declared in a StrEnum, declare the StrEnum first, then reference its members. `Literal[SessionStatus.RUNNING]` is fine; `Literal["running"]` is drift dressed up as a type annotation.
 
 ### 3. Module-level `Final[str]` constants for open-ish sets
 
@@ -356,6 +371,7 @@ Every antipattern the patterns above address, named once so it's recognizable in
 10. **Long boolean-chain equality.** Seven `x == "a" or x == "b" or ...` clauses. Fix: `x in <frozenset>`. Pattern F.
 11. **Enum-as-strings without a mirror.** A module with `A = "a"; B = "b"` but no frozenset + no predicate to ask membership. Fix: pair every enum-shape block with its mirror set + `is_x(value)` predicate. Pattern A.
 12. **Import-side effect on discovery.** A caller only knows about a valid value because they read someone else's code and saw the string. Fix: named symbol, import raises `ImportError` on typo, IDE autocomplete surfaces the full set. All patterns.
+13. **Literal-with-raw-strings.** `Literal["running", "parked", "interrupted", "ended"]` dresses raw strings up as a type annotation. The strings still live in the signature; renaming `SessionStatus.RUNNING`'s value does not follow. Fix: `Literal` NEVER contains a raw string. Reference an existing StrEnum's members (`Literal[SessionStatus.RUNNING, SessionStatus.PARKED]`) or take the enum type directly (`status: SessionStatus`). Declare the enum first; then use it. Rule from § "Correct Python usages" #2.
 
 ## Deferred: what this doc does not cover
 
