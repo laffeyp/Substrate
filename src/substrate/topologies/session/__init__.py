@@ -450,6 +450,7 @@ def session_topology(
     first_turn_user_message: "UserMessage | None" = None,
     role: str | None = None,
     role_repo_root: Path | None = None,
+    parent_context: dict[str, Any] | None = None,
 ) -> Callable[[api.TopologyBuilder], None]:
     """Build the session topology.
 
@@ -716,6 +717,22 @@ def session_topology(
                 deterministic=True,
             )
             b.initial("bundle_personality_fragment", input={})
+        # Sprint 063: parent_context fragment source. Fires once at
+        # session open when parent_context is set (a dict carrying
+        # parent_record_root, parent_seq_range, kinds). Yields one
+        # PromptFragment(source=parent_context, precedence=30) with the
+        # extracted slice. Delegate migration deferred: delegate.py's
+        # _prefix_context_slice still runs today; sprint 063 makes the
+        # fragment path available to any caller that wires it directly.
+        if parent_context is not None:
+            b.producer_kind(
+                "parent_context_fragment",
+                schemas=[PromptFragment],
+                schema_version=1,
+                factory=parent_context_producer_factory(parent_context),
+                deterministic=True,
+            )
+            b.initial("parent_context_fragment", input={})
 
         b.trigger(
             "run-tool",
@@ -911,6 +928,7 @@ from .bundle_producer import (  # noqa: E402  # sprint 062
     bundle_personality_producer_factory,
 )
 from .composer import composer_factory  # noqa: E402  # sprint 059
+from .parent_context_producer import parent_context_producer_factory  # noqa: E402  # sprint 063
 from .per_turn_producer import per_turn_producer_factory  # noqa: E402  # sprint 060
 from .role_producer import role_producer_factory  # noqa: E402  # sprint 061
 from .views import ModelFailures, producer_kind_from_lifecycle_payload  # noqa: E402

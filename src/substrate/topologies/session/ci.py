@@ -69,6 +69,7 @@ def ci_session_topology(
     role: str | None = None,
     role_repo_root: Path | None = None,
     bundle: str | None = None,
+    parent_context: dict[str, Any] | None = None,
 ) -> Callable[[api.TopologyBuilder], None]:
     """Build a CI-mode wrapper around `session_topology` that finalises in one `.run()`.
 
@@ -101,6 +102,7 @@ def ci_session_topology(
             role=role,
             role_repo_root=role_repo_root,
             bundle=bundle,
+            parent_context=parent_context,
         )
         base(b)
         b.producer_kind(

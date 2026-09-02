@@ -3,9 +3,12 @@
 ```yaml
 ---
 id: 063
-status: open
+status: closed
 phase: 8
 pass_kind: migration
+closed_at: 2026-09-01
+closed_by: substrate main HEAD after this card
+scope_note: fragment producer + session_topology binding shipped. delegate.py rewrite deferred to a follow-up card — today's delegate drives tool_loop children (not session children), and rewiring the child factory shape is larger than the fragment producer work. _prefix_context_slice stays until that follow-up.
 ---
 ```
 
