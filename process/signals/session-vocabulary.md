@@ -1,5 +1,7 @@
 # session — locked topology vocabulary
 
+**Status: RATIFIED — v0.2.1 (2026-09-02).** Sprint 068 adds `SessionWarning.kind` value `"fragment_source_failed"` and optional payload field `source_name: str?`. Additive per the § H convention; §§ A-I byte-preserved from v0.2. Surfaces fragment-source Producer failures as operator-visible warnings on the record.
+
 **Status: RATIFIED — v0.2 (2026-09-01).** Sprint 058 adds two application event kinds — `PromptFragment` and `PromptComposed` — plus the `PromptSource` enum for `PromptFragment.source`. Additive per the § H convention: §§ A-H byte-preserved from v0.1; the new material lives in § I. Ratifies the SDD entry gate for the prompt-composition arc (sprints 058-066) that rebuilds prompt composition as Producer emissions instead of inline string concatenation.
 
 **Status: RATIFIED — v0.1 (2026-08-25).** Architect ratified in `substrate/process/BLACKBOARD.md ## Decisions` on 2026-08-25 (see the entry naming this doc + sprint 202 close). Locks the eight application event kinds the daily-driver session topology emits per `TECH-SPEC-2026-08-25-round6.md` §3 + §3a. Sprint 203 (substrate-ui side v0.6 lock + pairing) dispatches on this ratification; sprint 204 (canonical-home registry + piece-0 close) follows.
@@ -222,3 +224,25 @@ Seven string values name the initial fragment sources. Extending the enum bumps 
 ### Dual-contract audit (v0.6 substrate-ui pairing not yet authored)
 
 The § G table (v0.1) pairs every substrate session kind with a substrate-ui grader tag. The v0.2 pair extends by two rows once sprint 059 lands a live emit site: `PromptFragment` pairs with a UI tag TBD when composer telemetry surfaces in the console; `PromptComposed` pairs with a UI tag TBD when the prompt inspector surfaces. Both are companion-sprint work on the substrate-ui side; not blocking for v0.2 ratification.
+
+## J. v0.2.1 — fragment-source failure warning (2026-09-02, sprint 068)
+
+Additive extension to `SessionWarning`. `kind` gains one value; an optional payload field lands. The pre-arc `SessionWarning` shape stays: existing consumers reading `kind`, `seed_tokens`, `driver_context_tokens` are unaffected.
+
+### SessionWarning — v0.2.1 additions
+
+`SessionWarning.kind` gains value `"fragment_source_failed"`. Fires when any producer whose kind is in `FRAGMENT_SOURCE_KINDS` emits `substrate.ProducerFailed`. The set is documented at `src/substrate/topologies/session/vocabulary.py::FRAGMENT_SOURCE_KINDS`: `per_turn_fragment`, `role_fragment`, `bundle_methodology_fragment`, `bundle_personality_fragment`, `parent_context_fragment`, `tools_suite_fragment`, `user_message_fragment`.
+
+New optional payload field:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `source_name` | `str?` | Present when `kind == "fragment_source_failed"`. Names the failed producer's kind (e.g., `"role_fragment"`). Absent (null) for every other kind value. |
+
+**Cadence.** At most once per `(session_id, source_name)` pair per session. A repeated failure on the same source (e.g., a bundle whose slot ambiguity trips on every turn) fires the SessionWarning ONCE, not per turn — the trigger uses PerEvent policy but the source_name-keyed dedup lives on the reader's side. The grader invariant carries over from § F #7 (v0.1's per-kind cadence).
+
+**Composer / model behavior after a fragment-source failure.** The per-turn composer chain (`per_turn_fragment → user_message_fragment → composer`) subscribes to `{substrate.ProducerCompleted, substrate.ProducerFailed}` from sprint 068 onward. A failed link still advances the chain; the composer's cohort simply lacks the failed fragment. `PromptComposed.text` emits truncated. Model runs. Session runs to completion. The SessionWarning is the operator-visible signal that the composed prompt was degraded.
+
+### Ratification signature
+
+- **v0.2.1** — Sprint 068 close, 2026-09-02. Additive extension for fragment-source failure surfacing. § A-J byte-preserved from prior locks.

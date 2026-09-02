@@ -80,6 +80,26 @@ PROMPT_SOURCES: frozenset[str] = frozenset(
 )
 
 
+# Sprint 068 (2026-09-02): every producer_kind name that emits a
+# PromptFragment. session_topology's `warn-on-fragment-error` trigger
+# uses this set to decide whether a substrate.ProducerFailed matches
+# a fragment source (in which case a SessionWarning fires) or some
+# other producer's failure (in which case the existing model / tool /
+# park handlers apply). Kept in sync with the seven fragment-source
+# Producer registrations in session/__init__.py::session_topology.
+FRAGMENT_SOURCE_KINDS: frozenset[str] = frozenset(
+    {
+        "per_turn_fragment",
+        "role_fragment",
+        "bundle_methodology_fragment",
+        "bundle_personality_fragment",
+        "parent_context_fragment",
+        "tools_suite_fragment",
+        "user_message_fragment",
+    }
+)
+
+
 def is_prompt_source(source: str) -> bool:
     """Whether `source` is one of the seven v0.2 PromptSource enum values.
     Callers use this the way `is_session_kind` gates kind names — at the
@@ -95,6 +115,7 @@ def is_session_kind(kind: str) -> bool:
 
 
 __all__ = [
+    "FRAGMENT_SOURCE_KINDS",
     "MODEL_REPLY",
     "PARK",
     "PROMPT_COMPOSED",

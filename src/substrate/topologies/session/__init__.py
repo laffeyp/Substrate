@@ -34,6 +34,7 @@ from ...kernel.policies import TerminationPolicy
 from ..tool_loop import _tool_factory as _tool_loop_tool_factory
 from ..tool_loop.tools import Tool, ollama_tools, parse_tool_call, suite_describe
 from .vocabulary import (
+    FRAGMENT_SOURCE_KINDS,
     PARK,
     SESSION_END_REQUESTED,
     SESSION_ENDED,
@@ -117,6 +118,10 @@ class SessionWarning(Struct, frozen=True):
     kind: str
     seed_tokens: int
     driver_context_tokens: int
+    # v0.2.1 addition (sprint 068, 2026-09-02): source_name names the failed
+    # fragment producer kind when `kind == "fragment_source_failed"`. Absent
+    # (None) for every other kind value.
+    source_name: str | None = None
 
 
 # v0.2 additions (session-vocabulary.md § I, sprint 058, 2026-09-01). Two Structs
@@ -443,6 +448,33 @@ def _session_warning_factory(
     return lambda: _emit
 
 
+def _fragment_error_warning_factory(session_id: str) -> Callable[[], Any]:
+    """Sprint 068: producer for a SessionWarning(kind=fragment_source_failed)
+    when any fragment source raises. The trigger `warn-on-fragment-error`
+    fires this producer on `substrate.ProducerFailed` where the failed
+    producer's kind is in `FRAGMENT_SOURCE_KINDS`. The trigger's input
+    builder reads the failed kind from the ProducerFailed envelope and
+    passes it as `source_name`.
+
+    Cadence: at most once per (session_id, source_name) pair per session.
+    The trigger enforces this via a `PerKey` policy keyed on source_name
+    so a repeated failure on the same source (e.g., every turn) still
+    fires the warning ONCE.
+    """
+
+    async def _emit(inp: Any) -> AsyncIterator[SessionWarning]:
+        source_name = str(inp.get("source_name", "")) if hasattr(inp, "get") else ""
+        yield SessionWarning(
+            session_id=session_id,
+            kind="fragment_source_failed",
+            seed_tokens=0,
+            driver_context_tokens=0,
+            source_name=source_name,
+        )
+
+    return lambda: _emit
+
+
 def session_topology(
     *,
     driver: Responder,
@@ -654,6 +686,17 @@ def session_topology(
                 seed_tokens=seed_tokens,
                 driver_context_tokens=driver_context_tokens,
             ),
+            deterministic=True,
+        )
+        # Sprint 068: separate producer_kind for fragment_source_failed
+        # warnings. Fires once per (session, source_name) pair when a
+        # fragment producer raises. Sibling to session_warning so each
+        # factory closes over one warning shape cleanly.
+        b.producer_kind(
+            "fragment_error_warning",
+            schemas=[SessionWarning],
+            schema_version=1,
+            factory=_fragment_error_warning_factory(session_id=session_id),
             deterministic=True,
         )
         if seed_alone_exceeds:
@@ -899,13 +942,18 @@ def session_topology(
             input_builder=lambda ctx: {},
             policy=api.PerEvent(),
         )
-        # Chain link 2: user_message_fragment fires on per_turn's completion.
-        # Reads the current UserMessage.text from the latest_user_message
-        # view — the trigger fires on substrate.ProducerCompleted which
-        # does not carry the UserMessage payload.
+        # Chain link 2: user_message_fragment fires on per_turn's terminal
+        # event (Completed OR Failed — sprint 068 extension). Reads the
+        # current UserMessage.text from the latest_user_message view. If
+        # per_turn_fragment raised, the chain still advances so the
+        # composer's cohort emits with whatever landed; the parallel
+        # warn-on-fragment-error trigger surfaces the failure as a
+        # SessionWarning.
         b.trigger(
             "emit-user-message-fragment",
-            subscription=api.Subscription(kinds=frozenset({api.PRODUCER_COMPLETED})),
+            subscription=api.Subscription(
+                kinds=frozenset({api.PRODUCER_COMPLETED, api.PRODUCER_FAILED})
+            ),
             predicate=lambda ctx: _producer_kind_from_ref(ctx) == "per_turn_fragment",
             starts="user_message_fragment",
             input_builder=lambda ctx: {
@@ -914,17 +962,36 @@ def session_topology(
             },
             policy=api.PerEvent(),
         )
-        # Chain link 3 (composer): fires on user_message_fragment's
-        # completion. Cohort now contains every session-open fragment
-        # (from RunStarted) plus this turn's per_turn and user_message
-        # fragments. Reads the full cohort and emits one PromptComposed.
+        # Chain link 3 (composer): fires on user_message_fragment's terminal
+        # event (Completed OR Failed — sprint 068 extension). Cohort contains
+        # every session-open fragment (from RunStarted) plus this turn's
+        # per_turn and user_message fragments when they landed. If a fragment
+        # source failed, its fragment is missing from the cohort but the
+        # composer still fires so the model gets a truncated composed prompt
+        # rather than a hang.
         b.trigger(
             "compose-on-cohort-complete",
-            subscription=api.Subscription(kinds=frozenset({api.PRODUCER_COMPLETED})),
+            subscription=api.Subscription(
+                kinds=frozenset({api.PRODUCER_COMPLETED, api.PRODUCER_FAILED})
+            ),
             predicate=lambda ctx: _producer_kind_from_ref(ctx) == "user_message_fragment",
             starts="prompt_composer",
             input_builder=lambda ctx: {
                 "fragments": list(ctx.views["fragment_cohort"].value()),
+            },
+            policy=api.PerEvent(),
+        )
+        # Sprint 068: warn-on-fragment-error surfaces any fragment-source
+        # Producer failure as a SessionWarning(kind=fragment_source_failed,
+        # source_name=<kind>). Fires on substrate.ProducerFailed when the
+        # failed producer's kind is in FRAGMENT_SOURCE_KINDS.
+        b.trigger(
+            "warn-on-fragment-error",
+            subscription=api.Subscription(kinds=frozenset({api.PRODUCER_FAILED})),
+            predicate=lambda ctx: _producer_kind_from_ref(ctx) in FRAGMENT_SOURCE_KINDS,
+            starts="fragment_error_warning",
+            input_builder=lambda ctx: {
+                "source_name": _producer_kind_from_ref(ctx) or "",
             },
             policy=api.PerEvent(),
         )
