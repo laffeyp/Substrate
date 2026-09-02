@@ -3,9 +3,12 @@
 ```yaml
 ---
 id: 064
-status: open
+status: closed
 phase: 8
 pass_kind: migration
+closed_at: 2026-09-01
+closed_by: substrate main HEAD after this card
+scope_note: chain-ordering primitive + tools_suite + user_message fragments shipped. Composer now emits deterministic full-cohort PromptComposed per turn. _model_factory compute-path migration to read PromptComposed.text + live-model assertions deferred to a follow-up sprint — decoupling that switch from this sprint preserves the working render_transcript path while the chain-ordering fix lands cleanly.
 ---
 ```
 

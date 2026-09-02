@@ -733,6 +733,38 @@ def session_topology(
                 deterministic=True,
             )
             b.initial("parent_context_fragment", input={})
+        # Sprint 064: tools_suite fragment source (session-open scope).
+        # Fires once at RunStarted; yields one PromptFragment
+        # (source=tools_suite, precedence=20) when the session's tool
+        # suite is non-empty. Same shape as role_fragment and
+        # bundle_*_fragment — the tools list rides the record for
+        # observability, replacing the inline f-string composition
+        # in _model_factory's fallback and native-tools paths.
+        if tools:
+            b.producer_kind(
+                "tools_suite_fragment",
+                schemas=[PromptFragment],
+                schema_version=1,
+                factory=tools_suite_producer_factory(tools),
+                deterministic=True,
+            )
+            b.initial("tools_suite_fragment", input={})
+        # Sprint 064: user_message fragment source (turn-scoped, chained).
+        # Fires on substrate.ProducerCompleted{kind=per_turn_fragment} so
+        # the composer's downstream fire-on-user-message-completed trigger
+        # sees a deterministic cohort — both per_turn and user_message
+        # fragments are in the buffer by the time composer runs.
+        b.producer_kind(
+            "user_message_fragment",
+            schemas=[PromptFragment],
+            schema_version=1,
+            factory=user_message_fragment_producer_factory(),
+            deterministic=True,
+        )
+        # Latest UserMessage view — the user_message fragment trigger reads
+        # the text from here (the chained trigger fires on ProducerCompleted,
+        # which does not carry the UserMessage payload).
+        b.view("latest_user_message", api.PerKindLatest(USER_MESSAGE))
 
         b.trigger(
             "run-tool",
@@ -810,36 +842,50 @@ def session_topology(
             },
             policy=api.PerEvent(),
         )
-        # Sprint 059: compose-on-user trigger. Fires on every UserMessage
-        # (once per turn), reads the fragment cohort View at firing time,
-        # hands the composer producer the fragment payload list. Runs in
-        # parallel with resume-on-user; the model does not yet consume the
-        # emitted PromptComposed (sprint 064 migrates _model_factory).
-        b.trigger(
-            "compose-on-user",
-            subscription=api.Subscription(kinds=frozenset({USER_MESSAGE})),
-            predicate=lambda ctx: True,
-            starts="prompt_composer",
-            input_builder=lambda ctx: {
-                "fragments": list(ctx.views["fragment_cohort"].value()),
-            },
-            policy=api.PerEvent(),
-        )
-        # Sprint 060: emit-per-turn-fragment trigger. Fires on every
-        # UserMessage; per_turn producer yields one PromptFragment when
-        # manifest.per_turn is non-empty. Composer picks it up on the next
-        # UserMessage (its cohort View includes fragments from prior
-        # firings within the same run). Ordering wrinkle deferred to
-        # sprint 064: currently composer may fire before per_turn producer
-        # on the same UserMessage anchor, leaving the current turn's
-        # per_turn fragment out of THAT turn's composed prompt. Sprint 064
-        # resolves via all_completed or per-turn cohort strictness.
+        # Sprint 060/064 chain — deterministic turn-scoped fragment ordering.
+        # UserMessage → per_turn_fragment → user_message_fragment → composer.
+        # Each link fires on the prior link's substrate.ProducerCompleted,
+        # so the composer's cohort read (last trigger in the chain) sees
+        # every turn-scoped fragment guaranteed. Session-open fragments
+        # (role, bundle_*, tools_suite, parent_context) fired at RunStarted
+        # long before turn 1 and are already in the cohort buffer.
+
+        # Chain link 1: per_turn_fragment fires on UserMessage.
         b.trigger(
             "emit-per-turn-fragment",
             subscription=api.Subscription(kinds=frozenset({USER_MESSAGE})),
             predicate=lambda ctx: True,
             starts="per_turn_fragment",
             input_builder=lambda ctx: {},
+            policy=api.PerEvent(),
+        )
+        # Chain link 2: user_message_fragment fires on per_turn's completion.
+        # Reads the current UserMessage.text from the latest_user_message
+        # view — the trigger fires on substrate.ProducerCompleted which
+        # does not carry the UserMessage payload.
+        b.trigger(
+            "emit-user-message-fragment",
+            subscription=api.Subscription(kinds=frozenset({api.PRODUCER_COMPLETED})),
+            predicate=lambda ctx: _producer_kind_from_ref(ctx) == "per_turn_fragment",
+            starts="user_message_fragment",
+            input_builder=lambda ctx: {
+                "text": (ctx.views["latest_user_message"].value() or {}).get("text", ""),
+                "turn_index": _turn_index(ctx),
+            },
+            policy=api.PerEvent(),
+        )
+        # Chain link 3 (composer): fires on user_message_fragment's
+        # completion. Cohort now contains every session-open fragment
+        # (from RunStarted) plus this turn's per_turn and user_message
+        # fragments. Reads the full cohort and emits one PromptComposed.
+        b.trigger(
+            "compose-on-cohort-complete",
+            subscription=api.Subscription(kinds=frozenset({api.PRODUCER_COMPLETED})),
+            predicate=lambda ctx: _producer_kind_from_ref(ctx) == "user_message_fragment",
+            starts="prompt_composer",
+            input_builder=lambda ctx: {
+                "fragments": list(ctx.views["fragment_cohort"].value()),
+            },
             policy=api.PerEvent(),
         )
         b.trigger(
@@ -931,6 +977,10 @@ from .composer import composer_factory  # noqa: E402  # sprint 059
 from .parent_context_producer import parent_context_producer_factory  # noqa: E402  # sprint 063
 from .per_turn_producer import per_turn_producer_factory  # noqa: E402  # sprint 060
 from .role_producer import role_producer_factory  # noqa: E402  # sprint 061
+from .tools_suite_producer import tools_suite_producer_factory  # noqa: E402  # sprint 064
+from .user_message_fragment_producer import (  # noqa: E402  # sprint 064
+    user_message_fragment_producer_factory,
+)
 from .views import ModelFailures, producer_kind_from_lifecycle_payload  # noqa: E402
 
 __all__ = [

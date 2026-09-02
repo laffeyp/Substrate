@@ -97,8 +97,9 @@ async def test_piece_a_ci_wrapper_observation_contract(tmp_path: Path) -> None:
     assert 2 <= _count_by_kind(envelopes, "Park") <= 3
     # SessionStarted joins the set post-sprint 240 (RunStarted instrument
     # emits one SessionStarted envelope at seq 2). PromptComposed joins the
-    # set post-sprint 059 (compose-on-user trigger fires once per UserMessage).
-    # No stray application kinds beyond the ones counted here.
+    # set post-sprint 059 (composer trigger fires per turn). PromptFragment
+    # joins post-sprints 060-064: tools_suite fragment (session-open) plus
+    # per_turn / user_message per turn.
     assert set(kinds) == {
         "SessionStarted",
         "UserMessage",
@@ -107,18 +108,23 @@ async def test_piece_a_ci_wrapper_observation_contract(tmp_path: Path) -> None:
         "Park",
         "SessionEnded",
         "PromptComposed",
+        "PromptFragment",
     }
     assert _count_by_kind(envelopes, "SessionStarted") == 1
-    # Sprint 059: one PromptComposed per UserMessage (three turns).
-    assert _count_by_kind(envelopes, "PromptComposed") == 3
+    # Sprint 059/064: composer fires per turn via the deterministic
+    # per_turn → user_message → composer chain. Turn 3 is /exit which
+    # routes to session_end → SessionEnded; the /exit turn's chain may
+    # or may not complete before the run finalises on the threshold_count.
+    # Assertion: at least the first two turns' composed prompts land.
+    assert 2 <= _count_by_kind(envelopes, "PromptComposed") <= 3
 
     # The ordered subsequence of un-raced kinds is stable regardless of the tail race.
     # SessionStarted leads the sequence (sprint 240 instrument at seq 2).
-    # PromptComposed fires per UserMessage (sprint 059); its position relative
-    # to ModelReply on the same turn is race-tolerant, so filter it out of the
-    # strict-ordered head assertion. UserMessage / ModelReply / FinalAnswer /
-    # SessionEnded ordering stays byte-stable.
-    ordered_head = [k for k in kinds if k not in {"Park", "PromptComposed"}][:11]
+    # PromptComposed and PromptFragment fire per turn/session-open (sprints
+    # 059-064); their position relative to ModelReply is race-tolerant, so
+    # filter them out of the strict-ordered head assertion. UserMessage /
+    # ModelReply / FinalAnswer / SessionEnded ordering stays byte-stable.
+    ordered_head = [k for k in kinds if k not in {"Park", "PromptComposed", "PromptFragment"}][:11]
     assert ordered_head == [
         "SessionStarted",
         "UserMessage",
