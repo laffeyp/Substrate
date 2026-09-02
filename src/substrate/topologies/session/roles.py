@@ -39,7 +39,12 @@ def _read_folder(folder: Path) -> str:
     return "\n\n".join(parts)
 
 
-def _resolve_at_layer(base: Path, role: str) -> str | None:
+def _resolve_at_layer(base: Path, role: str) -> tuple[str, Path] | None:
+    """Return `(text, source_path)` for the role at this layer, or None.
+    `source_path` is the file (bare `.md`) or the folder (concatenated
+    shape) — whichever produced the text. Callers that only want the text
+    read `[0]`; callers that want provenance read `[1]`.
+    """
     file_path = base / f"{role}.md"
     folder_path = base / role
     has_file = file_path.is_file()
@@ -50,18 +55,22 @@ def _resolve_at_layer(base: Path, role: str) -> str | None:
             f"layer; pick one (rename or remove) — the resolver refuses to guess."
         )
     if has_file:
-        return file_path.read_text(encoding="utf-8")
+        return (file_path.read_text(encoding="utf-8"), file_path)
     if has_folder:
-        return _read_folder(folder_path)
+        return (_read_folder(folder_path), folder_path)
     return None
 
 
-def resolve_role_prompt(role: str, *, repo_root: Path | None = None) -> str:
-    """Return the resolved role prompt string.
+def resolve_role_prompt_with_source(
+    role: str, *, repo_root: Path | None = None
+) -> tuple[str, Path]:
+    """Return `(text, source_path)` for a role prompt.
 
-    `repo_root` is the current working repo (usually `Path.cwd()` at the
-    daemon's create-session moment); when `None`, layer 1 is skipped.
-    Missing at every layer raises `RegistrationError` naming the role.
+    Sprint 061: the `role_producer` yields `PromptFragment(source=role,
+    text=text, provenance={"role_name": role, "resolved_from": str(path)})`
+    so the record self-describes which file supplied the prompt. The
+    existing `resolve_role_prompt` stays as a thin wrapper for callers
+    that only want the text.
     """
     if repo_root is not None:
         layer1 = _resolve_at_layer(repo_root / ".substrate" / "prompts", role)
@@ -80,4 +89,17 @@ def resolve_role_prompt(role: str, *, repo_root: Path | None = None) -> str:
     )
 
 
-__all__ = ["resolve_role_prompt"]
+def resolve_role_prompt(role: str, *, repo_root: Path | None = None) -> str:
+    """Return the resolved role prompt string.
+
+    `repo_root` is the current working repo (usually `Path.cwd()` at the
+    daemon's create-session moment); when `None`, layer 1 is skipped.
+    Missing at every layer raises `RegistrationError` naming the role.
+    Thin wrapper over `resolve_role_prompt_with_source` — the text is the
+    same either way; drop the path when the caller does not need it.
+    """
+    text, _ = resolve_role_prompt_with_source(role, repo_root=repo_root)
+    return text
+
+
+__all__ = ["resolve_role_prompt", "resolve_role_prompt_with_source"]

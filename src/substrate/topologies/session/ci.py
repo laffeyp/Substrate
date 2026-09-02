@@ -26,6 +26,7 @@ wiring end-to-end.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
+from pathlib import Path
 from typing import Any
 
 from ... import api
@@ -65,6 +66,8 @@ def ci_session_topology(
     turns: tuple[str, ...] = _CI_TURNS_DEFAULT,
     session_id: str = _CI_SESSION_ID,
     per_turn: str = "",
+    role: str | None = None,
+    role_repo_root: Path | None = None,
 ) -> Callable[[api.TopologyBuilder], None]:
     """Build a CI-mode wrapper around `session_topology` that finalises in one `.run()`.
 
@@ -94,6 +97,8 @@ def ci_session_topology(
             session_id=session_id,
             workspace_path=_CI_WORKSPACE,
             script=None,
+            role=role,
+            role_repo_root=role_repo_root,
         )
         base(b)
         b.producer_kind(

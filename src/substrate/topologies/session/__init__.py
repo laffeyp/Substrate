@@ -448,6 +448,8 @@ def session_topology(
     record_root: Path | None = None,
     driver_headroom_frac: float = 0.6,
     first_turn_user_message: "UserMessage | None" = None,
+    role: str | None = None,
+    role_repo_root: Path | None = None,
 ) -> Callable[[api.TopologyBuilder], None]:
     """Build the session topology.
 
@@ -675,6 +677,22 @@ def session_topology(
             factory=per_turn_producer_factory(per_turn),
             deterministic=True,
         )
+        # Sprint 061: role fragment source. Fires once at session open
+        # (initial); resolves the role prompt via the four-layer resolver;
+        # yields one PromptFragment(source=role, precedence=0). Only when
+        # role is set — existing callers that don't pass role get no role
+        # producer, no behavior change. Wires a currently-dead concept:
+        # pre-sprint 061 manifest.role was validated at POST /api/session
+        # and dropped; the resolved text now rides the record.
+        if role is not None:
+            b.producer_kind(
+                "role_fragment",
+                schemas=[PromptFragment],
+                schema_version=1,
+                factory=role_producer_factory(role, repo_root=role_repo_root),
+                deterministic=True,
+            )
+            b.initial("role_fragment", input={})
 
         b.trigger(
             "run-tool",
@@ -867,6 +885,7 @@ from .transcript import (  # noqa: E402
 )
 from .composer import composer_factory  # noqa: E402  # sprint 059
 from .per_turn_producer import per_turn_producer_factory  # noqa: E402  # sprint 060
+from .role_producer import role_producer_factory  # noqa: E402  # sprint 061
 from .views import ModelFailures, producer_kind_from_lifecycle_payload  # noqa: E402
 
 __all__ = [
