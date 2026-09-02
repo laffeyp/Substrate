@@ -17,13 +17,29 @@ import asyncio
 import importlib.util
 import sys
 import uuid
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Callable
 
 import click
 from rich.console import Console
 
+
 from substrate import api
+
+
+class ListTarget(StrEnum):
+    """CLI `/list <target>` — the four valid target values. Sprint 073:
+    argv validates via `ListTarget(raw)` at the top of the /list handler
+    and dispatches on enum members downstream. `ListTarget(bad)` raises
+    `ValueError` naming the offending string; the /list handler catches
+    and prints the CLI-facing error."""
+
+    SESSIONS = "sessions"
+    TOPOLOGIES = "topologies"
+    RECORDS = "records"
+    APPLICATIONS = "applications"
+
 
 # ── exit codes (design §5.1) ───────────────────────────────────────────────────
 EXIT_OK = 0  # run finalised normally
@@ -1150,8 +1166,16 @@ def _slash_route(
         return True
 
     if slash == "/list":
-        target = args[0] if args else "sessions"
-        if target == "sessions":
+        raw_target = args[0] if args else ListTarget.SESSIONS.value
+        try:
+            target = ListTarget(raw_target)
+        except ValueError:
+            _err.print(
+                f"[repl] /list {raw_target}: unknown target; "
+                f"valid targets: {[t.value for t in ListTarget]}"
+            )
+            return True
+        if target is ListTarget.SESSIONS:
             try:
                 data = _daemon.list_sessions()
                 for bucket, entries in data.items():
@@ -1162,7 +1186,7 @@ def _slash_route(
                         )
             except _daemon.DaemonError as exc:
                 _err.print(f"[repl] /list failed: HTTP {exc.status}")
-        elif target == "topologies":
+        elif target is ListTarget.TOPOLOGIES:
             # Dynamic import: F-API-6 checks STATIC substrate imports, so a
             # runtime `importlib.import_module` call is not a violation. The
             # bundled registry is optional; if it fails, list what is
@@ -1177,17 +1201,17 @@ def _slash_route(
                     _err.print("[repl] /list topologies: bundled registry has no names()")
             except Exception as exc:  # noqa: BLE001 — importlib on a caller-supplied bundle path can raise anything the bundle's __init__ does; the router's job is to surface, not classify.
                 _err.print(f"[repl] /list topologies failed: {type(exc).__name__}: {exc}")
-        elif target == "records":
+        elif target is ListTarget.RECORDS:
             _err.print("[repl] /list records — reads the record dir; not implemented yet")
-        elif target == "applications":
+        elif target is ListTarget.APPLICATIONS:
             # Typed marker (sprint 224f): see /run above.
             pending_context["_deferred"] = "list_applications"
             _err.print(
                 "[repl] /list applications — GET /api/applications is a piece-E endpoint; "
                 "not yet shipped"
             )
-        else:
-            _err.print(f"[repl] /list {target}: unknown target")
+        # No else — ListTarget's four members exhaust the space; validator
+        # above rejects any other argv value at the boundary.
         return True
 
     if slash == "/replay":

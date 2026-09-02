@@ -56,6 +56,7 @@ from typing import TYPE_CHECKING, Any, cast
 from msgspec import Struct
 
 from substrate import api
+from substrate.adapters import DriverParamKey
 
 if TYPE_CHECKING:
     from substrate.api import TopologyBuilder
@@ -570,28 +571,35 @@ class SessionRegistry:
         if session_id not in self._manifests:
             raise KeyError(f"unknown session_id {session_id!r}")
         if params is not None:
-            allowed: dict[str, type | tuple[type, ...]] = {
-                "think": bool,
-                "max_tokens": int,
-                "timeout": (int, float),
-                "num_ctx": int,
+            # Sprint 073: allowed-keys map keyed by DriverParamKey members
+            # instead of raw strings. Any drift between the wire key and
+            # a downstream check now trips at import time, not at a silent
+            # missed-branch. DriverParamKey members compare `==` with str
+            # so existing wire-shape passthrough is unchanged.
+            allowed: dict[DriverParamKey, type | tuple[type, ...]] = {
+                DriverParamKey.THINK: bool,
+                DriverParamKey.MAX_TOKENS: int,
+                DriverParamKey.TIMEOUT: (int, float),
+                DriverParamKey.NUM_CTX: int,
             }
-            unknown = set(params.keys()) - set(allowed.keys())
+            allowed_names = {k.value for k in allowed}
+            unknown = set(params.keys()) - allowed_names
             if unknown:
                 raise ValueError(
                     f"driver_params: unknown keys {sorted(unknown)}; "
-                    f"allowed: {sorted(allowed.keys())}"
+                    f"allowed: {sorted(allowed_names)}"
                 )
-            for key, expected in allowed.items():
+            for key_enum, expected in allowed.items():
+                key = key_enum.value
                 if key not in params:
                     continue
                 value = params[key]
                 # bool is a subclass of int; guard bool-vs-int mixups first.
-                if key == "think" and not isinstance(value, bool):
+                if key_enum is DriverParamKey.THINK and not isinstance(value, bool):
                     raise ValueError(
                         f"driver_params.think must be a bool; got {type(value).__name__}"
                     )
-                if key != "think" and isinstance(value, bool):
+                if key_enum is not DriverParamKey.THINK and isinstance(value, bool):
                     raise ValueError(f"driver_params.{key} must be numeric, not bool")
                 if not isinstance(value, expected):
                     exp_name = (
@@ -606,15 +614,15 @@ class SessionRegistry:
                 # mypy --strict tracks the comparison. int/float(value) rejects
                 # `object` under call-overload, and the isinstance narrowing
                 # gets erased at branch entry — cast is the least-noisy fix.
-                if key == "max_tokens":
+                if key_enum is DriverParamKey.MAX_TOKENS:
                     v_int = cast(int, value)
                     if v_int < 0:
                         raise ValueError(f"driver_params.max_tokens must be ≥ 0; got {v_int}")
-                if key == "num_ctx":
+                if key_enum is DriverParamKey.NUM_CTX:
                     v_int = cast(int, value)
                     if v_int < 1:
                         raise ValueError(f"driver_params.num_ctx must be ≥ 1; got {v_int}")
-                if key == "timeout":
+                if key_enum is DriverParamKey.TIMEOUT:
                     v_num = cast(float, value)
                     if v_num <= 0:
                         raise ValueError(f"driver_params.timeout must be > 0; got {v_num}")
