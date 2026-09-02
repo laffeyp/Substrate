@@ -3,9 +3,12 @@
 ```yaml
 ---
 id: 071
-status: open
+status: closed
 phase: 9
 pass_kind: string-discipline
+closed_at: 2026-09-02
+closed_by: substrate main HEAD after this card
+scope_note: seventeen PRODUCER_KIND_* + fifteen TRIGGER_ID_* Final[str] constants declared in session/vocabulary.py. Sweep swept every b.producer_kind + b.trigger call site + every _producer_kind_from_ref predicate in session/__init__.py + session/ci.py. Sprint 068's FRAGMENT_SOURCE_KINDS rebuilt from named constants. 9 unit tests pin the values.
 ---
 ```
 

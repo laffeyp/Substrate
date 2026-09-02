@@ -36,8 +36,38 @@ from ..tool_loop.tools import Tool, ollama_tools, parse_tool_call, suite_describ
 from .vocabulary import (
     FRAGMENT_SOURCE_KINDS,
     PARK,
+    PRODUCER_KIND_BUNDLE_METHODOLOGY_FRAGMENT,
+    PRODUCER_KIND_BUNDLE_PERSONALITY_FRAGMENT,
+    PRODUCER_KIND_FRAGMENT_ERROR_WARNING,
+    PRODUCER_KIND_MODEL,
+    PRODUCER_KIND_PARENT_CONTEXT_FRAGMENT,
+    PRODUCER_KIND_PARK,
+    PRODUCER_KIND_PER_TURN_FRAGMENT,
+    PRODUCER_KIND_PROMPT_COMPOSER,
+    PRODUCER_KIND_ROLE_FRAGMENT,
+    PRODUCER_KIND_SESSION_END,
+    PRODUCER_KIND_SESSION_OPEN,
+    PRODUCER_KIND_SESSION_STARTED,
+    PRODUCER_KIND_SESSION_WARNING,
+    PRODUCER_KIND_TOOL,
+    PRODUCER_KIND_TOOLS_SUITE_FRAGMENT,
+    PRODUCER_KIND_USER_MESSAGE_FRAGMENT,
     SESSION_END_REQUESTED,
     SESSION_ENDED,
+    TRIGGER_ID_COMPOSE_ON_COHORT_COMPLETE,
+    TRIGGER_ID_CONTINUE,
+    TRIGGER_ID_EMIT_PER_TURN_FRAGMENT,
+    TRIGGER_ID_EMIT_USER_MESSAGE_FRAGMENT,
+    TRIGGER_ID_END_ON_CAP,
+    TRIGGER_ID_END_ON_EXIT,
+    TRIGGER_ID_END_ON_USER_END,
+    TRIGGER_ID_PARK_ON_FINAL,
+    TRIGGER_ID_PARK_ON_INTERRUPT,
+    TRIGGER_ID_PARK_ON_MODEL_ERROR,
+    TRIGGER_ID_RESUME_ON_COMPOSED,
+    TRIGGER_ID_RUN_TOOL,
+    TRIGGER_ID_WARN_ON_FRAGMENT_ERROR,
+    TRIGGER_ID_WRAP_UP,
     USER_MESSAGE,
     ParkReason,
     SessionEndReason,
@@ -623,7 +653,7 @@ def session_topology(
         # `SessionStarted` branch; the UI's `DRIVER_SESSION_STARTED` moves
         # from the daemon-ack seam to the record-envelope seam.
         b.instrument(
-            "session_started",
+            PRODUCER_KIND_SESSION_STARTED,
             on=api.RUN_STARTED,
             schemas=[SessionStarted],
             input_builder=lambda _ctx: {},
@@ -642,7 +672,7 @@ def session_topology(
             deterministic=True,
         )
         b.producer_kind(
-            "model",
+            PRODUCER_KIND_MODEL,
             schemas=[ToolCall, FinalAnswer, ModelReply, TranscriptCompacted],
             schema_version=1,
             factory=_model_factory(
@@ -658,21 +688,21 @@ def session_topology(
             deterministic=model_is_deterministic,
         )
         b.producer_kind(
-            "tool",
+            PRODUCER_KIND_TOOL,
             schemas=[ToolResult],
             schema_version=1,
             factory=_tool_loop_tool_factory(tools),
             deterministic=all(t.deterministic for t in tools.values()) if tools else True,
         )
         b.producer_kind(
-            "park",
+            PRODUCER_KIND_PARK,
             schemas=[Park],
             schema_version=1,
             factory=_park_factory(),
             deterministic=True,
         )
         b.producer_kind(
-            "session_end",
+            PRODUCER_KIND_SESSION_END,
             schemas=[SessionEnded],
             schema_version=1,
             factory=_session_end_factory(),
@@ -688,7 +718,7 @@ def session_topology(
         seed_tokens = _est_tokens(seed) + _est_tokens(per_turn)
         seed_alone_exceeds = seed_tokens > int(driver_context_tokens * 0.6)
         b.producer_kind(
-            "session_warning",
+            PRODUCER_KIND_SESSION_WARNING,
             schemas=[SessionWarning],
             schema_version=1,
             factory=_session_warning_factory(
@@ -704,14 +734,14 @@ def session_topology(
         # fragment producer raises. Sibling to session_warning so each
         # factory closes over one warning shape cleanly.
         b.producer_kind(
-            "fragment_error_warning",
+            PRODUCER_KIND_FRAGMENT_ERROR_WARNING,
             schemas=[SessionWarning],
             schema_version=1,
             factory=_fragment_error_warning_factory(session_id=session_id),
             deterministic=True,
         )
         if seed_alone_exceeds:
-            b.initial("session_warning", input={})
+            b.initial(PRODUCER_KIND_SESSION_WARNING, input={})
         # Sprint 217a: register the session_open producer + initial only when the
         # daemon path calls session_topology(first_turn_user_message=...). The
         # producer emits that one UserMessage on Runtime.run(), and
@@ -722,13 +752,13 @@ def session_topology(
         # and the topology's turn-1 shape is unchanged.
         if first_turn_user_message is not None:
             b.producer_kind(
-                "session_open",
+                PRODUCER_KIND_SESSION_OPEN,
                 schemas=[UserMessage],
                 schema_version=1,
                 factory=_session_open_factory(first_turn_user_message),
                 deterministic=True,
             )
-            b.initial("session_open", input={})
+            b.initial(PRODUCER_KIND_SESSION_OPEN, input={})
         b.view("results", api.KindBuffer("ToolResult"))
         b.view("user_turns", api.KindCount(USER_MESSAGE))
         b.view("model_failures", ModelFailures())
@@ -741,7 +771,7 @@ def session_topology(
         # text="". Sprints 060+ populate the cohort.
         b.view("fragment_cohort", api.KindBuffer("PromptFragment"))
         b.producer_kind(
-            "prompt_composer",
+            PRODUCER_KIND_PROMPT_COMPOSER,
             schemas=[PromptComposed],
             schema_version=1,
             factory=composer_factory(),
@@ -753,7 +783,7 @@ def session_topology(
         # this landing state — sprint 064 removes the render-side injection
         # and switches _model_factory to read PromptComposed.text.
         b.producer_kind(
-            "per_turn_fragment",
+            PRODUCER_KIND_PER_TURN_FRAGMENT,
             schemas=[PromptFragment],
             schema_version=1,
             factory=per_turn_producer_factory(per_turn),
@@ -768,13 +798,13 @@ def session_topology(
         # and dropped; the resolved text now rides the record.
         if role is not None:
             b.producer_kind(
-                "role_fragment",
+                PRODUCER_KIND_ROLE_FRAGMENT,
                 schemas=[PromptFragment],
                 schema_version=1,
                 factory=role_producer_factory(role, repo_root=role_repo_root),
                 deterministic=True,
             )
-            b.initial("role_fragment", input={})
+            b.initial(PRODUCER_KIND_ROLE_FRAGMENT, input={})
         # Sprint 062: bundle methodology + personality fragment sources.
         # Both fire once at session open; both read manifest.bundle via
         # bundles.load_bundle + resolve_extends and yield one or more
@@ -783,21 +813,21 @@ def session_topology(
         # caller behavior.
         if bundle is not None:
             b.producer_kind(
-                "bundle_methodology_fragment",
+                PRODUCER_KIND_BUNDLE_METHODOLOGY_FRAGMENT,
                 schemas=[PromptFragment],
                 schema_version=1,
                 factory=bundle_methodology_producer_factory(bundle),
                 deterministic=True,
             )
-            b.initial("bundle_methodology_fragment", input={})
+            b.initial(PRODUCER_KIND_BUNDLE_METHODOLOGY_FRAGMENT, input={})
             b.producer_kind(
-                "bundle_personality_fragment",
+                PRODUCER_KIND_BUNDLE_PERSONALITY_FRAGMENT,
                 schemas=[PromptFragment],
                 schema_version=1,
                 factory=bundle_personality_producer_factory(bundle),
                 deterministic=True,
             )
-            b.initial("bundle_personality_fragment", input={})
+            b.initial(PRODUCER_KIND_BUNDLE_PERSONALITY_FRAGMENT, input={})
         # Sprint 063: parent_context fragment source. Fires once at
         # session open when parent_context is set (a dict carrying
         # parent_record_root, parent_seq_range, kinds). Yields one
@@ -807,13 +837,13 @@ def session_topology(
         # fragment path available to any caller that wires it directly.
         if parent_context is not None:
             b.producer_kind(
-                "parent_context_fragment",
+                PRODUCER_KIND_PARENT_CONTEXT_FRAGMENT,
                 schemas=[PromptFragment],
                 schema_version=1,
                 factory=parent_context_producer_factory(parent_context),
                 deterministic=True,
             )
-            b.initial("parent_context_fragment", input={})
+            b.initial(PRODUCER_KIND_PARENT_CONTEXT_FRAGMENT, input={})
         # Sprint 064: tools_suite fragment source (session-open scope).
         # Fires once at RunStarted; yields one PromptFragment
         # (source=tools_suite, precedence=20) when the session's tool
@@ -823,20 +853,20 @@ def session_topology(
         # in _model_factory's fallback and native-tools paths.
         if tools:
             b.producer_kind(
-                "tools_suite_fragment",
+                PRODUCER_KIND_TOOLS_SUITE_FRAGMENT,
                 schemas=[PromptFragment],
                 schema_version=1,
                 factory=tools_suite_producer_factory(tools),
                 deterministic=True,
             )
-            b.initial("tools_suite_fragment", input={})
+            b.initial(PRODUCER_KIND_TOOLS_SUITE_FRAGMENT, input={})
         # Sprint 064: user_message fragment source (turn-scoped, chained).
         # Fires on substrate.ProducerCompleted{kind=per_turn_fragment} so
         # the composer's downstream fire-on-user-message-completed trigger
         # sees a deterministic cohort — both per_turn and user_message
         # fragments are in the buffer by the time composer runs.
         b.producer_kind(
-            "user_message_fragment",
+            PRODUCER_KIND_USER_MESSAGE_FRAGMENT,
             schemas=[PromptFragment],
             schema_version=1,
             factory=user_message_fragment_producer_factory(),
@@ -854,10 +884,10 @@ def session_topology(
         b.view("latest_composed", api.PerKindLatest("PromptComposed"))
 
         b.trigger(
-            "run-tool",
+            TRIGGER_ID_RUN_TOOL,
             subscription=api.Subscription(kinds=frozenset({"ToolCall"})),
             predicate=lambda ctx: True,
-            starts="tool",
+            starts=PRODUCER_KIND_TOOL,
             input_builder=lambda ctx: {
                 "call_id": ctx.event.payload["call_id"],
                 "tool": ctx.event.payload["tool"],
@@ -867,26 +897,26 @@ def session_topology(
             policy=api.PerEvent(),
         )
         b.trigger(
-            "continue",
+            TRIGGER_ID_CONTINUE,
             subscription=api.Subscription(kinds=frozenset({"ToolResult"})),
             predicate=lambda ctx: _step_of(ctx) + 1 < turn_max_steps,
-            starts="model",
+            starts=PRODUCER_KIND_MODEL,
             input_builder=lambda ctx: _continue_input(ctx, final=False),
             policy=api.PerEvent(),
         )
         b.trigger(
-            "wrap-up",
+            TRIGGER_ID_WRAP_UP,
             subscription=api.Subscription(kinds=frozenset({"ToolResult"})),
             predicate=lambda ctx: _step_of(ctx) + 1 >= turn_max_steps,
-            starts="model",
+            starts=PRODUCER_KIND_MODEL,
             input_builder=lambda ctx: _continue_input(ctx, final=True),
             policy=api.PerEvent(),
         )
         b.trigger(
-            "park-on-final",
+            TRIGGER_ID_PARK_ON_FINAL,
             subscription=api.Subscription(kinds=frozenset({"FinalAnswer"})),
             predicate=lambda ctx: True,
-            starts="park",
+            starts=PRODUCER_KIND_PARK,
             input_builder=lambda ctx: {
                 "turn_index": _turn_index(ctx),
                 "reason": ParkReason.FINAL_ANSWER,
@@ -894,10 +924,10 @@ def session_topology(
             policy=api.PerEvent(),
         )
         b.trigger(
-            "park-on-model-error",
+            TRIGGER_ID_PARK_ON_MODEL_ERROR,
             subscription=api.Subscription(kinds=frozenset({api.PRODUCER_FAILED})),
-            predicate=lambda ctx: _producer_kind_from_ref(ctx) == "model",
-            starts="park",
+            predicate=lambda ctx: _producer_kind_from_ref(ctx) == PRODUCER_KIND_MODEL,
+            starts=PRODUCER_KIND_PARK,
             input_builder=lambda ctx: {
                 "turn_index": _turn_index(ctx),
                 "reason": ParkReason.MODEL_ERROR,
@@ -905,10 +935,10 @@ def session_topology(
             policy=api.PerEvent(),
         )
         b.trigger(
-            "park-on-interrupt",
+            TRIGGER_ID_PARK_ON_INTERRUPT,
             subscription=api.Subscription(kinds=frozenset({api.PRODUCER_CANCELLED})),
-            predicate=lambda ctx: _producer_kind_from_ref(ctx) == "model",
-            starts="park",
+            predicate=lambda ctx: _producer_kind_from_ref(ctx) == PRODUCER_KIND_MODEL,
+            starts=PRODUCER_KIND_PARK,
             input_builder=lambda ctx: {
                 "turn_index": _turn_index(ctx),
                 "reason": ParkReason.INTERRUPT,
@@ -922,10 +952,10 @@ def session_topology(
         # and passed assembled_prompt through — now the source of truth
         # is PromptComposed.text.
         b.trigger(
-            "resume-on-composed",
+            TRIGGER_ID_RESUME_ON_COMPOSED,
             subscription=api.Subscription(kinds=frozenset({"PromptComposed"})),
             predicate=lambda ctx: True,
-            starts="model",
+            starts=PRODUCER_KIND_MODEL,
             input_builder=lambda ctx: {
                 "step": 0,
                 "results": [],
@@ -946,10 +976,10 @@ def session_topology(
 
         # Chain link 1: per_turn_fragment fires on UserMessage.
         b.trigger(
-            "emit-per-turn-fragment",
+            TRIGGER_ID_EMIT_PER_TURN_FRAGMENT,
             subscription=api.Subscription(kinds=frozenset({USER_MESSAGE})),
             predicate=lambda ctx: True,
-            starts="per_turn_fragment",
+            starts=PRODUCER_KIND_PER_TURN_FRAGMENT,
             input_builder=lambda ctx: {},
             policy=api.PerEvent(),
         )
@@ -961,12 +991,12 @@ def session_topology(
         # warn-on-fragment-error trigger surfaces the failure as a
         # SessionWarning.
         b.trigger(
-            "emit-user-message-fragment",
+            TRIGGER_ID_EMIT_USER_MESSAGE_FRAGMENT,
             subscription=api.Subscription(
                 kinds=frozenset({api.PRODUCER_COMPLETED, api.PRODUCER_FAILED})
             ),
-            predicate=lambda ctx: _producer_kind_from_ref(ctx) == "per_turn_fragment",
-            starts="user_message_fragment",
+            predicate=lambda ctx: _producer_kind_from_ref(ctx) == PRODUCER_KIND_PER_TURN_FRAGMENT,
+            starts=PRODUCER_KIND_USER_MESSAGE_FRAGMENT,
             input_builder=lambda ctx: {
                 "text": (ctx.views["latest_user_message"].value() or {}).get("text", ""),
                 "turn_index": _turn_index(ctx),
@@ -981,12 +1011,14 @@ def session_topology(
         # composer still fires so the model gets a truncated composed prompt
         # rather than a hang.
         b.trigger(
-            "compose-on-cohort-complete",
+            TRIGGER_ID_COMPOSE_ON_COHORT_COMPLETE,
             subscription=api.Subscription(
                 kinds=frozenset({api.PRODUCER_COMPLETED, api.PRODUCER_FAILED})
             ),
-            predicate=lambda ctx: _producer_kind_from_ref(ctx) == "user_message_fragment",
-            starts="prompt_composer",
+            predicate=lambda ctx: (
+                _producer_kind_from_ref(ctx) == PRODUCER_KIND_USER_MESSAGE_FRAGMENT
+            ),
+            starts=PRODUCER_KIND_PROMPT_COMPOSER,
             input_builder=lambda ctx: {
                 "fragments": list(ctx.views["fragment_cohort"].value()),
             },
@@ -997,20 +1029,20 @@ def session_topology(
         # source_name=<kind>). Fires on substrate.ProducerFailed when the
         # failed producer's kind is in FRAGMENT_SOURCE_KINDS.
         b.trigger(
-            "warn-on-fragment-error",
+            TRIGGER_ID_WARN_ON_FRAGMENT_ERROR,
             subscription=api.Subscription(kinds=frozenset({api.PRODUCER_FAILED})),
             predicate=lambda ctx: _producer_kind_from_ref(ctx) in FRAGMENT_SOURCE_KINDS,
-            starts="fragment_error_warning",
+            starts=PRODUCER_KIND_FRAGMENT_ERROR_WARNING,
             input_builder=lambda ctx: {
                 "source_name": _producer_kind_from_ref(ctx) or "",
             },
             policy=api.PerEvent(),
         )
         b.trigger(
-            "end-on-exit",
+            TRIGGER_ID_END_ON_EXIT,
             subscription=api.Subscription(kinds=frozenset({USER_MESSAGE})),
             predicate=lambda ctx: str(ctx.event.payload.get("text", "")).strip() == "/exit",
-            starts="session_end",
+            starts=PRODUCER_KIND_SESSION_END,
             input_builder=lambda ctx: {
                 "reason": SessionEndReason.USER_EXIT,
                 "total_turns": _turn_index(ctx) + 1,
@@ -1023,10 +1055,10 @@ def session_topology(
             # off-by-one'd (fired on the max_turnsth message so its turn never ran); `> max_turns`
             # is what the tech spec §3 wording ("SessionEnded{reason: 'timeout'} on the 201st turn
             # for max_turns=200") actually names.
-            "end-on-cap",
+            TRIGGER_ID_END_ON_CAP,
             subscription=api.Subscription(kinds=frozenset({USER_MESSAGE})),
             predicate=lambda ctx: int(ctx.views["user_turns"].value()) > max_turns,
-            starts="session_end",
+            starts=PRODUCER_KIND_SESSION_END,
             input_builder=lambda ctx: {
                 "reason": SessionEndReason.TIMEOUT,
                 "total_turns": int(ctx.views["user_turns"].value()) - 1,
@@ -1040,10 +1072,10 @@ def session_topology(
             # other source (missing, "user_end", "cli_slash_exit", etc.)
             # maps to reason="user_end". Fingerprint-neutral: input_builder
             # is not serialized into TriggerReg (kernel/topology.py:97).
-            "end-on-user-end",
+            TRIGGER_ID_END_ON_USER_END,
             subscription=api.Subscription(kinds=frozenset({SESSION_END_REQUESTED})),
             predicate=lambda ctx: True,
-            starts="session_end",
+            starts=PRODUCER_KIND_SESSION_END,
             input_builder=lambda ctx: {
                 "reason": (
                     SessionEndReason.DAEMON_SHUTDOWN

@@ -23,6 +23,7 @@ via `is_reserved(kind)`. The two vocabularies do not overlap by design.
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Final
 
 
 # Sprint 070 (2026-09-02): closed-set string values as StrEnum. Each class
@@ -119,22 +120,107 @@ PROMPT_SOURCES: frozenset[str] = frozenset(
 )
 
 
+# Sprint 071 (2026-09-02): every session-topology producer_kind name
+# as a Final[str] constant. The pattern from `constants.py`'s kernel
+# lifecycle names extended to the session layer. A downstream topology
+# that adds its own producer kind adds a member here and to the
+# SESSION_PRODUCER_KINDS frozenset below.
+PRODUCER_KIND_SESSION_STARTED: Final[str] = "session_started"
+PRODUCER_KIND_MODEL: Final[str] = "model"
+PRODUCER_KIND_TOOL: Final[str] = "tool"
+PRODUCER_KIND_PARK: Final[str] = "park"
+PRODUCER_KIND_SESSION_END: Final[str] = "session_end"
+PRODUCER_KIND_SESSION_WARNING: Final[str] = "session_warning"
+PRODUCER_KIND_FRAGMENT_ERROR_WARNING: Final[str] = "fragment_error_warning"
+PRODUCER_KIND_SESSION_OPEN: Final[str] = "session_open"
+PRODUCER_KIND_PROMPT_COMPOSER: Final[str] = "prompt_composer"
+PRODUCER_KIND_PER_TURN_FRAGMENT: Final[str] = "per_turn_fragment"
+PRODUCER_KIND_ROLE_FRAGMENT: Final[str] = "role_fragment"
+PRODUCER_KIND_BUNDLE_METHODOLOGY_FRAGMENT: Final[str] = "bundle_methodology_fragment"
+PRODUCER_KIND_BUNDLE_PERSONALITY_FRAGMENT: Final[str] = "bundle_personality_fragment"
+PRODUCER_KIND_PARENT_CONTEXT_FRAGMENT: Final[str] = "parent_context_fragment"
+PRODUCER_KIND_TOOLS_SUITE_FRAGMENT: Final[str] = "tools_suite_fragment"
+PRODUCER_KIND_USER_MESSAGE_FRAGMENT: Final[str] = "user_message_fragment"
+# Also declared by the CI wrapper (ci.py); listed here so the frozenset
+# below covers every kind a session-shape topology can emit.
+PRODUCER_KIND_DRIVER_STEPPER: Final[str] = "driver_stepper"
+
+SESSION_PRODUCER_KINDS: Final[frozenset[str]] = frozenset(
+    {
+        PRODUCER_KIND_SESSION_STARTED,
+        PRODUCER_KIND_MODEL,
+        PRODUCER_KIND_TOOL,
+        PRODUCER_KIND_PARK,
+        PRODUCER_KIND_SESSION_END,
+        PRODUCER_KIND_SESSION_WARNING,
+        PRODUCER_KIND_FRAGMENT_ERROR_WARNING,
+        PRODUCER_KIND_SESSION_OPEN,
+        PRODUCER_KIND_PROMPT_COMPOSER,
+        PRODUCER_KIND_PER_TURN_FRAGMENT,
+        PRODUCER_KIND_ROLE_FRAGMENT,
+        PRODUCER_KIND_BUNDLE_METHODOLOGY_FRAGMENT,
+        PRODUCER_KIND_BUNDLE_PERSONALITY_FRAGMENT,
+        PRODUCER_KIND_PARENT_CONTEXT_FRAGMENT,
+        PRODUCER_KIND_TOOLS_SUITE_FRAGMENT,
+        PRODUCER_KIND_USER_MESSAGE_FRAGMENT,
+        PRODUCER_KIND_DRIVER_STEPPER,
+    }
+)
+
+
 # Sprint 068 (2026-09-02): every producer_kind name that emits a
 # PromptFragment. session_topology's `warn-on-fragment-error` trigger
 # uses this set to decide whether a substrate.ProducerFailed matches
-# a fragment source (in which case a SessionWarning fires) or some
-# other producer's failure (in which case the existing model / tool /
-# park handlers apply). Kept in sync with the seven fragment-source
-# Producer registrations in session/__init__.py::session_topology.
-FRAGMENT_SOURCE_KINDS: frozenset[str] = frozenset(
+# a fragment source. Sprint 071 rebuilds the frozenset from the
+# PRODUCER_KIND_* Final[str] constants above rather than from raw
+# strings.
+FRAGMENT_SOURCE_KINDS: Final[frozenset[str]] = frozenset(
     {
-        "per_turn_fragment",
-        "role_fragment",
-        "bundle_methodology_fragment",
-        "bundle_personality_fragment",
-        "parent_context_fragment",
-        "tools_suite_fragment",
-        "user_message_fragment",
+        PRODUCER_KIND_PER_TURN_FRAGMENT,
+        PRODUCER_KIND_ROLE_FRAGMENT,
+        PRODUCER_KIND_BUNDLE_METHODOLOGY_FRAGMENT,
+        PRODUCER_KIND_BUNDLE_PERSONALITY_FRAGMENT,
+        PRODUCER_KIND_PARENT_CONTEXT_FRAGMENT,
+        PRODUCER_KIND_TOOLS_SUITE_FRAGMENT,
+        PRODUCER_KIND_USER_MESSAGE_FRAGMENT,
+    }
+)
+
+
+# Sprint 071 (2026-09-02): every session-topology trigger id.
+TRIGGER_ID_RUN_TOOL: Final[str] = "run-tool"
+TRIGGER_ID_CONTINUE: Final[str] = "continue"
+TRIGGER_ID_WRAP_UP: Final[str] = "wrap-up"
+TRIGGER_ID_PARK_ON_FINAL: Final[str] = "park-on-final"
+TRIGGER_ID_PARK_ON_MODEL_ERROR: Final[str] = "park-on-model-error"
+TRIGGER_ID_PARK_ON_INTERRUPT: Final[str] = "park-on-interrupt"
+TRIGGER_ID_RESUME_ON_COMPOSED: Final[str] = "resume-on-composed"
+TRIGGER_ID_END_ON_EXIT: Final[str] = "end-on-exit"
+TRIGGER_ID_END_ON_CAP: Final[str] = "end-on-cap"
+TRIGGER_ID_END_ON_USER_END: Final[str] = "end-on-user-end"
+TRIGGER_ID_EMIT_PER_TURN_FRAGMENT: Final[str] = "emit-per-turn-fragment"
+TRIGGER_ID_EMIT_USER_MESSAGE_FRAGMENT: Final[str] = "emit-user-message-fragment"
+TRIGGER_ID_COMPOSE_ON_COHORT_COMPLETE: Final[str] = "compose-on-cohort-complete"
+TRIGGER_ID_WARN_ON_FRAGMENT_ERROR: Final[str] = "warn-on-fragment-error"
+TRIGGER_ID_ADVANCE_ON_PARK: Final[str] = "advance-on-park"
+
+SESSION_TRIGGER_IDS: Final[frozenset[str]] = frozenset(
+    {
+        TRIGGER_ID_RUN_TOOL,
+        TRIGGER_ID_CONTINUE,
+        TRIGGER_ID_WRAP_UP,
+        TRIGGER_ID_PARK_ON_FINAL,
+        TRIGGER_ID_PARK_ON_MODEL_ERROR,
+        TRIGGER_ID_PARK_ON_INTERRUPT,
+        TRIGGER_ID_RESUME_ON_COMPOSED,
+        TRIGGER_ID_END_ON_EXIT,
+        TRIGGER_ID_END_ON_CAP,
+        TRIGGER_ID_END_ON_USER_END,
+        TRIGGER_ID_EMIT_PER_TURN_FRAGMENT,
+        TRIGGER_ID_EMIT_USER_MESSAGE_FRAGMENT,
+        TRIGGER_ID_COMPOSE_ON_COHORT_COMPLETE,
+        TRIGGER_ID_WARN_ON_FRAGMENT_ERROR,
+        TRIGGER_ID_ADVANCE_ON_PARK,
     }
 )
 
