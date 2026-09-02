@@ -3,9 +3,12 @@
 ```yaml
 ---
 id: 072
-status: open
+status: closed
 phase: 9
 pass_kind: string-discipline
+closed_at: 2026-09-02
+closed_by: substrate main HEAD after this card
+scope_note: eighteen TOOL_NAME_* Final[str] constants + TOOL_NAMES frozenset in topologies/tool_loop/tools.py. Sweep of every Tool(...) ctor first-arg + every `if tool ==` predicate in agency.py. Boundary-validator sweep DEFERRED to a follow-up sprint 073 — CLI ListTarget declaration + validation, DriverFamily validation in substrate-ui/server.py boundary handlers, DriverParamKey use in session_registry driver_params validator all remain drift.
 ---
 ```
 

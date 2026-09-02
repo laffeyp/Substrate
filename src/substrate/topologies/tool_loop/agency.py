@@ -24,7 +24,9 @@ from typing import Any
 
 from msgspec import Struct, field
 
-_CODE_TOOLS = frozenset({"write_file", "edit_file"})
+from .tools import TOOL_NAME_BASH, TOOL_NAME_EDIT_FILE, TOOL_NAME_WRITE_FILE
+
+_CODE_TOOLS = frozenset({TOOL_NAME_WRITE_FILE, TOOL_NAME_EDIT_FILE})
 
 
 class AgencyTask(Struct, frozen=True):
@@ -141,9 +143,9 @@ def score_agency(events: Iterable[Mapping[str, Any]]) -> AgencyScore:
                 acted_after_fail = True  # a tool call AFTER a failure = the agent reacted to it
             if tool in _CODE_TOOLS:
                 wrote = True
-            if tool == "bash":
+            if tool == TOOL_NAME_BASH:
                 ran = True
-            if tool == "write_file":
+            if tool == TOOL_NAME_WRITE_FILE:
                 args = p.get("args") or []
                 path = Path(str(args[0])).name if args else None
                 same_run = same_run + 1 if path == prev_write else 1
@@ -155,9 +157,9 @@ def score_agency(events: Iterable[Mapping[str, Any]]) -> AgencyScore:
             tool = p.get("tool")
             out = p.get("output")
             exit_ = int(out.get("exit", 0) or 0) if isinstance(out, Mapping) else None
-            if not p.get("ok", True) or (tool == "bash" and exit_ not in (None, 0)):
+            if not p.get("ok", True) or (tool == TOOL_NAME_BASH and exit_ not in (None, 0)):
                 had_fail = True
-            if tool == "bash" and isinstance(out, Mapping):
+            if tool == TOOL_NAME_BASH and isinstance(out, Mapping):
                 last_bash_exit = exit_
                 if exit_ == 0:
                     saw_zero = True

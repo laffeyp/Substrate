@@ -44,7 +44,54 @@ import urllib.request
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Final, NamedTuple
+
+# Sprint 072 (2026-09-02): tool-name Final[str] constants. Every tool
+# registration and every predicate that compares against a tool name
+# imports from here. `TOOL_NAMES` frozenset covers the full set.
+TOOL_NAME_ADD: Final[str] = "add"
+TOOL_NAME_MUL: Final[str] = "mul"
+TOOL_NAME_READ_FILE: Final[str] = "read_file"
+TOOL_NAME_LIST_DIR: Final[str] = "list_dir"
+TOOL_NAME_GLOB: Final[str] = "glob"
+TOOL_NAME_GREP: Final[str] = "grep"
+TOOL_NAME_WEB_FETCH: Final[str] = "web_fetch"
+TOOL_NAME_EDIT_FILE: Final[str] = "edit_file"
+TOOL_NAME_WRITE_FILE: Final[str] = "write_file"
+TOOL_NAME_BASH: Final[str] = "bash"
+TOOL_NAME_DELEGATE: Final[str] = "delegate"
+# Substrate tools (implementations at substrate_tools.py).
+TOOL_NAME_INSPECT_RECORD: Final[str] = "inspect_record"
+TOOL_NAME_LIST_RECORDS: Final[str] = "list_records"
+TOOL_NAME_LIST_SESSIONS: Final[str] = "list_sessions"
+TOOL_NAME_LIST_TOPOLOGIES: Final[str] = "list_topologies"
+TOOL_NAME_LIST_APPLICATIONS: Final[str] = "list_applications"
+TOOL_NAME_RUN_TOPOLOGY: Final[str] = "run_topology"
+TOOL_NAME_RUN_TOPOLOGY_POLL: Final[str] = "run_topology_poll"
+
+TOOL_NAMES: Final[frozenset[str]] = frozenset(
+    {
+        TOOL_NAME_ADD,
+        TOOL_NAME_MUL,
+        TOOL_NAME_READ_FILE,
+        TOOL_NAME_LIST_DIR,
+        TOOL_NAME_GLOB,
+        TOOL_NAME_GREP,
+        TOOL_NAME_WEB_FETCH,
+        TOOL_NAME_EDIT_FILE,
+        TOOL_NAME_WRITE_FILE,
+        TOOL_NAME_BASH,
+        TOOL_NAME_DELEGATE,
+        TOOL_NAME_INSPECT_RECORD,
+        TOOL_NAME_LIST_RECORDS,
+        TOOL_NAME_LIST_SESSIONS,
+        TOOL_NAME_LIST_TOPOLOGIES,
+        TOOL_NAME_LIST_APPLICATIONS,
+        TOOL_NAME_RUN_TOPOLOGY,
+        TOOL_NAME_RUN_TOPOLOGY_POLL,
+    }
+)
+
 
 _MAX_READ_LINES = 2000  # read_file window cap — paginated, never a silent mid-content cut
 _MAX_GREP_HITS = 100  # grep match cap — reported when hit, never a silent drop
@@ -219,8 +266,8 @@ def _bash(root: Path, a: list[Any]) -> dict[str, Any]:
 
 
 CALCULATOR: dict[str, Tool] = {
-    "add": Tool("add", "add(a, b) -> a+b", True, _add),
-    "mul": Tool("mul", "mul(a, b) -> a*b", True, _mul),
+    "add": Tool(TOOL_NAME_ADD, "add(a, b) -> a+b", True, _add),
+    "mul": Tool(TOOL_NAME_MUL, "mul(a, b) -> a*b", True, _mul),
 }
 
 
@@ -232,29 +279,31 @@ def full_suite(root: Path | str = ".") -> dict[str, Tool]:
     return {
         **CALCULATOR,
         "read_file": Tool(
-            "read_file",
+            TOOL_NAME_READ_FILE,
             "read_file(path, offset=1, limit) -> line-numbered text ('<n>\\t<line>'); offset is a 1-based line",
             False,
             partial(_read_file, r),
         ),
         "list_dir": Tool(
-            "list_dir", "list_dir(path) -> directory entries", False, partial(_list_dir, r)
+            TOOL_NAME_LIST_DIR, "list_dir(path) -> directory entries", False, partial(_list_dir, r)
         ),
         "glob": Tool(
-            "glob",
+            TOOL_NAME_GLOB,
             "glob(pattern, root='.') -> file paths matching a glob like '**/*.py' (sorted)",
             False,
             partial(_glob, r),
         ),
         "grep": Tool(
-            "grep",
+            TOOL_NAME_GREP,
             "grep(regex, path='.') -> matching 'file:line: text' (a real regex, not a substring)",
             False,
             partial(_grep, r),
         ),
-        "web_fetch": Tool("web_fetch", "web_fetch(url) -> the page text", False, _web_fetch),
+        "web_fetch": Tool(
+            TOOL_NAME_WEB_FETCH, "web_fetch(url) -> the page text", False, _web_fetch
+        ),
         "edit_file": Tool(
-            "edit_file",
+            TOOL_NAME_EDIT_FILE,
             "edit_file(path, search, replace, replace_all=false) -> surgical search/replace; `search` "
             "must match the file's exact bytes EXACTLY ONE place or it errors (add context to "
             "disambiguate, or pass replace_all=true to change every occurrence, e.g. a rename). Match "
@@ -264,13 +313,16 @@ def full_suite(root: Path | str = ".") -> dict[str, Tool]:
             partial(_edit_file, r),
         ),
         "write_file": Tool(
-            "write_file",
+            TOOL_NAME_WRITE_FILE,
             "write_file(path, text) -> create/overwrite a file (SIDE EFFECT)",
             False,
             partial(_write_file, r),
         ),
         "bash": Tool(
-            "bash", "bash(cmd) -> {exit, stdout, stderr} (SIDE EFFECT)", False, partial(_bash, r)
+            TOOL_NAME_BASH,
+            "bash(cmd) -> {exit, stdout, stderr} (SIDE EFFECT)",
+            False,
+            partial(_bash, r),
         ),
     }
 
