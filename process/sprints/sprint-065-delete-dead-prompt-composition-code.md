@@ -3,9 +3,12 @@
 ```yaml
 ---
 id: 065
-status: open
+status: closed
 phase: 8
 pass_kind: cleanup
+closed_at: 2026-09-01
+closed_by: substrate main HEAD after this card
+scope_note: bundles.py loses assemble_seed / assemble_seed_from_chain / bind_slots / _validate_slot_kind / SlotUnfilledError / SlotKindMismatchError (~130 lines). Three tests in test_bundles_229 removed with them. test_bundle_slot_binding_230.py deleted (9 tests). SessionManifest.seed deprecation deferred — the field still ships as client-supplied on the wire; the compute-path migration to PromptComposed (sprint 064's deferred second half) is where seed's live-vs-frozen status resolves.
 ---
 ```
 

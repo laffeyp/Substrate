@@ -17,8 +17,6 @@ from substrate.bundles import (
     BundleCycleError,
     BundleNotFoundError,
     BundleShapeError,
-    assemble_seed,
-    assemble_seed_from_chain,
     load_bundle,
     resolve_extends,
 )
@@ -131,49 +129,12 @@ def test_resolve_extends_depth_cap_raises(tmp_path: Path) -> None:
         resolve_extends("link9", bundles_root=tmp_path)
 
 
-def test_assemble_seed_order_personality_then_methodology_then_task(tmp_path: Path) -> None:
-    _write_bundle(
-        tmp_path,
-        "solo",
-        methodology="METHODOLOGY",
-        personality="PERSONALITY",
-    )
-    bundle = load_bundle("solo", bundles_root=tmp_path)
-    seed = assemble_seed(bundle, session_task="TASK", project_context="CONTEXT")
-    assert seed == "PERSONALITY\n\nMETHODOLOGY\n\nCONTEXT\n\nTASK"
-
-
-def test_assemble_seed_from_chain_matches_1_6_5_order(tmp_path: Path) -> None:
-    """Observation contract: team-review extends code-review.
-    Composed seed has personality first (team-review's), then
-    code-review methodology, then team-review methodology."""
-    _write_bundle(
-        tmp_path,
-        "code-review",
-        methodology="CODE-REVIEW-METHODOLOGY",
-        personality="CODE-REVIEW-PERSONALITY",
-    )
-    _write_bundle(
-        tmp_path,
-        "team-review",
-        methodology="TEAM-REVIEW-METHODOLOGY",
-        personality="TEAM-REVIEW-PERSONALITY",
-        extends=["code-review"],
-    )
-    chain = resolve_extends("team-review", bundles_root=tmp_path)
-    seed = assemble_seed_from_chain(chain, session_task="TASK")
-    expected = (
-        "TEAM-REVIEW-PERSONALITY\n\nCODE-REVIEW-METHODOLOGY\n\nTEAM-REVIEW-METHODOLOGY\n\nTASK"
-    )
-    assert seed == expected
-
-
-def test_assemble_seed_from_chain_child_empty_personality_falls_back_to_ancestor(
-    tmp_path: Path,
-) -> None:
-    """A child with empty personality inherits the nearest ancestor's."""
-    _write_bundle(tmp_path, "base", personality="BASE-PERSONALITY")
-    _write_bundle(tmp_path, "child", methodology="CHILD-M", extends=["base"])
-    chain = resolve_extends("child", bundles_root=tmp_path)
-    seed = assemble_seed_from_chain(chain, session_task="")
-    assert seed.startswith("BASE-PERSONALITY")
+# Sprint 065: assemble_seed / assemble_seed_from_chain deleted. Three
+# tests removed with them. The seed-composition responsibility moved
+# to the fragment/composer Producer graph (sprints 060-064) —
+# bundle prose slots emit as PromptFragment(source=bundle_methodology|
+# bundle_personality) via `topologies/session/bundle_producer.py`, and
+# `topologies/session/composer.py` yields PromptComposed with the same
+# precedence-ordered join the deleted assemble_seed_from_chain
+# implemented. The behavior lives on the record, tested by
+# tests/test_prompt_fragment_bundle.py and tests/test_prompt_composer.py.

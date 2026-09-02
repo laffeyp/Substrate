@@ -40,11 +40,13 @@ class SlotSpec(Struct, frozen=True):
     """Sprint 230: one entry in a manifest's `[slots]` block per §9.
 
     `kind`: `"prose" | "line" | "bool" | "int" | "choice"`.
-    `required`: `True` → binding raises `SlotUnfilledError` when neither
-    a caller value nor a resolvable default exists.
+    `required`: `True` marks the slot as mandatory for the topology; the
+    consumer that reads a `SlotSpec` decides how to enforce (the previous
+    `bind_slots` binder was deleted in sprint 065 alongside the rest of
+    the dead prompt-composition machinery; the type stays as a shape
+    declaration until a real consumer surfaces).
     `default`: a literal (bool, int, str), the marker `"bundle:<field>"`
-    (falls back to the loaded bundle's field), or `"none"` (required=true
-    → raise; required=false → resolved value is None).
+    (falls back to the loaded bundle's field), or `"none"`.
     `choices`: for `kind = "choice"`, the tuple of allowed values.
     """
 

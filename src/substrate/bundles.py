@@ -321,166 +321,14 @@ def resolve_extends(name: str, *, bundles_root: Path | None = None) -> list[Bund
     return _c3_linearise(name, root, seen={}, path=[])
 
 
-def assemble_seed(bundle: Bundle, *, session_task: str = "", project_context: str = "") -> str:
-    """Compose the session-open seed per TECH-SPEC §1.6.5.
-
-    Order: personality → resolved-extends methodologies → this bundle's
-    methodology → project context → session task → baseline. Each
-    non-empty section separated by a blank line. This function operates
-    on ONE bundle (the caller's chain resolution passes the resolved
-    list to `assemble_seed_from_chain` below).
-
-    Sprint 230 will wire slot binding on top; the assembler here stays
-    seed-only.
-    """
-    parts: list[str] = []
-    if bundle.personality:
-        parts.append(bundle.personality)
-    if bundle.methodology:
-        parts.append(bundle.methodology)
-    if project_context:
-        parts.append(project_context)
-    if session_task:
-        parts.append(session_task)
-    return "\n\n".join(parts)
-
-
-def assemble_seed_from_chain(
-    chain: list[Bundle],
-    *,
-    session_task: str = "",
-    project_context: str = "",
-) -> str:
-    """Assemble the seed from a resolved extends chain per §1.6.5:
-    personality (from the deepest bundle — the caller's own),
-    then every ancestor methodology in resolution order, then this
-    bundle's methodology, then project context, then session task.
-
-    The chain is bases-first (as `resolve_extends` returns it); the
-    LAST entry is the caller's own bundle. Personality comes from the
-    caller — a bundle overrides its ancestors' personality by declaring
-    its own (empty falls through to the previous ancestor)."""
-    if not chain:
-        return session_task or ""
-    caller = chain[-1]
-    ancestor_methodologies = [b.methodology for b in chain[:-1] if b.methodology]
-
-    parts: list[str] = []
-    # Personality: caller wins if non-empty; else the nearest ancestor.
-    for bundle in reversed(chain):
-        if bundle.personality:
-            parts.append(bundle.personality)
-            break
-    parts.extend(ancestor_methodologies)
-    if caller.methodology:
-        parts.append(caller.methodology)
-    if project_context:
-        parts.append(project_context)
-    if session_task:
-        parts.append(session_task)
-    return "\n\n".join(parts)
-
-
-class SlotUnfilledError(BundleError):
-    """Sprint 230: a required slot has no caller value and no resolvable
-    default. The daemon shapes this as `ToolResult(ok=false, error=...)`
-    at the `run_topology` call site."""
-
-    def __init__(self, topology_name: str, slot_name: str) -> None:
-        super().__init__(
-            f"application {topology_name!r}: required slot {slot_name!r} is unfilled "
-            "and its default is 'none'"
-        )
-        self.topology_name = topology_name
-        self.slot_name = slot_name
-
-
-class SlotKindMismatchError(BundleError):
-    """Sprint 230: a caller value does not match its slot's declared
-    `kind`. `kind = "int"` with a caller value of `"5"` (string) fails —
-    the wire arrival is typed, so a mismatch is a caller bug that
-    should surface at binding, not at first use inside the topology."""
-
-
-def _validate_slot_kind(slot_name: str, value: Any, spec: Any) -> Any:
-    """Coerce/validate `value` against `spec.kind`. Returns the value
-    unchanged when valid; raises `SlotKindMismatchError` otherwise.
-    `spec` is a duck-typed `SlotSpec` — this module does not import
-    from `applications.registry` to keep the layering one-way (piece H
-    depends on piece E's ApplicationSpec, not the other way around)."""
-    kind = spec.kind
-    if kind == "prose" or kind == "line":
-        if not isinstance(value, str):
-            raise SlotKindMismatchError(
-                f"slot {slot_name!r} kind={kind!r} requires a string; got {type(value).__name__}"
-            )
-        return value
-    if kind == "bool":
-        if not isinstance(value, bool):
-            raise SlotKindMismatchError(
-                f"slot {slot_name!r} kind='bool' requires a bool; got {type(value).__name__}"
-            )
-        return value
-    if kind == "int":
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise SlotKindMismatchError(
-                f"slot {slot_name!r} kind='int' requires an int; got {type(value).__name__}"
-            )
-        return value
-    if kind == "choice":
-        if not isinstance(value, str) or value not in spec.choices:
-            raise SlotKindMismatchError(
-                f"slot {slot_name!r} kind='choice' requires one of {list(spec.choices)}; "
-                f"got {value!r}"
-            )
-        return value
-    raise SlotKindMismatchError(f"slot {slot_name!r}: unknown kind {kind!r}")
-
-
-def bind_slots(
-    topology_name: str,
-    caller_bundle_dict: dict[str, Any],
-    *,
-    slots: dict[str, Any],
-    default_bundle: "Bundle | None" = None,
-) -> dict[str, Any]:
-    """Sprint 230: bind a topology's declared slots.
-
-    `slots` is `manifest.slots` (typed `SlotSpec` values from sprint
-    230's ApplicationSpec growth). `caller_bundle_dict` is the free-form
-    dict the caller passed at `run_topology(name, bundle={...})`. Every
-    slot resolves in this order:
-      1. Caller value present → validate kind, use.
-      2. Default is `"bundle:<field>"` → fall back to
-         `getattr(default_bundle, <field>, "")`.
-      3. Default is `"none"` + `required` → raise `SlotUnfilledError`.
-      4. Default is `"none"` + not required → resolved value is `None`.
-      5. Any other default → use it verbatim (literal).
-    """
-    resolved: dict[str, Any] = {}
-    for slot_name, spec in slots.items():
-        if slot_name in caller_bundle_dict:
-            resolved[slot_name] = _validate_slot_kind(
-                slot_name, caller_bundle_dict[slot_name], spec
-            )
-            continue
-        default = spec.default
-        if isinstance(default, str) and default.startswith("bundle:"):
-            field = default.split(":", 1)[1]
-            if default_bundle is None:
-                if spec.required:
-                    raise SlotUnfilledError(topology_name, slot_name)
-                resolved[slot_name] = None
-                continue
-            resolved[slot_name] = getattr(default_bundle, field, "")
-            continue
-        if default == "none":
-            if spec.required:
-                raise SlotUnfilledError(topology_name, slot_name)
-            resolved[slot_name] = None
-            continue
-        resolved[slot_name] = default
-    return resolved
+# Sprint 065 (2026-09-01): deleted assemble_seed, assemble_seed_from_chain,
+# SlotUnfilledError, SlotKindMismatchError, _validate_slot_kind, bind_slots.
+# Zero call sites outside their own tests. The prompt-composition arc
+# (sprints 058-064) replaced their shape with the fragment/composer
+# Producer graph — bundle prose slots emit as PromptFragment(source=
+# bundle_methodology|bundle_personality) via `topologies/session/
+# bundle_producer.py`. The composed seed lives on the record now, not
+# in a Python string returned from a helper function nothing called.
 
 
 __all__ = [
@@ -490,11 +338,6 @@ __all__ = [
     "BundleError",
     "BundleNotFoundError",
     "BundleShapeError",
-    "SlotKindMismatchError",
-    "SlotUnfilledError",
-    "assemble_seed",
-    "assemble_seed_from_chain",
-    "bind_slots",
     "list_bundles",
     "load_bundle",
     "resolve_extends",
