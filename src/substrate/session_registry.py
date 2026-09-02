@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Peter Laffey
 """Session registry — the daemon-side name index + manifest catalog (sprint 211).
 
-Piece C per TECH-SPEC-2026-08-25-round6 §5. Named standing sessions are the
+Piece C Named standing sessions are the
 daily-driver's identity: `substrate chat --name reviewer` opens a persistent
 record under `~/.substrate/sessions/<session_id>/`, and every later resume
 finds it by the same name. The registry:
@@ -80,7 +80,7 @@ _MANIFEST_FILENAME = "manifest.json"
 class SessionManifest(Struct, frozen=True):
     """The on-disk hint the boot scan reads to rebuild the in-memory registry.
 
-    Fields match TECH-SPEC-2026-08-25-round6 §5. `status` is one of `running`
+    Fields match the tech spec `status` is one of `running`
     (a daemon has a live Runtime on the record), `parked` (the record is at
     pause_await_input awaiting the next UserMessage), `interrupted` (the
     record has a torn hot segment — the daemon died mid-turn), `ended` (the
@@ -109,7 +109,7 @@ class SessionManifest(Struct, frozen=True):
     # the manifest. Default "default" resolves to the shipped prompt.
     role: str = "default"
     # Sprint 223d: per-turn text prefixed to every UserMessage's
-    # assembled_prompt (spec §7b). Empty string means no prefix.
+    # assembled_prompt (spec the topology-layer contract). Empty string means no prefix.
     # Mutable via PATCH /api/session/<id> {per_turn}.
     per_turn: str = ""
     # Sprint 225b: composite parent linkage. `None` for standalone
@@ -499,7 +499,7 @@ class SessionRegistry:
         return updated
 
     def set_per_turn(self, session_id: str, per_turn: str) -> SessionManifest:
-        """Sprint 223d: change the session's per-turn prefix (spec §7b).
+        """Sprint 223d: change the session's per-turn prefix (spec the topology-layer contract).
         Same lock/write shape as `set_tools`. Empty string clears the prefix.
         The next `Runtime.resume` reads the new value via
         `_build_session_topology_from_manifest`.
@@ -1423,3 +1423,5 @@ __all__ = [
     "manifest_from_dict",
     "scan_record_status",
 ]
+
+# spec-audit: 2026-09-01

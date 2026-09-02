@@ -2,11 +2,11 @@
 # Copyright (C) 2026 Peter Laffey
 """Bundle loader + extends chain + seed assembler — piece H.
 
-TECH-SPEC §9 lays the on-disk shape at `~/.substrate/bundles/<name>/`:
+The tech spec lays the on-disk shape at `~/.substrate/bundles/<name>/`:
 five prose slot files (or slot folders), a `corpus/` directory, and a
 `bundle.toml` metadata + composition block. This module loads a bundle,
 resolves its `extends` chain via C3 linearisation, and assembles the
-seed string a session opens with per §1.6.5.
+seed string a session opens with.
 
 Sprint 229 ships the loader + extends + assembler. Sprint 230 ships
 slot declaration + binding + fallback (a separate concept — the
@@ -61,7 +61,7 @@ def _bundles_root(override: Path | None) -> Path:
 
 def _shipped_bundle_dir(name: str) -> Path | None:
     """Sprint 231: default bundles ship inside the installed package at
-    two locations per §9:
+    two locations at two locations:
       - `topologies/session/bundle/`                     -> "session"
       - `topologies/applications/<app>.bundle/`          -> "<app>"
 
@@ -77,7 +77,7 @@ def _shipped_bundle_dir(name: str) -> Path | None:
 
 
 class Bundle(Struct, frozen=True):
-    """One loaded bundle. Fields match TECH-SPEC §9 line 15-46.
+    """One loaded bundle. Fields match the tech spec.
 
     - `name`, `description`, `schema_version`, `extends`: `[bundle]`
       metadata block.
@@ -106,7 +106,7 @@ class Bundle(Struct, frozen=True):
 
 
 def _read_prose_slot(bundle_dir: Path, slot_name: str) -> str:
-    """File-or-folder shape per §9 line 3-4. Both present raises
+    """File-or-folder shape. Both present raises
     `BundleShapeError`. Folder shape: `<slot>/*.md` concatenated in
     filename-sort order with a `---` separator (matches piece A's
     role-prompt folder shape at `resolve_role_prompt`)."""
@@ -342,3 +342,5 @@ __all__ = [
     "load_bundle",
     "resolve_extends",
 ]
+
+# spec-audit: 2026-09-01

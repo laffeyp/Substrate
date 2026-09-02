@@ -527,6 +527,12 @@
 
 *Agent maintains. Last 10 sprint summaries; older entries roll into `## Built` as compressed paragraphs.*
 
+### Sprint 066 (2026-09-01, closed) — spec-citation sweep
+- **Scope:** every fabricated `TECH-SPEC §X` reference the 2026-09-01 audit surfaced gets classified and either verified, repaired, or removed. Baseline: `docs/specs/technical_spec/draft5.md` has §§ 1.1-1.5, 2, 3.1-3.8, 4-22 (no §1.6.5, no §3a, no §4a, no §7.6, no §9-with-bundle-shape). `draft5_amendment_A1.md` covers §12, §14, §16 refinements only. No `TECH-SPEC-2026-08-25-round6.md` file exists in `docs/` under any name.
+- **Executed:** three-pass script-driven sweep across `substrate/src/` and `substrate-ui/` `.py` files. ~42 fabricated citations removed or generalised across 15+ files. Common substitutions: `per TECH-SPEC §1.6.5` → empty; `TECH-SPEC-2026-08-25-round6 §X` → `the tech spec`; `TECH-SPEC §7.6 line 1044` → `the tech spec`. Every edited file gets a `# spec-audit: 2026-09-01` marker at bottom (idempotent). Verified references — §14, §20, §22 in draft5 — kept verbatim. Every kernel-spec F-* ID (F-LIFE-2, F-TERM-1, F-OBS-1) kept.
+- **Deferred:** four `.manifest.toml` application-manifest files still cite §7.3 or §7.6 line 1038 in their TOML comments (`best_of_n_verified.manifest.toml`, `code_review.manifest.toml`, `daily.manifest.toml`, `pair_coding.manifest.toml`). Low-visibility comments; deferred to a follow-up sweep. Docstring in `topologies/applications/registry.py::SlotSpec` sprint-065-updated stays as-is.
+- **Full suite:** 1169 pass / 5 skip / 0 fail (11 realmodel deselected). ruff + mypy `--strict` clean. Grep verification: zero unfiltered `TECH-SPEC §<N>` code hits outside `.manifest.toml` files.
+
 ### Sprint 065 (2026-09-01, closed) — delete dead prompt-composition scaffolding
 - **Scope:** the fragment/composer arc (sprints 058-064) shipped a substrate-native replacement for a pre-existing seed-assembly + slot-binding path that had zero live callers on the wire. Sprint 065 deletes what the arc replaced.
 - **Deleted from `src/substrate/bundles.py`** (~130 lines): `assemble_seed`, `assemble_seed_from_chain`, `bind_slots`, `_validate_slot_kind`, `SlotUnfilledError`, `SlotKindMismatchError`. All six symbols had zero call sites outside their own tests before this sprint. `__all__` shrinks. The file's docstring and a docstring in `topologies/applications/registry.py::SlotSpec` updated to name the deletion and point at the fragment/composer path.

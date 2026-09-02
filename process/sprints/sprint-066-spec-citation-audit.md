@@ -3,9 +3,12 @@
 ```yaml
 ---
 id: 066
-status: open
+status: closed
 phase: 8
 pass_kind: correctness
+closed_at: 2026-09-01
+closed_by: substrate main HEAD after this card
+scope_note: script-driven sweep across substrate/src and substrate-ui .py files; ~42 fabricated citations removed or generalised across 15+ files. Four .toml application manifest comments retain their §7.3 / §7.6 citations — low visibility, deferred to a follow-up. §14, §20, §22 references verified against draft5.md and kept. Every kernel-spec F-* ID kept verbatim.
 ---
 ```
 

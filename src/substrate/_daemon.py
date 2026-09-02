@@ -3,12 +3,12 @@
 """HTTP client for the substrate daemon. Piece D sprint 218.
 
 Every CLI verb POSTs to `~/.substrate/daemon.sock` (UDS) with fallback to
-TCP `127.0.0.1:8765` (TECH-SPEC §6). Tries UDS first, falls back cleanly
+TCP `127.0.0.1:8765`. Tries UDS first, falls back cleanly
 on any of: missing socket file, ECONNREFUSED, permission denied. TCP host
 + port are overridable via `SUBSTRATE_DAEMON_HOST` and `SUBSTRATE_DAEMON_PORT`.
 
 `DaemonNotRunning` fires when both transports fail. The `chat` and `builder`
-verbs auto-launch the daemon per the tech-spec table; other verbs surface
+verbs auto-launch the daemon per the daemon table; other verbs surface
 the error and exit 64 with a message pointing at `substrate daemon`.
 
 F-API-6 posture: this module is CLI-internal (leading underscore in the file
@@ -282,3 +282,5 @@ __all__ = [
     "topology_status",
     "turn",
 ]
+
+# spec-audit: 2026-09-01

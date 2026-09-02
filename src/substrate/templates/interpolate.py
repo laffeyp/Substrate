@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Peter Laffey
 """Tiny home-rolled interpolator for the Mad Lib bundle wizard.
 
-TECH-SPEC §9 line 57-60 asks for `{{slot_name}}` substitution and
+the tech spec asks for `{{slot_name}}` substitution and
 `{% if slot_name %}...{% endif %}` conditionals — no jinja, no
 sandbox concerns. This module ships that in ~40 lines.
 
@@ -143,3 +143,5 @@ def _parse_slots_yaml(text: str) -> list[dict[str, Any]]:
 
 
 __all__ = ["TemplateError", "parse_template_header", "render"]
+
+# spec-audit: 2026-09-01

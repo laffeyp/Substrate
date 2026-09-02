@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Peter Laffey
 """Substrate toolkit — session-facing tool wrappers over substrate's own API.
 
-Piece F. Seven tools total per TECH-SPEC §8 (line 1052-1064); this
+Piece F. Seven tools total per the tech spec; this
 module ships them in three sprints:
 
   - 226 (this file, initial): `run_topology`, `run_topology_poll`.
@@ -110,7 +110,7 @@ def _run_topology_impl(daemon_client: DaemonClient, args: list[Any]) -> dict[str
     if "timeout_seconds" in payload:
         kwargs["timeout_seconds"] = float(payload["timeout_seconds"])
     response = daemon_client.run_topology(name, inputs, **kwargs)
-    # Normalize to the shape §8 line 1056 names: {output, child_root, run_id}
+    # Normalize to the shape the tech spec names: {output, child_root, run_id}
     # for finalised; {run_id, record_root, status} for async.
     if response.get("status") == "finalised":
         # Pull the terminal envelope's payload as `output` — same as
@@ -140,7 +140,7 @@ def _run_topology_poll_impl(daemon_client: DaemonClient, args: list[Any]) -> dic
     run_id = str(payload["run_id"])
     response = daemon_client.topology_status(name, run_id)
     # Pass-through: the daemon side already shapes {status, record_root,
-    # elapsed_seconds, output?} per TECH-SPEC §8 line 1057.
+    # elapsed_seconds, output?}.
     return response
 
 
@@ -241,7 +241,7 @@ _INSPECT_CAP_HEADROOM_FRAC = 0.25
 
 
 def _cap_tokens(driver_context_tokens: int | None) -> int:
-    """Budget cap per TECH-SPEC §8 line 1058, corrected round-6: both
+    """Budget cap,: both
     operands are token counts. `min(1024, 0.25 * driver_context_tokens)`.
     Fall back to 1024 when the caller cannot supply the context size."""
     if driver_context_tokens is None or driver_context_tokens <= 0:
@@ -682,7 +682,7 @@ def _make_list_applications_impl(app_registry: dict[str, Any], _args: list[Any])
 def _make_list_sessions_impl(
     session_registry: _SessionRegistryLike, _args: list[Any]
 ) -> dict[str, Any]:
-    """Two buckets per §7.6 line 1062: live + parked. Uses the same
+    """Two buckets line 1062: live + parked. Uses the same
     STATUS_* constants substrate-ui/session_registry exports."""
     live: list[dict[str, Any]] = []
     parked: list[dict[str, Any]] = []
@@ -758,3 +758,5 @@ __all__ = [
     "make_run_topology",
     "make_run_topology_poll",
 ]
+
+# spec-audit: 2026-09-01

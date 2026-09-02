@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 # Copyright (C) 2026 Peter Laffey
-"""Role-prompt resolver — the four-layer fallback per TECH-SPEC §1.6.5.
+"""Role-prompt resolver — the four-layer fallback.
 
 Resolution order for `<role>`:
 
@@ -9,7 +9,7 @@ Resolution order for `<role>`:
   3. `substrate/src/substrate/topologies/session/prompts/<role>.md`
   4. Not found → `RegistrationError`.
 
-Folder shape (§7b): if `<role>/` is a directory at a layer, concatenate its
+Folder shape (the topology-layer contract): if `<role>/` is a directory at a layer, concatenate its
 `*.md` files in lexical order with one blank line between. Both a bare
 `.md` file AND a `<role>/` directory at the SAME layer is an ambiguous
 config and raises `RegistrationError` — the resolver must not pick one
@@ -103,3 +103,5 @@ def resolve_role_prompt(role: str, *, repo_root: Path | None = None) -> str:
 
 
 __all__ = ["resolve_role_prompt", "resolve_role_prompt_with_source"]
+
+# spec-audit: 2026-09-01

@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Peter Laffey
 """Application registry — scan `applications/*.manifest.toml` at daemon boot.
 
-TECH-SPEC §7.6 (round 6) locks the flat manifest shape: one
+the tech spec (round 6) locks the flat manifest shape: one
 `<name>.manifest.toml` next to each application module, parsed at boot,
 served by the daemon at `GET /api/applications`. The daemon reads the
 `[inputs]` schema at `POST /api/topology/<name>/run` and resolves each
@@ -78,7 +78,7 @@ def _parse_slot_spec(raw: Any, slot_name: str, path: Path) -> SlotSpec:
 
 
 class ApplicationSpec(Struct, frozen=True):
-    """One parsed manifest. Fields match TECH-SPEC §7.6 line 1044.
+    """One parsed manifest. Fields match the tech spec.
 
     - `name`: registry key + `POST /api/topology/<name>/run` slot.
     - `description`: one-line human summary.
@@ -87,8 +87,7 @@ class ApplicationSpec(Struct, frozen=True):
     - `output_kind`: `[output].kind`.
     - `default_bundle`: optional bundle name for piece-H binding.
     - `slots`: parsed `[slots]` block — every value is a `SlotSpec`
-      per sprint 230 (was `dict[str, Any]` in sprint 223; the round-6
-      spec always wanted typed slots but 223 punted until 230 shipped
+      per sprint 230 (was `dict[str, Any]` in sprint 223; the       spec always wanted typed slots but 223 punted until 230 shipped
       the binding algorithm).
     """
 
@@ -192,7 +191,7 @@ def _scan(root: Path, *, on_error: str) -> dict[str, ApplicationSpec]:
 
 def spec_to_wire(spec: ApplicationSpec) -> dict[str, Any]:
     """Serialize one spec for `GET /api/applications`. Matches the response
-    shape at TECH-SPEC §7.6 line 1044: `{name, description, inputs_schema,
+    shape at the tech spec: `{name, description, inputs_schema,
     output_kind, runs}` — `slots` and `default_bundle` are excluded from
     the wire response by design (they are internal to the registry's
     binding step, not visible to a caller browsing the app catalog)."""
@@ -212,3 +211,5 @@ __all__ = [
     "load_manifests",
     "spec_to_wire",
 ]
+
+# spec-audit: 2026-09-01

@@ -1538,7 +1538,7 @@ def session_set_name(session_id: str, new_name: str) -> None:
 _BUNDLES_ROOT = Path.home() / ".substrate" / "bundles"
 
 
-_BUNDLE_TEMPLATE_TOML = """# bundle.toml — see TECH-SPEC §9 for slot semantics.
+_BUNDLE_TEMPLATE_TOML = """# bundle.toml — see the tech spec for slot semantics.
 
 name = "{name}"
 description = ""
@@ -1750,3 +1750,5 @@ def builder() -> None:
 
 if __name__ == "__main__":
     main()
+
+# spec-audit: 2026-09-01

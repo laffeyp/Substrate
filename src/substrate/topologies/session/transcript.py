@@ -7,11 +7,11 @@ The `model` Producer receives a rendered prompt each turn, not the raw event lis
 keeps the most recent K turns, and returns a `RenderedTranscript`. When turns drop,
 one `TranscriptCompacted` rides on `compaction_events`; the model Producer yields
 those before its first `ToolCall`/`ModelReply` so the compaction is anchored to the
-firing that drove it (TECH-SPEC-2026-08-25-round6 §3a cadence).
+firing that drove it (the tech spec cadence).
 
 Compaction strategy in v1 is rolling window only. `_compute_k` divides the budget
 (driver context × headroom fraction, minus seed and per-turn tokens) by an
-avg_turn_tokens heuristic (800). Product-spec §4a reads "20 turns for a 200 K-window
+avg_turn_tokens heuristic (800). The design target reads "20 turns for a 200 K-window
 model, 4 for an 8 K-window model" — that band is what 800 reproduces.
 
 Token estimation is a coarse character-count heuristic (chars / 4). Every driver
@@ -55,7 +55,7 @@ _DETERMINISTIC_CONTEXT_TOKENS = 4096
 _context_cache: dict[tuple[str, str], tuple[float, int]] = {}
 
 _CHARS_PER_TOKEN = 4  # coarse conservative estimator; see module docstring
-_AVG_TURN_TOKENS_DEFAULT = 800  # heuristic per TECH-SPEC §3a K-calculation
+_AVG_TURN_TOKENS_DEFAULT = 800  # K-window heuristic (see module docstring)
 
 # _KIND_USER_MESSAGE, _KIND_MODEL_REPLY, _KIND_PARK, _KIND_TRANSCRIPT_COMPACTED
 # imported above from `.vocabulary` (single source of truth per REVIEW F5).
@@ -106,7 +106,7 @@ def _cli_context_from_config(driver_name: str, config_path: Path | None = None) 
     """Read `[driver.<driver_name>].context_tokens` from ~/.substrate/config.toml.
 
     Missing file or missing key falls back to `_CLI_CONTEXT_DEFAULT_TOKENS` (100 000);
-    the fallback is documented as user-settable in TECH-SPEC §3a. `config_path` is
+    the fallback is documented as user-settable in the tech spec. `config_path` is
     injectable for tests.
     """
     path = config_path or (Path.home() / ".substrate" / "config.toml")
@@ -224,11 +224,11 @@ def _render(
 ) -> str:
     """Compose the prompt string handed to the driver.
 
-    Layout matches TECH-SPEC §3a: seed first, then a header line naming the
+    Layout matches the tech spec: seed first, then a header line naming the
     kept turn range, then each kept turn rendered as `USER:` / `MODEL:` /
     `TOOL <name>:` / `RESULT:` / `FINAL:` blocks. The `current` turn always
     lands at the tail; per_turn precedes the current turn's user text (product
-    spec §7b). The last `UserMessage.assembled_prompt` is treated as authoritative
+    spec the topology-layer contract). The last `UserMessage.assembled_prompt` is treated as authoritative
     for the current turn — the daemon assembles it before it lands.
     """
     del current  # positional discipline: the current turn is always kept_turns[-1]
@@ -291,7 +291,7 @@ def render_transcript(
     if strategy != "rolling_window":
         raise ValueError(
             f"render_transcript: strategy={strategy!r} unsupported in v1; "
-            "only 'rolling_window' ships (TECH-SPEC-2026-08-25-round6 §3a)."
+            "only 'rolling_window' ships ."
         )
     events = list(read_record(record_root))
     seed_tokens = _est_tokens(seed)
@@ -352,3 +352,6 @@ def render_transcript(
         tokens_estimated=tokens_estimated,
         compaction_events=compaction_events,
     )
+
+
+# spec-audit: 2026-09-01

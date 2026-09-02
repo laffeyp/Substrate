@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 # Copyright (C) 2026 Peter Laffey
-"""pair_coding session-composite — TECH-SPEC §7.3.
+"""pair_coding session-composite — the tech spec.
 
 Two related sessions open together: a builder session driven by
 `builder_driver_model` and a standing reviewer sub-agent driven by
@@ -113,3 +113,5 @@ def pair_coding_application(
 
 
 __all__ = ["pair_coding_application"]
+
+# spec-audit: 2026-09-01

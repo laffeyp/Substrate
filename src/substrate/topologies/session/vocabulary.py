@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Peter Laffey
 """Session-topology vocabulary — named constants for the eight kind strings.
 
-TECH-SPEC §3a locks session-vocabulary.md as the topology's kind surface;
+the tech spec locks session-vocabulary.md as the topology's kind surface;
 this module is the runtime enforcement layer that closes the "kind-name
 typo drifts silently" class the Markdown-only vocabulary cannot catch
 (REVIEW-2026-08-28 F5). The msgspec Structs at the top of `__init__.py`
@@ -117,3 +117,5 @@ __all__ = [
     "is_prompt_source",
     "is_session_kind",
 ]
+
+# spec-audit: 2026-09-01

@@ -189,7 +189,7 @@ def view_at(record: Any, seq: int, view: View) -> Any:
     Takes a View INSTANCE, not a name: a record stores event payloads, not View code, so
     the caller supplies the View whose update()/subscription define the fold. (Spec §16
     signature is `view_at(record, seq, view: str)` assuming the topology's View code is
-    available by name; the instance form is the honest dependency — flagged as a tech-spec
+    available by name; the instance form is the honest dependency — flagged as a spec
     flow-back in BLACKBOARD.) The View should be fresh; folding is not idempotent."""
     envelopes = _load(record)
     max_seq = max((int(e["seq"]) for e in envelopes if "seq" in e), default=-1)
@@ -366,3 +366,6 @@ def _as_event(env: dict[str, Any]) -> Any:
         t=float(env.get("t", 0.0)),
         payload=env.get("payload"),
     )
+
+
+# spec-audit: 2026-09-01

@@ -455,7 +455,7 @@ def session_topology(
     """Build the session topology.
 
     Thirteen keyword arguments name every input the daily-driver session opens with; the
-    seed is the assembled string from §1.6.5 (composed by the daemon before this call).
+    seed is the assembled string from the tech spec (composed by the daemon before this call).
     Sprint 205 registered Producers + Views + Structs. Sprint 206 added the ten triggers
     and composed termination. Sprint 208 added the `session_warning` producer + guard.
     Sprint 209a wires the four core producer bodies (model / tool / park / session_end).
@@ -608,7 +608,7 @@ def session_topology(
             factory=_session_end_factory(),
             deterministic=True,
         )
-        # Seed-alone-exceeds guard per TECH-SPEC §3a. The threshold is the same
+        # Seed-alone-exceeds guard. The threshold is the same
         # 60% headroom the transcript renderer uses (`driver_headroom_frac`), so a
         # session whose seed alone eats past that mark starts with zero room for
         # any turn to fit. Registration happens unconditionally; the `initial`
@@ -1003,3 +1003,5 @@ __all__ = [
     "resolve_driver_context_tokens",
     "session_topology",
 ]
+
+# spec-audit: 2026-09-01

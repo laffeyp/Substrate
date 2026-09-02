@@ -58,7 +58,7 @@ from .tools import Tool, full_suite
 # its `session_errors.py` import. One string, one place.
 SESSION_ENDED_MID_DELEGATE = "session_ended_mid_delegate"
 
-_CONTEXT_SLICE_CAP_BYTES = 8192  # TECH-SPEC §1.6.5 explicit cap
+_CONTEXT_SLICE_CAP_BYTES = 8192  # the tech spec explicit cap
 
 # What the child IS, given a subtask and its WORKSPACE root (where its tools operate — distinct from the
 # record root, review C-1). Caller-supplied so delegate is agnostic to session-vs-named-topology, and CI
@@ -670,3 +670,6 @@ def make_delegate(
             "x-args-passthrough": True,
         },
     )
+
+
+# spec-audit: 2026-09-01
