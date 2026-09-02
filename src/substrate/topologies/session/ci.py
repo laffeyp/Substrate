@@ -64,6 +64,7 @@ def ci_session_topology(
     *,
     turns: tuple[str, ...] = _CI_TURNS_DEFAULT,
     session_id: str = _CI_SESSION_ID,
+    per_turn: str = "",
 ) -> Callable[[api.TopologyBuilder], None]:
     """Build a CI-mode wrapper around `session_topology` that finalises in one `.run()`.
 
@@ -87,7 +88,7 @@ def ci_session_topology(
             driver_context_tokens=4096,
             seed=_CI_SEED,
             tools=CALCULATOR,
-            per_turn="",
+            per_turn=per_turn,
             max_turns=200,
             turn_max_steps=8,
             session_id=session_id,

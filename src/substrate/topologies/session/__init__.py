@@ -663,6 +663,18 @@ def session_topology(
             factory=composer_factory(),
             deterministic=True,
         )
+        # Sprint 060: per_turn fragment source. Fires on UserMessage; yields
+        # one PromptFragment(source=per_turn, ...) when manifest.per_turn is
+        # non-empty, nothing when empty. Dual-path with render_transcript in
+        # this landing state — sprint 064 removes the render-side injection
+        # and switches _model_factory to read PromptComposed.text.
+        b.producer_kind(
+            "per_turn_fragment",
+            schemas=[PromptFragment],
+            schema_version=1,
+            factory=per_turn_producer_factory(per_turn),
+            deterministic=True,
+        )
 
         b.trigger(
             "run-tool",
@@ -755,6 +767,23 @@ def session_topology(
             },
             policy=api.PerEvent(),
         )
+        # Sprint 060: emit-per-turn-fragment trigger. Fires on every
+        # UserMessage; per_turn producer yields one PromptFragment when
+        # manifest.per_turn is non-empty. Composer picks it up on the next
+        # UserMessage (its cohort View includes fragments from prior
+        # firings within the same run). Ordering wrinkle deferred to
+        # sprint 064: currently composer may fire before per_turn producer
+        # on the same UserMessage anchor, leaving the current turn's
+        # per_turn fragment out of THAT turn's composed prompt. Sprint 064
+        # resolves via all_completed or per-turn cohort strictness.
+        b.trigger(
+            "emit-per-turn-fragment",
+            subscription=api.Subscription(kinds=frozenset({USER_MESSAGE})),
+            predicate=lambda ctx: True,
+            starts="per_turn_fragment",
+            input_builder=lambda ctx: {},
+            policy=api.PerEvent(),
+        )
         b.trigger(
             "end-on-exit",
             subscription=api.Subscription(kinds=frozenset({USER_MESSAGE})),
@@ -837,6 +866,7 @@ from .transcript import (  # noqa: E402
     resolve_driver_context_tokens,
 )
 from .composer import composer_factory  # noqa: E402  # sprint 059
+from .per_turn_producer import per_turn_producer_factory  # noqa: E402  # sprint 060
 from .views import ModelFailures, producer_kind_from_lifecycle_payload  # noqa: E402
 
 __all__ = [

@@ -3,9 +3,12 @@
 ```yaml
 ---
 id: 060
-status: open
+status: closed
 phase: 8
 pass_kind: migration
+closed_at: 2026-09-01
+closed_by: substrate main HEAD after this card
+scope_note: dual-path preserved — render_transcript still injects per_turn until sprint 064 fully switches to PromptComposed. Fragment landing verified; render-side deletion deferred.
 ---
 ```
 
