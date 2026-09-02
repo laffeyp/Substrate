@@ -248,9 +248,13 @@ def _render(
             if not isinstance(payload, dict):
                 continue
             if kind == _KIND_USER_MESSAGE:
-                is_current = turn_idx == len(kept_turns) - 1
-                if is_current and per_turn:
-                    lines.append(per_turn.rstrip())
+                # Sprint 067: per_turn no longer injects here. The fragment
+                # path (per_turn_fragment producer, sprint 060) emits it as
+                # PromptFragment(source=per_turn); the composer folds it
+                # into PromptComposed which _model_factory prepends to the
+                # transcript. `per_turn` remains a parameter for the
+                # K-window budget calc (line 298-299) but is no longer
+                # rendered into the prompt string.
                 text = str(payload.get("assembled_prompt") or payload.get("text", ""))
                 lines.append(f"USER: {text}")
             elif kind == _KIND_MODEL_REPLY:

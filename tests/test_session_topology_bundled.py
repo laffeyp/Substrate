@@ -100,8 +100,11 @@ def test_committed_record_carries_the_expected_sequence() -> None:
     # emit) + one SessionEnded. The order of the last-turn events depends on the
     # append cycle; assert set membership + count instead of order for the tail.
     assert payload_kinds.count("UserMessage") == 3
-    assert payload_kinds.count("ModelReply") == 3
-    assert payload_kinds.count("FinalAnswer") == 3
+    # Sprint 067: model producer fires on PromptComposed; turn 3's /exit
+    # races end-on-exit → session_end → SessionEnded. Both 2 and 3 are
+    # legitimate depending on which task finishes first.
+    assert 2 <= payload_kinds.count("ModelReply") <= 3
+    assert 2 <= payload_kinds.count("FinalAnswer") <= 3
     assert payload_kinds.count("SessionEnded") == 1
     # First two turns land a Park; the third turn's Park may or may not land
     # depending on the append cycle. Both shapes are legitimate; the assertion is

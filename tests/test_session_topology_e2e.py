@@ -91,8 +91,16 @@ async def test_piece_a_ci_wrapper_observation_contract(tmp_path: Path) -> None:
     # locks the actual resolution below). The bounded assertion says: three of each
     # turn kind + SessionEnded + 2-or-3 Park events + no extras.
     assert _count_by_kind(envelopes, "UserMessage") == 3
-    assert _count_by_kind(envelopes, "ModelReply") == 3
-    assert _count_by_kind(envelopes, "FinalAnswer") == 3
+    # Sprint 067: model producer now fires on PromptComposed (via
+    # resume-on-composed). Turn 3's /exit races the chain:
+    # UserMessage(/exit) → per_turn → user_message → composer → PromptComposed
+    # → model versus end-on-exit → session_end → SessionEnded. The
+    # termination policy finalises on SessionEnded so /exit's model firing
+    # may lose the race. 2 or 3 ModelReply / FinalAnswer are both
+    # legitimate; the prior fixed-3 assertion held only because model
+    # fired directly on UserMessage in the pre-067 shape.
+    assert 2 <= _count_by_kind(envelopes, "ModelReply") <= 3
+    assert 2 <= _count_by_kind(envelopes, "FinalAnswer") <= 3
     assert _count_by_kind(envelopes, "SessionEnded") == 1
     assert 2 <= _count_by_kind(envelopes, "Park") <= 3
     # SessionStarted joins the set post-sprint 240 (RunStarted instrument
@@ -124,8 +132,11 @@ async def test_piece_a_ci_wrapper_observation_contract(tmp_path: Path) -> None:
     # 059-064); their position relative to ModelReply is race-tolerant, so
     # filter them out of the strict-ordered head assertion. UserMessage /
     # ModelReply / FinalAnswer / SessionEnded ordering stays byte-stable.
-    ordered_head = [k for k in kinds if k not in {"Park", "PromptComposed", "PromptFragment"}][:11]
-    assert ordered_head == [
+    ordered_head = [k for k in kinds if k not in {"Park", "PromptComposed", "PromptFragment"}]
+    # Turns 0 and 1 always complete; turn 2's model firing races /exit's
+    # session_end path (sprint 067). Assert the guaranteed prefix; the
+    # tail is race-tolerant.
+    assert ordered_head[:7] == [
         "SessionStarted",
         "UserMessage",
         "ModelReply",
@@ -133,11 +144,8 @@ async def test_piece_a_ci_wrapper_observation_contract(tmp_path: Path) -> None:
         "UserMessage",
         "ModelReply",
         "FinalAnswer",
-        "UserMessage",
-        "ModelReply",
-        "FinalAnswer",
-        "SessionEnded",
     ]
+    assert "SessionEnded" in ordered_head
 
     # Per-turn payload predicates — verify EVERY instance, not just the first.
     user_messages = [e for e in envelopes if e["kind"] == "UserMessage"]
@@ -145,11 +153,14 @@ async def test_piece_a_ci_wrapper_observation_contract(tmp_path: Path) -> None:
     assert [e["payload"]["text"] for e in user_messages] == list(turns)
 
     model_replies = [e for e in envelopes if e["kind"] == "ModelReply"]
-    assert [e["payload"]["turn_index"] for e in model_replies] == [0, 1, 2]
+    # Turn 2's model firing may lose the race with /exit's session_end;
+    # the turn_index list is either [0, 1] or [0, 1, 2].
+    turn_indices = [e["payload"]["turn_index"] for e in model_replies]
+    assert turn_indices == [0, 1] or turn_indices == [0, 1, 2]
 
     final_answers = [e for e in envelopes if e["kind"] == "FinalAnswer"]
     # steps=0 for every FinalAnswer: driver-parse path, step counter fresh on each
-    # resume-on-user firing. A regression that let step drift trips here on every turn.
+    # resume-on-composed firing. A regression that let step drift trips here on every turn.
     assert all(e["payload"]["steps"] == 0 for e in final_answers)
 
     parks = [e for e in envelopes if e["kind"] == "Park"]
@@ -167,7 +178,7 @@ async def test_piece_a_lifecycle_events_cover_each_producer(tmp_path: Path) -> N
     """Every session producer (driver_stepper, model, park, session_end) emits
     ProducerStarted; the first three also emit ProducerCompleted; session_end's
     completion may race with TerminationMatched (see prose). Four key triggers
-    fire: resume-on-user, park-on-final, end-on-exit, advance-on-park.
+    fire: resume-on-composed, park-on-final, end-on-exit, advance-on-park.
     """
     record_root = tmp_path / "test-piece-a-lifecycle"
     await api.Runtime(record_root).run(
@@ -196,7 +207,7 @@ async def test_piece_a_lifecycle_events_cover_each_producer(tmp_path: Path) -> N
     trigger_ids = {
         e["payload"].get("trigger_id") for e in envelopes if e["kind"] == "substrate.TriggerFired"
     }
-    assert {"resume-on-user", "park-on-final", "end-on-exit", "advance-on-park"} <= trigger_ids
+    assert {"resume-on-composed", "park-on-final", "end-on-exit", "advance-on-park"} <= trigger_ids
 
 
 @pytest.mark.asyncio

@@ -278,7 +278,20 @@ def _model_factory(
         final = bool(inp.get("final", False)) if hasattr(inp, "get") else False
         turn_index = int(inp.get("turn_index", 0)) if hasattr(inp, "get") else 0
         assembled_prompt = str(inp.get("assembled_prompt", "")) if hasattr(inp, "get") else ""
+        # Sprint 067: composed_prompt carries the fragment-composed prompt
+        # (role + bundle + tools + per_turn + parent_context + user_message
+        # in precedence order). resume-on-composed fires on PromptComposed
+        # so this always has content on turn N. Continue/wrap-up firings
+        # on ToolResult read latest_composed via _read_composed_text.
+        composed_prompt = str(inp.get("composed_prompt", "")) if hasattr(inp, "get") else ""
 
+        # Prompt shape post-sprint-067:
+        #   <PromptComposed.text: role + bundle + tools + per_turn + user_message>
+        #   \n\n
+        #   <render_transcript output: past turns' USER/MODEL/TOOL history>
+        # The fragment path owns current-turn composition; render_transcript
+        # owns multi-turn history (past USER/MODEL exchanges rendered from
+        # the record).
         prompt_text = assembled_prompt
         if record_root is not None:
             rendered = render_transcript(
@@ -292,6 +305,8 @@ def _model_factory(
             for compaction in rendered.compaction_events:
                 yield compaction
             prompt_text = rendered.prompt_text
+        if composed_prompt:
+            prompt_text = f"{composed_prompt}\n\n{prompt_text}" if prompt_text else composed_prompt
 
         # Sprint 049: on either terminal condition — the wrap-up trigger's
         # `final=True` (max step reached) or the anti-spin guard tripping
@@ -509,6 +524,17 @@ def session_topology(
         payload = getattr(ctx.event, "payload", None) or {}
         return producer_kind_from_lifecycle_payload(payload)
 
+    def _read_composed_text(ctx: Any) -> str:
+        """Sprint 067: read the latest PromptComposed's text from the view.
+        Returns empty string on the first firing before the composer has
+        emitted (e.g., resume-on-user for turn 1 races the composer's
+        chain). _model_factory falls back to bare assembled_prompt in
+        that case."""
+        latest = ctx.views["latest_composed"].value() if "latest_composed" in ctx.views else None
+        if not isinstance(latest, dict):
+            return ""
+        return str(latest.get("text", ""))
+
     def _continue_input(ctx: Any, *, final: bool) -> dict[str, Any]:
         # Sprint 047: pass this turn's ToolResults only, not the session-wide
         # buffer. The KindBuffer("ToolResult") view at line ~565 accumulates
@@ -529,6 +555,7 @@ def session_topology(
             "results": session_results[-this_turn_count:] if this_turn_count > 0 else [],
             "final": final,
             "turn_index": _turn_index(ctx),
+            "composed_prompt": _read_composed_text(ctx),
         }
 
     # DeterministicResponder is deterministic on (prompt, seed) by construction; both
@@ -765,6 +792,12 @@ def session_topology(
         # the text from here (the chained trigger fires on ProducerCompleted,
         # which does not carry the UserMessage payload).
         b.view("latest_user_message", api.PerKindLatest(USER_MESSAGE))
+        # Sprint 067: latest PromptComposed view. _model_factory reads this
+        # per model firing and prepends its text to the transcript-rendered
+        # prompt. The fragment/composer path (sprints 059-064) becomes the
+        # source of truth for role, bundle, tools, per_turn, parent_context,
+        # and user_message; render_transcript retains multi-turn history.
+        b.view("latest_composed", api.PerKindLatest("PromptComposed"))
 
         b.trigger(
             "run-tool",
@@ -828,9 +861,15 @@ def session_topology(
             },
             policy=api.PerEvent(),
         )
+        # Sprint 067: model producer fires on PromptComposed, not on
+        # UserMessage. Composer's chain (per_turn → user_message → composer)
+        # guarantees PromptComposed lands per turn with the full fragment
+        # cohort. The old resume-on-user shape read the raw UserMessage
+        # and passed assembled_prompt through — now the source of truth
+        # is PromptComposed.text.
         b.trigger(
-            "resume-on-user",
-            subscription=api.Subscription(kinds=frozenset({USER_MESSAGE})),
+            "resume-on-composed",
+            subscription=api.Subscription(kinds=frozenset({"PromptComposed"})),
             predicate=lambda ctx: True,
             starts="model",
             input_builder=lambda ctx: {
@@ -838,7 +877,8 @@ def session_topology(
                 "results": [],
                 "final": False,
                 "turn_index": _turn_index(ctx),
-                "assembled_prompt": ctx.event.payload.get("assembled_prompt", ""),
+                "assembled_prompt": ctx.event.payload.get("text", ""),
+                "composed_prompt": ctx.event.payload.get("text", ""),
             },
             policy=api.PerEvent(),
         )
