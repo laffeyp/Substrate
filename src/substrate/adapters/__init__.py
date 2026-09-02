@@ -15,6 +15,8 @@ via a back-compat re-export at `reference/_models.py`. New code should import fr
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 from .ensemble import EnsembleResponder
 from .models import (
     CliResponder,
@@ -34,19 +36,47 @@ from .rate_limit import (
     RateLimitedResponder,
 )
 
+
+class DriverFamily(StrEnum):
+    """The two driver families the daemon dispatches on. Sprint 070:
+    raw `"deterministic"` / `"ollama"` string comparisons across the
+    daemon become typed enum members. Specific model tags (e.g.
+    `"kimi-k2.6:cloud"`) stay as free-form strings — those are external
+    configuration values, not internal enum-shaped identifiers.
+    Boundary handlers validate via `DriverFamily(raw_value)`."""
+
+    DETERMINISTIC = "deterministic"
+    OLLAMA = "ollama"
+
+
+class DriverParamKey(StrEnum):
+    """The four `driver_params` keys the SessionRegistry validator
+    accepts. Sprint 070: raw-string keys become typed enum members.
+    Adding a new key means adding a member — pre-070 required editing
+    both the validator and every caller.
+    """
+
+    THINK = "think"
+    MAX_TOKENS = "max_tokens"
+    NUM_CTX = "num_ctx"
+    TIMEOUT = "timeout"
+
+
 __all__ = [
-    "Responder",
-    "DeterministicResponder",
-    "OllamaResponder",
     "CliResponder",
+    "ContextTokensUnknown",
+    "DeterministicResponder",
+    "DriverFamily",
+    "DriverIntrospectionUnavailable",
+    "DriverParamKey",
     "EnsembleResponder",
     "ModelUsage",
     "OllamaQuota",
+    "OllamaResponder",
     "ProviderQuota",
     "ProviderRateLimited",
     "RateLimitedResponder",
-    "ContextTokensUnknown",
-    "DriverIntrospectionUnavailable",
+    "Responder",
     "call_responder",
     "call_responder_metered",
 ]

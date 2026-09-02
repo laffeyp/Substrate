@@ -39,6 +39,9 @@ from .vocabulary import (
     SESSION_END_REQUESTED,
     SESSION_ENDED,
     USER_MESSAGE,
+    ParkReason,
+    SessionEndReason,
+    SessionWarningKind,
 )
 
 _ALL_COMPLETED_RE = re.compile(r"\ball_completed\b")
@@ -159,7 +162,11 @@ _MAX_CONSECUTIVE_FAILS = 3
 def _park_factory() -> Callable[[], Any]:
     async def _park(inp: Any) -> AsyncIterator[Park]:
         turn_index = int(inp.get("turn_index", 0)) if hasattr(inp, "get") else 0
-        reason = str(inp.get("reason", "final_answer")) if hasattr(inp, "get") else "final_answer"
+        reason = (
+            str(inp.get("reason", ParkReason.FINAL_ANSWER))
+            if hasattr(inp, "get")
+            else str(ParkReason.FINAL_ANSWER)
+        )
         yield Park(awaiting=USER_MESSAGE, turn_index=turn_index, reason=reason)
 
     return lambda: _park
@@ -167,7 +174,11 @@ def _park_factory() -> Callable[[], Any]:
 
 def _session_end_factory() -> Callable[[], Any]:
     async def _session_end(inp: Any) -> AsyncIterator[SessionEnded]:
-        reason = str(inp.get("reason", "user_exit")) if hasattr(inp, "get") else "user_exit"
+        reason = (
+            str(inp.get("reason", SessionEndReason.USER_EXIT))
+            if hasattr(inp, "get")
+            else str(SessionEndReason.USER_EXIT)
+        )
         total_turns = int(inp.get("total_turns", 0)) if hasattr(inp, "get") else 0
         yield SessionEnded(reason=reason, total_turns=total_turns)
 
@@ -466,7 +477,7 @@ def _fragment_error_warning_factory(session_id: str) -> Callable[[], Any]:
         source_name = str(inp.get("source_name", "")) if hasattr(inp, "get") else ""
         yield SessionWarning(
             session_id=session_id,
-            kind="fragment_source_failed",
+            kind=SessionWarningKind.FRAGMENT_SOURCE_FAILED,
             seed_tokens=0,
             driver_context_tokens=0,
             source_name=source_name,
@@ -682,7 +693,7 @@ def session_topology(
             schema_version=1,
             factory=_session_warning_factory(
                 session_id=session_id,
-                kind="seed_alone_exceeds",
+                kind=SessionWarningKind.SEED_ALONE_EXCEEDS,
                 seed_tokens=seed_tokens,
                 driver_context_tokens=driver_context_tokens,
             ),
@@ -878,7 +889,7 @@ def session_topology(
             starts="park",
             input_builder=lambda ctx: {
                 "turn_index": _turn_index(ctx),
-                "reason": "final_answer",
+                "reason": ParkReason.FINAL_ANSWER,
             },
             policy=api.PerEvent(),
         )
@@ -889,7 +900,7 @@ def session_topology(
             starts="park",
             input_builder=lambda ctx: {
                 "turn_index": _turn_index(ctx),
-                "reason": "model_error",
+                "reason": ParkReason.MODEL_ERROR,
             },
             policy=api.PerEvent(),
         )
@@ -900,7 +911,7 @@ def session_topology(
             starts="park",
             input_builder=lambda ctx: {
                 "turn_index": _turn_index(ctx),
-                "reason": "interrupt",
+                "reason": ParkReason.INTERRUPT,
             },
             policy=api.PerEvent(),
         )
@@ -1001,7 +1012,7 @@ def session_topology(
             predicate=lambda ctx: str(ctx.event.payload.get("text", "")).strip() == "/exit",
             starts="session_end",
             input_builder=lambda ctx: {
-                "reason": "user_exit",
+                "reason": SessionEndReason.USER_EXIT,
                 "total_turns": _turn_index(ctx) + 1,
             },
             policy=api.Once(),
@@ -1017,7 +1028,7 @@ def session_topology(
             predicate=lambda ctx: int(ctx.views["user_turns"].value()) > max_turns,
             starts="session_end",
             input_builder=lambda ctx: {
-                "reason": "timeout",
+                "reason": SessionEndReason.TIMEOUT,
                 "total_turns": int(ctx.views["user_turns"].value()) - 1,
             },
             policy=api.Once(),
@@ -1035,9 +1046,9 @@ def session_topology(
             starts="session_end",
             input_builder=lambda ctx: {
                 "reason": (
-                    "daemon_shutdown"
-                    if (ctx.event.payload or {}).get("source") == "daemon_shutdown"
-                    else "user_end"
+                    SessionEndReason.DAEMON_SHUTDOWN
+                    if (ctx.event.payload or {}).get("source") == SessionEndReason.DAEMON_SHUTDOWN
+                    else SessionEndReason.USER_END
                 ),
                 "total_turns": int(ctx.views["user_turns"].value()),
             },

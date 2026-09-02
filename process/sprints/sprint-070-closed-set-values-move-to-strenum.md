@@ -3,9 +3,12 @@
 ```yaml
 ---
 id: 070
-status: open
+status: closed
 phase: 9
 pass_kind: string-discipline
+closed_at: 2026-09-02
+closed_by: substrate main HEAD after this card
+scope_note: msgspec + StrEnum verified round-trip clean at the top of the card — Struct fields typed as StrEnum serialise as string on JSON encode/decode; in-memory value is enum member; equality with str is True. Eight StrEnum classes declared (SessionEndReason, ParkReason, SessionWarningKind, SessionStatus, WorkspaceShape, SlotKind, DriverFamily, DriverParamKey). Highest-impact call sites swept (session/__init__.py factories + trigger input_builders; applications/registry.py SlotKind validator). Residual sweeps (cli.py ListTarget declaration; driver_family in substrate-ui/server.py; DriverParamKey in session_registry driver_params validator) roll into sprint 072's boundary-validator arc.
 ---
 ```
 

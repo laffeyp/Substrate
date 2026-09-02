@@ -22,6 +22,45 @@ via `is_reserved(kind)`. The two vocabularies do not overlap by design.
 
 from __future__ import annotations
 
+from enum import StrEnum
+
+
+# Sprint 070 (2026-09-02): closed-set string values as StrEnum. Each class
+# below carries the values documented in session-vocabulary.md; wire
+# representation stays the underlying string (msgspec Struct fields accept
+# StrEnum and serialise as string on JSON encode/decode).
+
+
+class SessionEndReason(StrEnum):
+    """SessionEnded.reason — every value the session_end producer can
+    emit. Four distinct paths per session-vocabulary.md § B.SessionEnded.
+    """
+
+    USER_EXIT = "user_exit"
+    USER_END = "user_end"
+    TIMEOUT = "timeout"
+    DAEMON_SHUTDOWN = "daemon_shutdown"
+
+
+class ParkReason(StrEnum):
+    """Park.reason — matches the terminal-event that preceded the park
+    per session-vocabulary.md § C.Park invariant #5."""
+
+    FINAL_ANSWER = "final_answer"
+    MODEL_ERROR = "model_error"
+    INTERRUPT = "interrupt"
+
+
+class SessionWarningKind(StrEnum):
+    """SessionWarning.kind — one member per warning condition. Cadence
+    invariant §F #7: at most one per (session_id, kind) pair (v0.1)
+    or (session_id, source_name) pair for fragment_source_failed
+    (v0.2.1)."""
+
+    SEED_ALONE_EXCEEDS = "seed_alone_exceeds"
+    BUNDLE_CHANGED = "bundle_changed"
+    FRAGMENT_SOURCE_FAILED = "fragment_source_failed"
+
 
 # Session-vocabulary kind names (session-vocabulary.md, ratified 2026-08-25).
 SESSION_STARTED = "SessionStarted"
@@ -116,6 +155,9 @@ def is_session_kind(kind: str) -> bool:
 
 __all__ = [
     "FRAGMENT_SOURCE_KINDS",
+    "ParkReason",
+    "SessionEndReason",
+    "SessionWarningKind",
     "MODEL_REPLY",
     "PARK",
     "PROMPT_COMPOSED",

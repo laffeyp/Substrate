@@ -46,7 +46,8 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any, cast
 
 # `asyncio` is still imported: `_run_resume_sync` runs Runtime.resume on a fresh
 # per-call event loop inside a worker thread. The per-session lock itself is a
@@ -59,17 +60,38 @@ from substrate import api
 if TYPE_CHECKING:
     from substrate.api import TopologyBuilder
 
-SessionStatus = Literal["running", "parked", "interrupted", "ended"]
 
-# Sprint 224g: the four SessionStatus values as named constants. Every
-# comparison, write, and echo through the daemon should reference one of
-# these. A typo now fails at import (NameError) rather than silently at
-# runtime (the string comparison quietly returns False). SessionStatus
-# stays a Literal alias for static-checker purposes.
-STATUS_RUNNING: SessionStatus = "running"
-STATUS_PARKED: SessionStatus = "parked"
-STATUS_INTERRUPTED: SessionStatus = "interrupted"
-STATUS_ENDED: SessionStatus = "ended"
+class SessionStatus(StrEnum):
+    """The four SessionManifest.status values. Sprint 070: promoted from
+    `Literal["running", ...]` + four STATUS_* string constants (the
+    inline-subset-enumeration antipattern) to a proper StrEnum. Members
+    still compare `==` with the underlying string; msgspec Struct fields
+    typed as `SessionStatus` serialise as string on the wire. Existing
+    STATUS_* module constants below stay as aliases for backwards compat
+    during the sweep (drop in a follow-up)."""
+
+    RUNNING = "running"
+    PARKED = "parked"
+    INTERRUPTED = "interrupted"
+    ENDED = "ended"
+
+
+class WorkspaceShape(StrEnum):
+    """SessionManifest.workspace_shape. Sprint 070: raw-string field
+    values become typed enum members. Three values per the daemon's
+    three workspace modes."""
+
+    FLAT = "flat"
+    WORKTREE = "worktree"
+    ISOLATE = "isolate"
+
+
+# Backwards-compat aliases from the pre-070 shape. Every call site that
+# imported STATUS_RUNNING etc. keeps working. Drop in a follow-up card.
+STATUS_RUNNING = SessionStatus.RUNNING
+STATUS_PARKED = SessionStatus.PARKED
+STATUS_INTERRUPTED = SessionStatus.INTERRUPTED
+STATUS_ENDED = SessionStatus.ENDED
 
 _SESSIONS_BASE_DEFAULT = Path.home() / ".substrate" / "sessions"
 _BY_NAME_FILENAME = "by-name.json"

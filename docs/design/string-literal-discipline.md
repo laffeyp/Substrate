@@ -44,33 +44,60 @@ class SessionEndReason(StrEnum):
 
 Use for closed sets where the full set is known: session end reasons, Park reasons, SessionWarning kinds, session status, workspace shapes, slot kinds. At the wire boundary, validate incoming strings via `SessionEndReason(raw_value)` — mismatch raises `ValueError` with the offending value named. msgspec Struct field types accept StrEnum when the wire format is a string; verify per Struct at migration time.
 
-### 2. `typing.Literal[...]` — allowed only over StrEnum members, never over raw strings
+### 2. `typing.Literal[...]` — the narrow case only
 
-Type-checker-only shape. mypy `--strict` enforces the value at call sites.
+Rule: the signature takes the enum, not a `Literal` over enum members. If a subset applies, name the subset once — do not enumerate it inline at every function that constrains to it.
 
-**Wrong** — this reintroduces the drift the enum removes:
-
-```python
-# NO — raw strings back in the signature; renaming SessionStatus.RUNNING breaks nothing here
-def resolve(status: Literal["running", "parked", "interrupted", "ended"]) -> ...:
-    ...
-```
-
-**Right** — signature references the enum members, not the raw strings:
+**Standard case** — signature takes the enum:
 
 ```python
 def resolve(status: SessionStatus) -> ...:
     ...
 ```
 
-Or, for a function that accepts a subset:
+**Wrong — subset enumerated inline:**
 
 ```python
+# NO — the subset {PARKED, INTERRUPTED} lives here and drifts against every other
+# function that means the same thing.
 def resume(status: Literal[SessionStatus.PARKED, SessionStatus.INTERRUPTED]) -> ...:
     ...
 ```
 
-Rule: `Literal[...]` NEVER contains a raw string. If the values aren't already declared in a StrEnum, declare the StrEnum first, then reference its members. `Literal[SessionStatus.RUNNING]` is fine; `Literal["running"]` is drift dressed up as a type annotation.
+**Right — the subset is its own named symbol:**
+
+```python
+# Named once, in the vocabulary module.
+class ResumableStatus(StrEnum):
+    PARKED = SessionStatus.PARKED.value
+    INTERRUPTED = SessionStatus.INTERRUPTED.value
+
+def resume(status: ResumableStatus) -> ...:
+    ...
+```
+
+Or, when the subset is a runtime membership check rather than a type constraint:
+
+```python
+# vocabulary.py
+RESUMABLE_STATUSES: Final[frozenset[SessionStatus]] = frozenset({
+    SessionStatus.PARKED, SessionStatus.INTERRUPTED,
+})
+
+def resume(status: SessionStatus) -> ...:
+    if status not in RESUMABLE_STATUSES:
+        raise ValueError(f"cannot resume from {status}")
+```
+
+**The only place `Literal[X.MEMBER]` earns its keep** is pinning ONE specific member — a function that must take exactly one value:
+
+```python
+# Fine — the function accepts exactly one status by contract.
+def finalize(status: Literal[SessionStatus.ENDED]) -> ...:
+    ...
+```
+
+Multi-member `Literal[]` over enum members is drift — the set of "acceptable members" ends up spelled at every function that means the same subset, and none of them share a source. Declare the subset. Reference the subset.
 
 ### 3. Module-level `Final[str]` constants for open-ish sets
 
@@ -371,7 +398,8 @@ Every antipattern the patterns above address, named once so it's recognizable in
 10. **Long boolean-chain equality.** Seven `x == "a" or x == "b" or ...` clauses. Fix: `x in <frozenset>`. Pattern F.
 11. **Enum-as-strings without a mirror.** A module with `A = "a"; B = "b"` but no frozenset + no predicate to ask membership. Fix: pair every enum-shape block with its mirror set + `is_x(value)` predicate. Pattern A.
 12. **Import-side effect on discovery.** A caller only knows about a valid value because they read someone else's code and saw the string. Fix: named symbol, import raises `ImportError` on typo, IDE autocomplete surfaces the full set. All patterns.
-13. **Literal-with-raw-strings.** `Literal["running", "parked", "interrupted", "ended"]` dresses raw strings up as a type annotation. The strings still live in the signature; renaming `SessionStatus.RUNNING`'s value does not follow. Fix: `Literal` NEVER contains a raw string. Reference an existing StrEnum's members (`Literal[SessionStatus.RUNNING, SessionStatus.PARKED]`) or take the enum type directly (`status: SessionStatus`). Declare the enum first; then use it. Rule from § "Correct Python usages" #2.
+13. **Literal-with-raw-strings.** `Literal["running", "parked", "interrupted", "ended"]` dresses raw strings up as a type annotation. Same drift as inline literals anywhere else. Fix: `Literal` never contains a raw string; use the StrEnum.
+14. **Inline-subset enumeration.** `Literal[SessionStatus.PARKED, SessionStatus.INTERRUPTED]` names the subset `{PARKED, INTERRUPTED}` inside the signature. Two functions that mean the same subset spell it twice; the two spellings drift. Fix: name the subset once — declare `ResumableStatus(StrEnum)` or `RESUMABLE_STATUSES: Final[frozenset[SessionStatus]]` — then every function references the name. Multi-member `Literal[]` over enum members is drift; the only earned use is pinning ONE specific member.
 
 ## Deferred: what this doc does not cover
 

@@ -19,11 +19,26 @@ that entry.
 from __future__ import annotations
 
 import tomllib
+from enum import StrEnum
 from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any
 
 from msgspec import Struct
+
+
+class SlotKind(StrEnum):
+    """SlotSpec.kind — the five slot value shapes an application manifest
+    declares. Sprint 070: raw-string kind values become typed enum
+    members. `_parse_slot_spec` validates the incoming string via
+    `SlotKind(kind)` which raises `ValueError` on mismatch — caller
+    catches and re-raises as `ManifestError`."""
+
+    PROSE = "prose"
+    LINE = "line"
+    BOOL = "bool"
+    INT = "int"
+    CHOICE = "choice"
 
 
 class ManifestError(Exception):
@@ -60,12 +75,15 @@ def _parse_slot_spec(raw: Any, slot_name: str, path: Path) -> SlotSpec:
     if not isinstance(raw, dict):
         raise ManifestError(path, f"[slots].{slot_name} must be a table")
     kind = str(raw.get("kind", "prose"))
-    if kind not in ("prose", "line", "bool", "int", "choice"):
+    try:
+        kind_enum = SlotKind(kind)
+    except ValueError as exc:
         raise ManifestError(
-            path, f"[slots].{slot_name}.kind must be prose|line|bool|int|choice; got {kind!r}"
-        )
+            path,
+            f"[slots].{slot_name}.kind must be one of {[k.value for k in SlotKind]}; got {kind!r}",
+        ) from exc
     choices_raw = raw.get("choices") or ()
-    if kind == "choice" and not choices_raw:
+    if kind_enum is SlotKind.CHOICE and not choices_raw:
         raise ManifestError(path, f"[slots].{slot_name}: kind='choice' requires `choices`")
     return SlotSpec(
         kind=kind,
