@@ -230,6 +230,133 @@ Each sprint closes with `ruff`'s magic-value rule (`PLR2004`) enabled on the fil
 
 `src/substrate/session_registry.py::STATUS_RUNNING, STATUS_PARKED, STATUS_INTERRUPTED, STATUS_ENDED` — the module-const pattern for the status class. Promote to `SessionStatus(StrEnum)` at migration time; keep the module constants as aliases for backwards compatibility during the sweep.
 
+## Patterns in use + antipatterns they fix
+
+Every pattern below already lives in the tree. Each entry shows the code, names the antipattern the pattern eliminates, and cites a real call site where the antipattern used to be.
+
+### Pattern A — Named constant + frozenset mirror + typed predicate
+
+```python
+# vocabulary.py
+PROMPT_SOURCE_PER_TURN: str = "per_turn"
+PROMPT_SOURCE_ROLE: str = "role"
+# ... five more ...
+
+PROMPT_SOURCES: frozenset[str] = frozenset({
+    PROMPT_SOURCE_PER_TURN, PROMPT_SOURCE_ROLE, ...,
+})
+
+def is_prompt_source(source: str) -> bool:
+    return source in PROMPT_SOURCES
+```
+
+Fixes three antipatterns:
+
+- **Stringly-typed API.** `PromptFragment.source: str` on the wire; callers that want to check the value ask `is_prompt_source(x)` instead of writing `x == "per_turn" or x == "role" or ...`. Boundary code validates via the predicate; internal code compares against the named constant.
+- **Duplicated literal.** Each source name lives in exactly one place. A rename edits one line; every call site follows.
+- **Ad-hoc allow-list.** The frozenset is authored once. Sprint 068's `FRAGMENT_SOURCE_KINDS` uses the same pattern — one place declares the seven producer_kind names that count as fragment sources; the `warn-on-fragment-error` predicate reads the frozenset.
+
+### Pattern B — Wire-name constant that matches Struct qualname
+
+```python
+# vocabulary.py
+SESSION_STARTED: str = "SessionStarted"
+
+# __init__.py
+class SessionStarted(Struct, frozen=True): ...
+
+# a test locks the invariant
+def test_kind_name_constants_match_struct_qualnames() -> None:
+    assert PROMPT_FRAGMENT == PromptFragment.__name__
+    assert PROMPT_COMPOSED == PromptComposed.__name__
+```
+
+Fixes two antipatterns:
+
+- **Wire/type dual-source.** Before the pattern, the wire string `"SessionStarted"` in a subscription filter and the Python class `SessionStarted` could evolve separately — renaming the class did not rename the filter string. Locking them with a constant + a test binds them.
+- **Silent-typo drift.** A subscription written as `Subscription(kinds=frozenset({"SessionEndeed"}))` slips past every type check — it's still a valid str. Requiring the import of `SESSION_ENDED` from vocabulary means a typo is a `NameError` at import time.
+
+### Pattern C — Reserved-namespace prefix as one string
+
+```python
+# constants.py
+RESERVED_PREFIX: str = "substrate."
+RUN_STARTED: str = "substrate.RunStarted"
+PRODUCER_FAILED: str = "substrate.ProducerFailed"
+# ... one full string per kind, prefix inlined ...
+```
+
+Fixes one antipattern:
+
+- **Namespace-string concatenation at call sites.** A pattern like `RESERVED_PREFIX + "ProducerFailed"` at a call site produces the right string but hides the identifier from grep. Every reader who wants to find every reference to `substrate.ProducerFailed` should grep once and find every occurrence — concatenation defeats that. Full strings inlined at the declaration; call sites use the constant name.
+
+### Pattern D — Status-enum-as-string-constants
+
+```python
+# session_registry.py
+STATUS_RUNNING: str = "running"
+STATUS_PARKED: str = "parked"
+STATUS_INTERRUPTED: str = "interrupted"
+STATUS_ENDED: str = "ended"
+```
+
+Fixes two antipatterns:
+
+- **String-switch dispatch.** `if status == "running": ... elif status == "parked": ...` — call sites use the constant, and mypy `--strict` catches drift when the compared value type doesn't match. When this class promotes to `SessionStatus(StrEnum)`, the dispatch becomes exhaustive-checkable.
+- **Magic-value comparison.** Every `status == "running"` at a call site was a magic value before the constants shipped. Now the value has a name; the comparison reads as intent (`status == STATUS_RUNNING`), not as coincidence.
+
+### Pattern E — Boundary validation at the seam
+
+```python
+# server.py (sketch — target of sprint 072)
+def handle_post_session(body: dict) -> Response:
+    driver_raw = body["driver"]
+    try:
+        driver = DriverFamily(driver_raw)  # StrEnum validates or raises
+    except ValueError:
+        return _error(400, f"unknown driver family: {driver_raw!r}")
+    # every downstream call takes DriverFamily, not str
+    ...
+```
+
+Fixes two antipatterns:
+
+- **Boundary-crossing untyped.** An external string (client body, CLI arg, TOML value) flows deep into internal code as a `str`. Every downstream function that accepts `str` accepts the drift. Validation at the seam maps the string to a typed value once; every downstream signature is typed.
+- **Nested string switches.** Without seam validation, the same string gets branched on in three different places (once at the request handler, again at the driver-resolver factory, a third time at the session-topology builder). One seam validator upstream, typed enum downstream, three fewer switch statements.
+
+### Pattern F — Membership set inline in a Trigger predicate
+
+```python
+# session/__init__.py — sprint 068
+b.trigger(
+    "warn-on-fragment-error",
+    subscription=api.Subscription(kinds=frozenset({api.PRODUCER_FAILED})),
+    predicate=lambda ctx: _producer_kind_from_ref(ctx) in FRAGMENT_SOURCE_KINDS,
+    ...
+)
+```
+
+Fixes one antipattern:
+
+- **Long boolean-chain equality.** The pre-pattern predicate would be `lambda ctx: _producer_kind_from_ref(ctx) == "per_turn_fragment" or _producer_kind_from_ref(ctx) == "role_fragment" or ...` — seven equality checks joined with `or`. The frozenset flattens seven comparisons into one membership test and moves the seven names to a documented set that a reader can grep.
+
+## Named antipatterns — the full catalog
+
+Every antipattern the patterns above address, named once so it's recognizable in review:
+
+1. **Stringly-typed API.** A function or Struct field takes `str` where a closed set of values applies. Fix: `Literal[...]`, `StrEnum`, or a validator wrapper. Pattern A/E.
+2. **Duplicated literal.** The same value spelled in more than one place. Fix: name it once. Pattern A/B/C/D.
+3. **String-switch dispatch.** `if x == "a": ... elif x == "b": ...` on a value whose full set is known. Fix: enum + exhaustive match, or lookup table. Pattern D.
+4. **Silent-typo drift.** A typo in a string literal is still a valid str; no type check catches it. Fix: named constant so the typo is a `NameError`. Pattern B.
+5. **Wire/type dual-source.** The wire string and the Python type name evolve independently. Fix: one constant, one test locks them equal. Pattern B.
+6. **Ad-hoc allow-list.** The same tuple / set of names is re-inlined at every check site. Fix: one frozenset, imported. Pattern A/F.
+7. **Namespace-string concatenation.** Building a namespaced identifier at a call site via `prefix + name`, defeating grep. Fix: full string inlined at declaration. Pattern C.
+8. **Boundary-crossing untyped.** External string flows deep into internal code without seam validation. Fix: validate at the boundary, use typed value everywhere downstream. Pattern E.
+9. **Magic-value comparison.** `if x == 42` or `if key == "special"` with the special value invented at the site. Fix: name the value. Pattern D.
+10. **Long boolean-chain equality.** Seven `x == "a" or x == "b" or ...` clauses. Fix: `x in <frozenset>`. Pattern F.
+11. **Enum-as-strings without a mirror.** A module with `A = "a"; B = "b"` but no frozenset + no predicate to ask membership. Fix: pair every enum-shape block with its mirror set + `is_x(value)` predicate. Pattern A.
+12. **Import-side effect on discovery.** A caller only knows about a valid value because they read someone else's code and saw the string. Fix: named symbol, import raises `ImportError` on typo, IDE autocomplete surfaces the full set. All patterns.
+
 ## Deferred: what this doc does not cover
 
 - `substrate-ui`'s own string discipline (TypeScript side, sprint 070+ span will pick that up separately).
