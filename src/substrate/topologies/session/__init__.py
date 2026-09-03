@@ -34,6 +34,7 @@ from ...kernel.policies import TerminationPolicy
 from ..tool_loop import _tool_factory as _tool_loop_tool_factory
 from ..tool_loop.tools import Tool, ollama_tools, parse_tool_call, suite_describe
 from .vocabulary import (
+    END_ON_EXIT_SENTINEL,
     FRAGMENT_SOURCE_KINDS,
     PARK,
     PRODUCER_KIND_BUNDLE_METHODOLOGY_FRAGMENT,
@@ -1077,7 +1078,9 @@ def session_topology(
         b.trigger(
             TRIGGER_ID_END_ON_EXIT,
             subscription=api.Subscription(kinds=frozenset({USER_MESSAGE})),
-            predicate=lambda ctx: str(ctx.event.payload.get("text", "")).strip() == "/exit",
+            predicate=lambda ctx: (
+                str(ctx.event.payload.get("text", "")).strip() == END_ON_EXIT_SENTINEL
+            ),
             starts=PRODUCER_KIND_SESSION_END,
             input_builder=lambda ctx: {
                 "reason": SessionEndReason.USER_EXIT,

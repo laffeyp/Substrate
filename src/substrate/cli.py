@@ -51,6 +51,11 @@ class SlashCommand(StrEnum):
     REPL sends the literal `"/exit"` string as a UserMessage; the
     daemon's end-on-exit trigger routes it to SessionEnded{user_exit}."""
 
+    # `/exit` matches session/vocabulary.py::END_ON_EXIT_SENTINEL — the
+    # trigger predicate the session topology fires on. F-API-6 keeps
+    # substrate.cli off substrate.topologies, so the literal lives in
+    # both places; test_cli_slash_221.py pins the pair equal at CI so a
+    # rename on one side trips the gate.
     EXIT = "/exit"
     HELP = "/help"
     MODEL = "/model"

@@ -63,6 +63,12 @@ class SessionWarningKind(StrEnum):
     FRAGMENT_SOURCE_FAILED = "fragment_source_failed"
 
 
+# The sentinel a UserMessage.text carries to fire the session topology's
+# `end-on-exit` trigger. The CLI's SlashCommand.EXIT names the same string;
+# both sides reference this constant so a rename lands in one place.
+END_ON_EXIT_SENTINEL: Final[str] = "/exit"
+
+
 # Session-vocabulary kind names (session-vocabulary.md, ratified 2026-08-25).
 SESSION_STARTED = "SessionStarted"
 USER_MESSAGE = "UserMessage"
@@ -270,6 +276,7 @@ def is_session_kind(kind: str) -> bool:
 
 
 __all__ = [
+    "END_ON_EXIT_SENTINEL",
     "FRAGMENT_SOURCE_KINDS",
     "ParkReason",
     "PromptSource",

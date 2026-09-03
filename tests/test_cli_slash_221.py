@@ -112,6 +112,23 @@ def test_exit_returns_false_so_repl_sends_as_user_message(session: dict[str, Any
     assert handled is False
 
 
+def test_slash_command_exit_matches_session_end_on_exit_sentinel() -> None:
+    """Drift-grooming 2026-09-02: SlashCommand.EXIT (the CLI enum) and
+    END_ON_EXIT_SENTINEL (the session topology's end-on-exit trigger
+    predicate) name the same wire value. F-API-6 keeps substrate.cli
+    off substrate.topologies, so the literal lives in both files; this
+    test pins them equal at CI. A rename on one side without the other
+    trips this test, before users notice /exit stops ending sessions."""
+    from substrate.cli import SlashCommand
+    from substrate.topologies.session.vocabulary import END_ON_EXIT_SENTINEL
+
+    assert SlashCommand.EXIT.value == END_ON_EXIT_SENTINEL, (
+        f"SlashCommand.EXIT ({SlashCommand.EXIT.value!r}) diverged from "
+        f"END_ON_EXIT_SENTINEL ({END_ON_EXIT_SENTINEL!r}). Rename one side; "
+        "a rename on both, matching, silences this test."
+    )
+
+
 def test_non_slash_returns_false(session: dict[str, Any]) -> None:
     handled, _ = _route("hello there", session)
     assert handled is False
