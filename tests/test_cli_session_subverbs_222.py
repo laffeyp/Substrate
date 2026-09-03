@@ -62,12 +62,12 @@ def test_session_ls_shows_a_created_session(daemon_base: str) -> None:
 def test_session_end_by_name(daemon_base: str) -> None:
     import server
     from substrate import cli
-    from session_registry import STATUS_ENDED
+    from session_registry import SessionStatus
 
     sid = _create("end-me")
     result = CliRunner().invoke(cli.main, ["session", "end", "end-me"])
     assert result.exit_code == 0, result.output
-    assert server._SESSION_REGISTRY.get(sid).status == STATUS_ENDED
+    assert server._SESSION_REGISTRY.get(sid).status == SessionStatus.ENDED
 
 
 def test_session_end_unknown_name_exits_config(daemon_base: str) -> None:

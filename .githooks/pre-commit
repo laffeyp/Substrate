@@ -40,17 +40,19 @@ if ! "$UV" run mypy --strict src/substrate > /tmp/substrate-mypy.log 2>&1; then
   fail=1
 fi
 
-# Sprint 224h gate: raw-status-string comparison ban. Substrate-ui exports
-# STATUS_RUNNING / STATUS_PARKED / STATUS_INTERRUPTED / STATUS_ENDED from
-# session_registry.py; any `== "ended"` / `== "parked"` etc. in the daemon
-# code is a drift point that would silently return False after a Literal
-# rename. Substrate (this repo) does not carry session status, so this
-# grep is a no-op here; the same hook shipped on substrate-ui catches
-# regressions on that side.
+# Sprint 224h gate + drift-grooming 2026-09-02: raw-status-string
+# comparison ban. `SessionStatus(StrEnum)` in
+# `substrate/src/substrate/session_registry.py` names the four values;
+# any `== "ended"` / `== "parked"` etc. in the daemon code is a drift
+# point that would silently return False after a rename. The old
+# STATUS_* aliases were dropped in this pass; substrate-ui/session_registry.py
+# now re-exports SessionStatus directly. Substrate (this repo) does not
+# carry session status literals, so this grep is a no-op here; the same
+# hook shipped on substrate-ui catches regressions on that side.
 echo "pre-commit: status-literal-comparison gate (substrate-ui side)"
 if [ -d ../substrate-ui ]; then
   if grep -rn '== "ended"\|== "parked"\|== "interrupted"\|== "running"' ../substrate-ui/*.py 2>/dev/null; then
-    echo "  ^^ Compare against STATUS_ENDED / STATUS_PARKED / STATUS_INTERRUPTED / STATUS_RUNNING instead."
+    echo "  ^^ Compare against SessionStatus.ENDED / .PARKED / .INTERRUPTED / .RUNNING instead."
     fail=1
   fi
 fi

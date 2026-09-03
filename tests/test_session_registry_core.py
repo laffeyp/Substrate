@@ -23,11 +23,10 @@ import pytest
 
 from substrate.adapters import DeterministicResponder
 from substrate.session_registry import (
-    STATUS_ENDED,
-    STATUS_PARKED,
     NameCollision,
     SessionManifest,
     SessionRegistry,
+    SessionStatus,
 )
 from substrate.topologies.session import session_topology
 
@@ -153,10 +152,10 @@ def test_registry_status_transitions_via_update_status(tmp_path: Path) -> None:
         bundle=None,
         seed="",
     )
-    parked = reg.update_status("s_x", STATUS_PARKED)
-    assert parked.status == STATUS_PARKED
-    ended = reg.update_status("s_x", STATUS_ENDED)
-    assert ended.status == STATUS_ENDED
+    parked = reg.update_status("s_x", SessionStatus.PARKED)
+    assert parked.status == SessionStatus.PARKED
+    ended = reg.update_status("s_x", SessionStatus.ENDED)
+    assert ended.status == SessionStatus.ENDED
 
 
 # ── Sprint 055: auto-boot at construction, with an explicit opt-out ──

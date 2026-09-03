@@ -87,13 +87,6 @@ class WorkspaceShape(StrEnum):
     ISOLATE = "isolate"
 
 
-# Backwards-compat aliases from the pre-070 shape. Every call site that
-# imported STATUS_RUNNING etc. keeps working. Drop in a follow-up card.
-STATUS_RUNNING = SessionStatus.RUNNING
-STATUS_PARKED = SessionStatus.PARKED
-STATUS_INTERRUPTED = SessionStatus.INTERRUPTED
-STATUS_ENDED = SessionStatus.ENDED
-
 _SESSIONS_BASE_DEFAULT = Path.home() / ".substrate" / "sessions"
 _BY_NAME_FILENAME = "by-name.json"
 _BY_NAME_LOCK_FILENAME = ".by-name.lock"
@@ -384,8 +377,8 @@ class SessionRegistry:
             # a fresh-session shutdown that had no record to write to. This was
             # the shape sprint 217a's shutdown path exposed — surfaced by the
             # `test_fresh_session_transitions_to_ended_and_survives_reboot` test.
-            if manifest.status == STATUS_ENDED:
-                true_status = STATUS_ENDED
+            if manifest.status == SessionStatus.ENDED:
+                true_status = SessionStatus.ENDED
             else:
                 true_status = _scan_record_status(Path(manifest.record_root))
             if true_status != manifest.status:
@@ -444,7 +437,7 @@ class SessionRegistry:
             workspace=workspace,
             workspace_shape=workspace_shape,
             record_root=str(self._base / session_id / "record"),
-            status=STATUS_RUNNING,
+            status=SessionStatus.RUNNING,
             bundle=bundle,
             seed=seed,
             role=role,
@@ -792,7 +785,7 @@ class SessionRegistry:
         manifest = self._manifests.get(session_id)
         if manifest is None:
             raise KeyError(f"unknown session_id {session_id!r}")
-        if manifest.status == STATUS_ENDED:
+        if manifest.status == SessionStatus.ENDED:
             raise SessionEndedMidTurn(
                 f"session {session_id!r} has ended (status='ended'); cannot resume"
             )
@@ -800,7 +793,7 @@ class SessionRegistry:
         with threading_lock:
             # Re-check manifest under the lock — an intervening turn may have ended it.
             live_manifest = self._manifests.get(session_id)
-            if live_manifest is None or live_manifest.status == STATUS_ENDED:
+            if live_manifest is None or live_manifest.status == SessionStatus.ENDED:
                 raise SessionEndedMidTurn(f"session {session_id!r} ended before the turn started")
             record_root = Path(live_manifest.record_root)
             # Sprint 214a: `resume_event_builder` runs UNDER the lock so record-derived
@@ -831,7 +824,7 @@ class SessionRegistry:
                 # Halt in place: flip the manifest to "interrupted" so
                 # subsequent turns short-circuit instead of retrying the
                 # same dispatch and re-crashing on the same torn tail.
-                self.update_status(session_id, STATUS_INTERRUPTED)
+                self.update_status(session_id, SessionStatus.INTERRUPTED)
                 raise TornRecordOnResume(session_id, record_root, torn_cause)
             is_fresh_record = record_state == "empty"
             if is_fresh_record:
@@ -871,11 +864,11 @@ class SessionRegistry:
                 self._running_handles.pop(session_id, None)
             status_str = getattr(result, "status", "paused")
             if status_str == "finalised":
-                new_status: SessionStatus = STATUS_ENDED
+                new_status: SessionStatus = SessionStatus.ENDED
             elif status_str == "failed":
-                new_status = STATUS_INTERRUPTED
+                new_status = SessionStatus.INTERRUPTED
             else:
-                new_status = STATUS_PARKED
+                new_status = SessionStatus.PARKED
             updated = self.update_status(session_id, new_status)
             self.advance_turn_index(session_id)
             return updated, record_root
@@ -1322,25 +1315,25 @@ def _scan_record_status(record_root: Path) -> SessionStatus:
     torn tail, which is a write operation the boot scan must not perform.
     """
     if not record_root.exists():
-        return STATUS_PARKED
+        return SessionStatus.PARKED
     try:
         envelopes = list(api.read_record(record_root))
     except Exception:  # noqa: BLE001 — a corrupt record is a real state, not a crash
-        return STATUS_INTERRUPTED
+        return SessionStatus.INTERRUPTED
     if not envelopes:
-        return STATUS_INTERRUPTED
+        return SessionStatus.INTERRUPTED
     last = envelopes[-1]
     kind = last.get("kind", "")
     if kind == api.RUN_FINALISED:
-        return STATUS_ENDED
+        return SessionStatus.ENDED
     if kind == api.TERMINATION_MATCHED:
         payload = last.get("payload") or {}
         if (
             isinstance(payload, dict)
             and payload.get("decision") == api.Decision.PAUSE_AWAIT_INPUT.value
         ):
-            return STATUS_PARKED
-    return STATUS_INTERRUPTED
+            return SessionStatus.PARKED
+    return SessionStatus.INTERRUPTED
 
 
 def _next_turn_index_from_record(record_root: Path) -> int:
@@ -1388,7 +1381,7 @@ def _manifest_to_dict(m: SessionManifest) -> dict[str, Any]:
 
 
 _VALID_STATUS: frozenset[str] = frozenset(
-    (STATUS_RUNNING, STATUS_PARKED, STATUS_INTERRUPTED, STATUS_ENDED)
+    (SessionStatus.RUNNING, SessionStatus.PARKED, SessionStatus.INTERRUPTED, SessionStatus.ENDED)
 )
 
 
