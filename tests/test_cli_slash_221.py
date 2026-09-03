@@ -199,3 +199,21 @@ def test_list_sessions_slash_hits_real_daemon_and_shows_this_session(
     assert session["session_id"] in body, (
         f"real daemon returned no session_id in /list sessions output: {body!r}"
     )
+
+
+def test_list_rejects_unknown_target_by_name(
+    session: dict[str, Any], _capture_err: list[str]
+) -> None:
+    """Sprint 073 boundary contract: `/list <target>` validates argv via
+    `ListTarget(raw)` at the top of the handler. An unknown target
+    returns True (handled), never routes to the four dispatch branches,
+    and the stderr error names both the offending value and the four
+    valid targets. Regression against silent-typo drift (antipattern
+    #4) and boundary-crossing untyped (antipattern #8)."""
+    handled, pending = _route("/list bogus", session)
+    assert handled is True
+    assert pending == {}, "the invalid-target path must not set a deferred marker"
+    body = "\n".join(_capture_err)
+    assert "bogus" in body, f"error must name the offending value: {body!r}"
+    for valid in ("sessions", "topologies", "records", "applications"):
+        assert valid in body, f"error must list valid target {valid!r}: {body!r}"

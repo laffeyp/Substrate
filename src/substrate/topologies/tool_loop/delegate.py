@@ -45,7 +45,7 @@ from pathlib import Path
 from typing import Any
 
 from ... import api
-from ...adapters import DeterministicResponder, OllamaResponder, Responder
+from ...adapters import DeterministicResponder, DriverFamily, OllamaResponder, Responder
 from ...session_registry import SessionEndedMidTurn, SessionRegistry
 from .tools import Tool, full_suite
 
@@ -195,7 +195,7 @@ def _default_model_resolver(name: str) -> Responder:
     Codex) and the rate-limited wrappers. This fallback keeps the substrate-side
     tests self-contained without pulling substrate-ui into the boundary (F-API-6).
     """
-    if name == "deterministic":
+    if name == DriverFamily.DETERMINISTIC:
         return DeterministicResponder(seed=0)
     return OllamaResponder(name)
 
