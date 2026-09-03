@@ -26,9 +26,35 @@ from __future__ import annotations
 
 from pathlib import Path
 from collections.abc import Mapping
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 
 from .tools import Tool
+
+
+# Sprint 072 named this file as a target for TOOL_NAME_* constants; the
+# migration never landed. Drift-grooming 2026-09-02: each toolkit tool
+# name is a Final[str] constant referenced at every Tool(name=...)
+# declaration + describe string + docstring so a rename trips NameError
+# at import instead of drifting silently on the wire.
+TOOL_NAME_RUN_TOPOLOGY: Final[str] = "run_topology"
+TOOL_NAME_RUN_TOPOLOGY_POLL: Final[str] = "run_topology_poll"
+TOOL_NAME_INSPECT_RECORD: Final[str] = "inspect_record"
+TOOL_NAME_LIST_RECORDS: Final[str] = "list_records"
+TOOL_NAME_LIST_TOPOLOGIES: Final[str] = "list_topologies"
+TOOL_NAME_LIST_APPLICATIONS: Final[str] = "list_applications"
+TOOL_NAME_LIST_SESSIONS: Final[str] = "list_sessions"
+
+TOOLKIT_TOOL_NAMES: Final[frozenset[str]] = frozenset(
+    {
+        TOOL_NAME_RUN_TOPOLOGY,
+        TOOL_NAME_RUN_TOPOLOGY_POLL,
+        TOOL_NAME_INSPECT_RECORD,
+        TOOL_NAME_LIST_RECORDS,
+        TOOL_NAME_LIST_TOPOLOGIES,
+        TOOL_NAME_LIST_APPLICATIONS,
+        TOOL_NAME_LIST_SESSIONS,
+    }
+)
 
 
 class DaemonClient(Protocol):
@@ -82,21 +108,36 @@ _RUN_TOPOLOGY_POLL_SCHEMA: dict[str, Any] = {
 }
 
 
+def _require_key(payload: Mapping[str, Any], key: str, tool_name: str) -> Any:
+    """Return payload[key] or raise ValueError naming the tool + the
+    missing key. The tool_loop layer catches ValueError and wraps it as
+    `ToolResult(ok=False, error=<msg>)`; a typed message is what the
+    model reads on the wire. A bare KeyError from `payload["k"]` would
+    surface as `error="'k'"` — cryptic, no tool context."""
+    if key not in payload:
+        raise ValueError(f"{tool_name}: missing required argument {key!r}")
+    return payload[key]
+
+
 def _run_topology_impl(daemon_client: DaemonClient, args: list[Any]) -> dict[str, Any]:
     """Called by the Tool's `run(args)` callable. args[0] is the tool-call
     dict (native tool-calling routes named args as one dict argument;
     text-parse pushes the parsed dict too, positional index 0)."""
     if not args or not isinstance(args[0], Mapping):
-        raise ValueError("run_topology expects one dict argument")
+        raise ValueError(f"{TOOL_NAME_RUN_TOPOLOGY} expects one dict argument")
     payload: dict[str, Any] = dict(args[0])
-    name = str(payload.pop("name"))
-    inputs = payload.pop("inputs")
+    name = str(_require_key(payload, "name", TOOL_NAME_RUN_TOPOLOGY))
+    payload.pop("name", None)
+    inputs = _require_key(payload, "inputs", TOOL_NAME_RUN_TOPOLOGY)
+    payload.pop("inputs", None)
     # Sprint 052: `inputs` also comes through msgspec sealing as
     # MappingProxyType, not plain dict. Widen the check to Mapping and
     # coerce to a plain dict for the daemon call (which expects a real
     # dict downstream). Same class as the sprint 049 fix.
     if not isinstance(inputs, Mapping):
-        raise ValueError(f"run_topology inputs must be an object; got {type(inputs).__name__}")
+        raise ValueError(
+            f"{TOOL_NAME_RUN_TOPOLOGY}: `inputs` must be an object; got {type(inputs).__name__}"
+        )
     inputs = dict(inputs)
     kwargs: dict[str, Any] = {}
     if "bundle" in payload and payload["bundle"] is not None:
@@ -134,10 +175,10 @@ def _run_topology_impl(daemon_client: DaemonClient, args: list[Any]) -> dict[str
 
 def _run_topology_poll_impl(daemon_client: DaemonClient, args: list[Any]) -> dict[str, Any]:
     if not args or not isinstance(args[0], Mapping):
-        raise ValueError("run_topology_poll expects one dict argument")
+        raise ValueError(f"{TOOL_NAME_RUN_TOPOLOGY_POLL} expects one dict argument")
     payload = dict(args[0])
-    name = str(payload["name"])
-    run_id = str(payload["run_id"])
+    name = str(_require_key(payload, "name", TOOL_NAME_RUN_TOPOLOGY_POLL))
+    run_id = str(_require_key(payload, "run_id", TOOL_NAME_RUN_TOPOLOGY_POLL))
     response = daemon_client.topology_status(name, run_id)
     # Pass-through: the daemon side already shapes {status, record_root,
     # elapsed_seconds, output?}.
@@ -169,9 +210,9 @@ def make_run_topology(daemon_client: DaemonClient) -> Tool:
     `run_topology(name="code_review", inputs={repo: "."})` and the child
     run's Verdict flows back as the tool result's `output` field."""
     return Tool(
-        name="run_topology",
+        name=TOOL_NAME_RUN_TOPOLOGY,
         describe=(
-            "run_topology(name, inputs, bundle?, baseline?, context?, "
+            f"{TOOL_NAME_RUN_TOPOLOGY}(name, inputs, bundle?, baseline?, context?, "
             "await_completion?=true, timeout_seconds?=600) -> "
             "{output, child_root, run_id} on completion OR {run_id, "
             "record_root, status:'running'} when await_completion=false"
@@ -186,9 +227,10 @@ def make_run_topology_poll(daemon_client: DaemonClient) -> Tool:
     """Sprint 226 — the `run_topology_poll` tool. Called with the
     `run_id` a prior `run_topology(await_completion=false)` returned."""
     return Tool(
-        name="run_topology_poll",
+        name=TOOL_NAME_RUN_TOPOLOGY_POLL,
         describe=(
-            "run_topology_poll(name, run_id) -> {status, record_root, output?, elapsed_seconds}"
+            f"{TOOL_NAME_RUN_TOPOLOGY_POLL}(name, run_id) -> "
+            "{status, record_root, output?, elapsed_seconds}"
         ),
         deterministic=False,
         run=lambda args: _run_topology_poll_impl(daemon_client, args),
@@ -377,19 +419,19 @@ def _inspect_record_impl(
     from ... import api
 
     if not args or not isinstance(args[0], Mapping):
-        raise ValueError("inspect_record expects one dict argument")
+        raise ValueError(f"{TOOL_NAME_INSPECT_RECORD} expects one dict argument")
     payload = dict(args[0])
     format_name = str(payload.get("format", "summary"))
     filt = payload.get("filter") or {}
     if not isinstance(filt, dict):
-        raise ValueError("filter must be an object")
+        raise ValueError(f"{TOOL_NAME_INSPECT_RECORD}: `filter` must be an object")
     continue_from = payload.get("continue_from")
     cap_tokens = _cap_tokens(driver_context_tokens)
 
     if continue_from is not None:
         cursor_data = _verify_cursor(str(continue_from), hmac_key)
         if cursor_data is None:
-            return {"ok": False, "error": "invalid cursor"}
+            return {"ok": False, "error": f"{TOOL_NAME_INSPECT_RECORD}: invalid cursor"}
         record_root_str = str(cursor_data["record"])
         filt = {
             "kinds": cursor_data.get("kinds") or [],
@@ -399,7 +441,7 @@ def _inspect_record_impl(
         }
         start_seq = int(cursor_data["next_seq"])
     else:
-        record_root_str = str(payload["record"])
+        record_root_str = str(_require_key(payload, "record", TOOL_NAME_INSPECT_RECORD))
         start_seq = -1
 
     record_root = Path(record_root_str)
@@ -444,7 +486,9 @@ def _inspect_record_impl(
     if format_name == "first_divergence":
         compare_record = payload.get("compare_record")
         if not compare_record:
-            raise ValueError("first_divergence requires `compare_record`")
+            raise ValueError(
+                f"{TOOL_NAME_INSPECT_RECORD}: format='first_divergence' requires `compare_record`"
+            )
         divergence = api.first_divergence(record_root, Path(str(compare_record)))
         if divergence is None:
             return {"format": "first_divergence", "diverged": False}
@@ -505,7 +549,7 @@ def _inspect_record_impl(
             running_tokens += env_tokens
         return {"format": "events", "events": collected, "has_more": False}
 
-    raise ValueError(f"unknown format {format_name!r}")
+    raise ValueError(f"{TOOL_NAME_INSPECT_RECORD}: unknown format {format_name!r}")
 
 
 def make_inspect_record(
@@ -533,9 +577,10 @@ def make_inspect_record(
     key = hmac_key if hmac_key is not None else _os.urandom(32)
 
     return Tool(
-        name="inspect_record",
+        name=TOOL_NAME_INSPECT_RECORD,
         describe=(
-            "inspect_record(record, format?=summary|narrate|events|first_divergence|run_graph, "
+            f"{TOOL_NAME_INSPECT_RECORD}(record, "
+            "format?=summary|narrate|events|first_divergence|run_graph, "
             "filter?={kinds,seq_range,producer,application,time_range}, continue_from?) -> "
             "{format, ..., has_more?, cursor?}"
         ),
@@ -588,8 +633,6 @@ def _make_list_records_impl(records_root: Path, args: list[Any]) -> dict[str, An
     import json
     import time
 
-    from ... import api
-
     filt = args[0] if args and isinstance(args[0], Mapping) else {}
     status_want = filt.get("status")
     since_ts = float(filt["since_ts"]) if "since_ts" in filt else None
@@ -627,17 +670,7 @@ def _make_list_records_impl(records_root: Path, args: list[Any]) -> dict[str, An
             except OSError:
                 row["created_at"] = 0.0
         if record_root_path.exists():
-            try:
-                for envelope in api.read_record(record_root_path):
-                    if envelope.get("kind") == api.RUN_STARTED:
-                        payload = envelope.get("payload") or {}
-                        if isinstance(payload, dict):
-                            row["topology"] = payload.get("topology") or (
-                                payload.get("config") or {}
-                            ).get("topology")
-                        break
-            except Exception:  # noqa: BLE001 — torn record: leave topology as None.
-                pass
+            row["topology"] = _extract_application_name(str(record_root_path))
         rows.append(row)
 
     def _include(row: dict[str, Any]) -> bool:
@@ -682,8 +715,12 @@ def _make_list_applications_impl(app_registry: dict[str, Any], _args: list[Any])
 def _make_list_sessions_impl(
     session_registry: _SessionRegistryLike, _args: list[Any]
 ) -> dict[str, Any]:
-    """Two buckets line 1062: live + parked. Uses the same
-    STATUS_* constants substrate-ui/session_registry exports."""
+    """Two buckets: live + parked. Reads `SessionStatus` members off the
+    manifest so a rename or a new bucket lands at import via NameError
+    instead of drifting silently on the wire (sprint 070 promoted
+    STATUS_* constants to a StrEnum)."""
+    from ...session_registry import SessionStatus
+
     live: list[dict[str, Any]] = []
     parked: list[dict[str, Any]] = []
     for manifest in session_registry.list_all():
@@ -693,18 +730,24 @@ def _make_list_sessions_impl(
             "driver": manifest.driver,
             "workspace": manifest.workspace,
         }
-        status = manifest.status
-        if status in ("running", "parked"):
-            (live if status == "running" else parked).append(entry)
+        try:
+            status = SessionStatus(manifest.status)
+        except ValueError:
+            continue
+        if status is SessionStatus.RUNNING:
+            live.append(entry)
+        elif status is SessionStatus.PARKED:
+            parked.append(entry)
     return {"live": live, "parked": parked}
 
 
 def make_list_records(records_root: Path) -> Tool:
     """Sprint 228 — list_records. Walks the on-disk sessions catalog."""
     return Tool(
-        name="list_records",
+        name=TOOL_NAME_LIST_RECORDS,
         describe=(
-            "list_records(status?, since_ts?, topology?, session_name?, limit?=20) -> "
+            f"{TOOL_NAME_LIST_RECORDS}(status?, since_ts?, topology?, session_name?, "
+            "limit?=20) -> "
             "{records: [{session_id, record_root, created_at, status, name, topology}], count}"
         ),
         deterministic=False,
@@ -716,8 +759,8 @@ def make_list_records(records_root: Path) -> Tool:
 def make_list_topologies() -> Tool:
     """Sprint 228 — list_topologies. Enumerates the BUNDLED registry."""
     return Tool(
-        name="list_topologies",
-        describe="list_topologies() -> {topologies: [<name>, ...]}",
+        name=TOOL_NAME_LIST_TOPOLOGIES,
+        describe=f"{TOOL_NAME_LIST_TOPOLOGIES}() -> {{topologies: [<name>, ...]}}",
         deterministic=True,
         run=_make_list_topologies_impl,
         schema=_LIST_TOPOLOGIES_SCHEMA,
@@ -727,9 +770,10 @@ def make_list_topologies() -> Tool:
 def make_list_applications(app_registry: dict[str, Any]) -> Tool:
     """Sprint 228 — list_applications. Piece E's `_APPLICATIONS` dict."""
     return Tool(
-        name="list_applications",
+        name=TOOL_NAME_LIST_APPLICATIONS,
         describe=(
-            "list_applications() -> {applications: [{name, description, runs, output_kind}], count}"
+            f"{TOOL_NAME_LIST_APPLICATIONS}() -> "
+            "{applications: [{name, description, runs, output_kind}], count}"
         ),
         deterministic=False,
         run=lambda args: _make_list_applications_impl(app_registry, args),
@@ -740,8 +784,8 @@ def make_list_applications(app_registry: dict[str, Any]) -> Tool:
 def make_list_sessions(session_registry: _SessionRegistryLike) -> Tool:
     """Sprint 228 — list_sessions. Live + parked buckets from piece C."""
     return Tool(
-        name="list_sessions",
-        describe="list_sessions() -> {live: [...], parked: [...]}",
+        name=TOOL_NAME_LIST_SESSIONS,
+        describe=f"{TOOL_NAME_LIST_SESSIONS}() -> {{live: [...], parked: [...]}}",
         deterministic=False,
         run=lambda args: _make_list_sessions_impl(session_registry, args),
         schema=_LIST_SESSIONS_SCHEMA,

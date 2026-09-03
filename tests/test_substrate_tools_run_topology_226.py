@@ -170,10 +170,27 @@ def test_run_topology_poll_passes_through_daemon_response(tmp_path: Path) -> Non
     assert result == client.status_response
 
 
-def test_run_topology_missing_name_raises() -> None:
+def test_run_topology_missing_name_raises_typed_valueerror() -> None:
+    """Drift-grooming 2026-09-02: the previous shape raised a bare
+    KeyError; the tool_loop layer wraps that as ToolResult(ok=False,
+    error="'name'") — cryptic and gives the model no tool context. Now
+    typed ValueError names both the tool and the missing key so the
+    model can recover on retry."""
     tool = make_run_topology(_StubClient())
-    with pytest.raises(KeyError):
+    with pytest.raises(ValueError, match=r"run_topology: missing required argument 'name'"):
         tool.run([{"inputs": {"repo": "."}}])
+
+
+def test_run_topology_missing_inputs_raises_typed_valueerror() -> None:
+    tool = make_run_topology(_StubClient())
+    with pytest.raises(ValueError, match=r"run_topology: missing required argument 'inputs'"):
+        tool.run([{"name": "code_review"}])
+
+
+def test_run_topology_poll_missing_run_id_raises_typed_valueerror() -> None:
+    tool = make_run_topology_poll(_StubClient())
+    with pytest.raises(ValueError, match=r"run_topology_poll: missing required argument 'run_id'"):
+        tool.run([{"name": "code_review"}])
 
 
 def test_run_topology_schema_is_declared_on_the_tool() -> None:

@@ -92,7 +92,7 @@ def test_tampered_cursor_returns_typed_failure(record: Path) -> None:
             }
         ]
     )
-    assert out == {"ok": False, "error": "invalid cursor"}
+    assert out == {"ok": False, "error": "inspect_record: invalid cursor"}
 
 
 def test_run_graph_format_returns_instances(record: Path) -> None:
@@ -161,3 +161,28 @@ def test_inspect_record_schema_declares_all_formats() -> None:
     tool = make_inspect_record()
     formats = tool.schema["properties"]["format"]["enum"]
     assert set(formats) == {"summary", "narrate", "events", "first_divergence", "run_graph"}
+
+
+def test_inspect_record_missing_record_raises_typed_valueerror() -> None:
+    """Drift-grooming 2026-09-02: `record` is required by the schema.
+    Prior to the fix, `payload["record"]` raised a bare KeyError; the
+    tool_loop layer wrapped that as ToolResult(ok=False, error="'record'")
+    giving the model no tool context. Now typed."""
+    tool = make_inspect_record()
+    with pytest.raises(ValueError, match=r"inspect_record: missing required argument 'record'"):
+        tool.run([{}])
+
+
+def test_inspect_record_unknown_format_raises_typed_valueerror(record: Path) -> None:
+    tool = make_inspect_record()
+    with pytest.raises(ValueError, match=r"inspect_record: unknown format 'bogus'"):
+        tool.run([{"record": str(record), "format": "bogus"}])
+
+
+def test_inspect_record_first_divergence_missing_compare_raises(record: Path) -> None:
+    tool = make_inspect_record()
+    with pytest.raises(
+        ValueError,
+        match=r"inspect_record: format='first_divergence' requires `compare_record`",
+    ):
+        tool.run([{"record": str(record), "format": "first_divergence"}])
