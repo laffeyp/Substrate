@@ -26,7 +26,7 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from . import PromptFragment
-from .vocabulary import PROMPT_SOURCE_USER_MESSAGE
+from .vocabulary import PromptSource
 
 
 _PRECEDENCE = 100  # reserved band from session-vocabulary.md § I
@@ -46,7 +46,7 @@ def user_message_fragment_producer_factory() -> Callable[[], Any]:
         if not text:
             return
         yield PromptFragment(
-            source=PROMPT_SOURCE_USER_MESSAGE,
+            source=PromptSource.USER_MESSAGE,
             text=text,
             precedence=_PRECEDENCE,
             provenance={"turn_index": turn_index},

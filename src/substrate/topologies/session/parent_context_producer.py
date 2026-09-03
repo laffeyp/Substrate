@@ -34,7 +34,7 @@ from typing import Any
 
 from ... import api
 from . import PromptFragment
-from .vocabulary import PROMPT_SOURCE_PARENT_CONTEXT
+from .vocabulary import PromptSource
 
 
 _PRECEDENCE = 30  # reserved band from session-vocabulary.md § I
@@ -143,7 +143,7 @@ def parent_context_producer_factory(
         if not text:
             return
         yield PromptFragment(
-            source=PROMPT_SOURCE_PARENT_CONTEXT,
+            source=PromptSource.PARENT_CONTEXT,
             text=text,
             precedence=_PRECEDENCE,
             provenance={

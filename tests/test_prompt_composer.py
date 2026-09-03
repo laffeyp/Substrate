@@ -153,6 +153,63 @@ def test_composer_fires_per_turn_with_cohort(tmp_path: Path) -> None:
     assert len(first_payload["fragment_seqs"]) >= 2  # tools_suite + user_message
 
 
+def test_composer_scopes_turn_fragments_to_current_turn(tmp_path: Path) -> None:
+    """Drift-grooming 2026-09-02 pin for F-1 (turn-cohort accumulation).
+    A three-turn CI session emits per_turn+user_message fragments per turn.
+    Prior to the FragmentCohort View, `KindBuffer("PromptFragment")`
+    accumulated every fragment ever emitted, so turn 2's PromptComposed
+    stacked turn 1's user_message on top of turn 2's. This test asserts
+    each turn's composed text carries THIS turn's user question and NOT
+    prior turns'.
+
+    Also pins F-2 (real seqs): every PromptComposed.fragment_seqs value
+    is a valid record seq that resolves to a PromptFragment envelope with
+    the same text.
+    """
+
+    async def _run() -> None:
+        record_root = tmp_path / "ci"
+        topology = ci_session_topology(
+            turns=("alpha ask", "bravo ask", "/exit"),
+            session_id="s_turn_scope",
+        )
+        await api.Runtime(record_root).run(topology)
+
+    asyncio.run(_run())
+    envelopes = list(api.read_record(tmp_path / "ci"))
+    by_seq = {int(env["seq"]): env for env in envelopes}
+    composed = [env for env in envelopes if env.get("kind") == "PromptComposed"]
+    assert len(composed) >= 2, f"need >=2 PromptComposed to test turn scoping; got {len(composed)}"
+
+    turn1_payload = composed[0]["payload"]
+    turn2_payload = composed[1]["payload"]
+
+    assert "alpha ask" in turn1_payload["text"], (
+        f"turn 1 composed missing its user_message: {turn1_payload['text']!r}"
+    )
+    assert "alpha ask" not in turn2_payload["text"], (
+        f"turn 2 composed leaked turn 1's user_message: {turn2_payload['text']!r}"
+    )
+    assert "bravo ask" in turn2_payload["text"], (
+        f"turn 2 composed missing its user_message: {turn2_payload['text']!r}"
+    )
+
+    for composed_env in composed:
+        for seq in composed_env["payload"]["fragment_seqs"]:
+            frag_env = by_seq.get(int(seq))
+            assert frag_env is not None, (
+                f"fragment_seqs seq {seq} does not resolve to any record envelope"
+            )
+            assert frag_env["kind"] == "PromptFragment", (
+                f"fragment_seqs seq {seq} resolves to {frag_env['kind']!r}, not PromptFragment"
+            )
+            frag_text = frag_env["payload"]["text"]
+            if frag_text:
+                assert frag_text in composed_env["payload"]["text"], (
+                    f"PromptFragment@seq={seq} text not present in PromptComposed.text"
+                )
+
+
 def test_composer_fires_with_empty_cohort_when_no_sources(tmp_path: Path) -> None:
     """A CI session with no tools produces no session-open fragments and
     no user_message fragment when the empty-body producer completes

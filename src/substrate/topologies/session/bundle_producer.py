@@ -32,8 +32,7 @@ from typing import Any
 from ...bundles import Bundle, BundleNotFoundError, load_bundle, resolve_extends
 from . import PromptFragment
 from .vocabulary import (
-    PROMPT_SOURCE_BUNDLE_METHODOLOGY,
-    PROMPT_SOURCE_BUNDLE_PERSONALITY,
+    PromptSource,
 )
 
 
@@ -88,7 +87,7 @@ def bundle_methodology_producer_factory(bundle: str | None) -> Callable[[], Any]
             if not entry.methodology:
                 continue
             yield PromptFragment(
-                source=PROMPT_SOURCE_BUNDLE_METHODOLOGY,
+                source=PromptSource.BUNDLE_METHODOLOGY,
                 text=entry.methodology,
                 precedence=occupied,
                 provenance={
@@ -118,7 +117,7 @@ def bundle_personality_producer_factory(bundle: str | None) -> Callable[[], Any]
         for entry in reversed(chain):
             if entry.personality:
                 yield PromptFragment(
-                    source=PROMPT_SOURCE_BUNDLE_PERSONALITY,
+                    source=PromptSource.BUNDLE_PERSONALITY,
                     text=entry.personality,
                     precedence=_PERSONALITY_PRECEDENCE,
                     provenance={

@@ -189,6 +189,25 @@ class PromptComposed(Struct, frozen=True):
 _MAX_CONSECUTIVE_FAILS = 3
 
 
+# Drift-grooming 2026-09-02: the three model-producer directive templates
+# named as module constants. Sprint 064 promised a wrap_up_producer that
+# would emit these as fragments; the fragment shape does not fit — wrap-up
+# is a mid-body model-producer decision (final=True on wrap-up trigger OR
+# _MAX_CONSECUTIVE_FAILS trailing tool failures) that no session-open
+# producer can see. The template lives inline; naming it here removes the
+# scattered f-string and gives future readers one authoritative spelling.
+_WRAP_UP_DIRECTIVE = (
+    "You cannot call more tools this turn ({reason}). "
+    "Answer the user in plain text with what you have. If the tool "
+    "failed, explain why in one or two sentences and suggest a "
+    "workable next step. Do not emit a tool call — plain text only."
+)
+_JSON_TOOL_CALL_DIRECTIVE = (
+    'Reply with EITHER a single JSON object {"name": "<tool>", "arguments": {...}} to '
+    "call a tool, OR your final answer as plain text. Output only one of those."
+)
+
+
 def _park_factory() -> Callable[[], Any]:
     async def _park(inp: Any) -> AsyncIterator[Park]:
         turn_index = int(inp.get("turn_index", 0)) if hasattr(inp, "get") else 0
@@ -384,10 +403,7 @@ def _model_factory(
             wrap_prompt = (
                 f"{prompt_text}\n\n"
                 f"Tool results so far, in order: {progress}\n\n"
-                f"You cannot call more tools this turn ({wrap_up_reason}). "
-                "Answer the user in plain text with what you have. If the tool "
-                "failed, explain why in one or two sentences and suggest a "
-                "workable next step. Do not emit a tool call — plain text only."
+                + _WRAP_UP_DIRECTIVE.format(reason=wrap_up_reason)
                 + (f"\n\nLast error was: {last_err}" if last_err else "")
             )
             reply_text = str(await call_responder(driver, wrap_prompt))
@@ -426,13 +442,20 @@ def _model_factory(
                 yield ModelReply(text=text, model_usage={}, turn_index=turn_index)
                 yield FinalAnswer(text=text, steps=step)
                 return
-            # Fallback for a text-only Responder (CliResponder, custom): describe
-            # the tools and parse a JSON tool-call from the reply.
+            # Fallback for a text-only Responder (CliResponder, custom).
+            # The tools_suite fragment carries the raw suite_describe(tools)
+            # text in composed_prompt for record observability; the inline
+            # "Tools you MAY use:" framing here is the prompt structure the
+            # model reads. The two coexist by design — the fragment is the
+            # record snapshot, the inline framing is the model's prompt
+            # header. A framed fragment shifted llama3.2:1b's tool-argument
+            # shape (dropped required `text` on write_file) on the
+            # native-tools path where the fragment's prose lands in the
+            # prompt alongside the tools JSON schema.
             described = (
                 f"{prompt_text}\n\nTools you MAY use:\n{suite_describe(tools)}\n"
                 + (f"Tool results so far, in order: {progress}\n" if progress else "")
-                + 'Reply with EITHER a single JSON object {"name": "<tool>", "arguments": {...}} to '
-                "call a tool, OR your final answer as plain text. Output only one of those."
+                + _JSON_TOOL_CALL_DIRECTIVE
             )
             reply_text = str(await call_responder(driver, described))
             kind, chosen = parse_tool_call({"content": reply_text, "tool_calls": []}, tools)
@@ -608,6 +631,19 @@ def session_topology(
             return ""
         return str(latest.get("text", ""))
 
+    def _compose_input(ctx: Any) -> dict[str, Any]:
+        """Drift-grooming pass 2026-09-02: the composer's input builder
+        unpacks the FragmentCohort's [(seq, payload)] into `fragments` +
+        `fragment_seqs` — real record seqs, not positional indices. A
+        record reader can trace each PromptComposed back to every source
+        PromptFragment by seq. The View has already dropped prior turns'
+        per_turn and user_message fragments; only this turn's belong."""
+        cohort = list(ctx.views["fragment_cohort"].value())
+        return {
+            "fragments": [payload for _seq, payload in cohort],
+            "fragment_seqs": [seq for seq, _payload in cohort],
+        }
+
     def _continue_input(ctx: Any, *, final: bool) -> dict[str, Any]:
         # Sprint 047: pass this turn's ToolResults only, not the session-wide
         # buffer. The KindBuffer("ToolResult") view at line ~565 accumulates
@@ -762,14 +798,16 @@ def session_topology(
         b.view("results", api.KindBuffer("ToolResult"))
         b.view("user_turns", api.KindCount(USER_MESSAGE))
         b.view("model_failures", ModelFailures())
-        # Sprint 059: fragment cohort View + composer Producer.
-        # KindBuffer accumulates every PromptFragment payload the fragment-
-        # source Producers (sprints 060-064) yield. The composer's
-        # compose-on-user trigger reads it via the input builder each turn.
-        # In sprint 059's landing state, no fragment sources exist yet;
-        # every PromptComposed on the record carries fragment_seqs=() and
-        # text="". Sprints 060+ populate the cohort.
-        b.view("fragment_cohort", api.KindBuffer("PromptFragment"))
+        # Sprint 059 + drift-grooming pass 2026-09-02: fragment cohort View.
+        # FragmentCohort splits PromptFragment events into session-open
+        # (one slot per source; latest wins) and turn-scoped (list; clears
+        # on every PromptComposed). value() returns [(seq, payload)] merged
+        # and sorted by seq, so the composer's input builder passes real
+        # record seqs on PromptComposed.fragment_seqs. Replaces the earlier
+        # KindBuffer("PromptFragment") that accumulated every fragment ever
+        # emitted, letting turn N-1's user_message ride turn N's composed
+        # prompt (see role_producer.py:20-26's deferred note).
+        b.view("fragment_cohort", FragmentCohort())
         b.producer_kind(
             PRODUCER_KIND_PROMPT_COMPOSER,
             schemas=[PromptComposed],
@@ -1019,9 +1057,7 @@ def session_topology(
                 _producer_kind_from_ref(ctx) == PRODUCER_KIND_USER_MESSAGE_FRAGMENT
             ),
             starts=PRODUCER_KIND_PROMPT_COMPOSER,
-            input_builder=lambda ctx: {
-                "fragments": list(ctx.views["fragment_cohort"].value()),
-            },
+            input_builder=lambda ctx: _compose_input(ctx),
             policy=api.PerEvent(),
         )
         # Sprint 068: warn-on-fragment-error surfaces any fragment-source
@@ -1131,7 +1167,11 @@ from .tools_suite_producer import tools_suite_producer_factory  # noqa: E402  # 
 from .user_message_fragment_producer import (  # noqa: E402  # sprint 064
     user_message_fragment_producer_factory,
 )
-from .views import ModelFailures, producer_kind_from_lifecycle_payload  # noqa: E402
+from .views import (  # noqa: E402
+    FragmentCohort,
+    ModelFailures,
+    producer_kind_from_lifecycle_payload,
+)
 
 __all__ = [
     "FinalAnswer",

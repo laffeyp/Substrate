@@ -9,13 +9,16 @@ tool suite is non-empty, nothing when empty. Session-open scope: the
 same tools ride every turn's composed prompt (tools cannot change
 mid-session in v1).
 
-Sprint 064 makes the tools list a first-class fragment on the record.
-Pre-064 the tools were described inline inside `_model_factory`'s
-loop and fallback paths via `f"{prompt_text}\\n\\nTools you MAY use:\\n
-{suite_describe(tools)}\\n"`; that string composition is scheduled
-for deletion once the compute-path migration lands. This sprint puts
-the tools description on the record as a typed fragment for
-observability; the compute-path deletion is a follow-up.
+The fragment text is the raw `suite_describe(tools)` output — the same
+prose the model producer's described-tools fallback frames inline as
+"Tools you MAY use:\\n<describe>". The two coexist by design: the
+fragment is the record's snapshot of what tools this session offered;
+the inline framing on the fallback path is the prompt structure the
+model reads. On the native-tools path (OllamaResponder + achat_tools),
+the tools JSON schema rides on the tool_calls channel and the prose
+duplicate in the prompt is harmless — a framed prose header changes
+the model's completion shape on llama3.2:1b and drops required tool
+arguments, so the fragment stays as raw prose.
 """
 
 from __future__ import annotations
@@ -25,7 +28,7 @@ from typing import Any
 
 from ..tool_loop.tools import Tool, suite_describe
 from . import PromptFragment
-from .vocabulary import PROMPT_SOURCE_TOOLS_SUITE
+from .vocabulary import PromptSource
 
 
 _PRECEDENCE = 20  # reserved band from session-vocabulary.md § I
@@ -46,7 +49,7 @@ def tools_suite_producer_factory(tools: dict[str, Tool]) -> Callable[[], Any]:
         if not tools:
             return
         yield PromptFragment(
-            source=PROMPT_SOURCE_TOOLS_SUITE,
+            source=PromptSource.TOOLS_SUITE,
             text=described,
             precedence=_PRECEDENCE,
             provenance={"tool_names": list(tool_names_frozen)},

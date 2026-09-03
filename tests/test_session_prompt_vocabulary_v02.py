@@ -1,11 +1,10 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 # Copyright (C) 2026 Peter Laffey
-"""Session-vocabulary v0.2 lock — PromptFragment + PromptComposed + PromptSource enum.
+"""Session-vocabulary v0.2 lock — PromptFragment + PromptComposed + PromptSource StrEnum.
 
 Locks the Struct field shape, msgspec round-trip, and the kind-name/enum
-constant integrity. No producer emits either kind yet; sprint 059 ships the
-composer that emits PromptComposed and sprints 060-064 ship the fragment
-sources.
+integrity. The composer at `session/composer.py` emits PromptComposed;
+the six fragment producers under `session/*_producer.py` emit PromptFragment.
 """
 
 from __future__ import annotations
@@ -17,14 +16,10 @@ from substrate.topologies.session.vocabulary import (
     PROMPT_COMPOSED,
     PROMPT_FRAGMENT,
     PROMPT_SOURCES,
-    PROMPT_SOURCE_BUNDLE_METHODOLOGY,
-    PROMPT_SOURCE_BUNDLE_PERSONALITY,
-    PROMPT_SOURCE_PARENT_CONTEXT,
-    PROMPT_SOURCE_PER_TURN,
-    PROMPT_SOURCE_ROLE,
-    PROMPT_SOURCE_TOOLS_SUITE,
-    PROMPT_SOURCE_USER_MESSAGE,
     SESSION_KINDS,
+    SESSION_OPEN_SOURCES,
+    TURN_SCOPED_SOURCES,
+    PromptSource,
     is_prompt_source,
     is_session_kind,
 )
@@ -32,9 +27,10 @@ from substrate.topologies.session.vocabulary import (
 
 def test_prompt_fragment_round_trips_through_msgspec() -> None:
     """A PromptFragment survives msgspec.to_builtins + msgspec.convert with
-    every field intact. Provenance carries arbitrary jsonable dicts."""
+    every field intact. Provenance carries arbitrary jsonable dicts. A
+    StrEnum member in the `source` field serialises as its string value."""
     f = PromptFragment(
-        source=PROMPT_SOURCE_ROLE,
+        source=PromptSource.ROLE,
         text="You are a code reviewer.",
         precedence=0,
         provenance={"role_name": "reviewer", "resolved_from": "/tmp/prompts/reviewer.md"},
@@ -106,22 +102,21 @@ def test_session_kinds_frozenset_includes_the_two_v02_names() -> None:
     assert PROMPT_COMPOSED in SESSION_KINDS
     assert is_session_kind(PROMPT_FRAGMENT)
     assert is_session_kind(PROMPT_COMPOSED)
-    # v0.1 kinds still present (byte-preservation of §§ A-H).
     assert "SessionStarted" in SESSION_KINDS
     assert "UserMessage" in SESSION_KINDS
 
 
 def test_prompt_source_enum_has_the_seven_v02_values() -> None:
-    """PROMPT_SOURCES is the enum. Every v0.2 source name is in it;
+    """PromptSource is the StrEnum. Every v0.2 source name is a member;
     is_prompt_source returns True for each; a bogus name returns False."""
     expected = {
-        PROMPT_SOURCE_PER_TURN,
-        PROMPT_SOURCE_ROLE,
-        PROMPT_SOURCE_BUNDLE_METHODOLOGY,
-        PROMPT_SOURCE_BUNDLE_PERSONALITY,
-        PROMPT_SOURCE_PARENT_CONTEXT,
-        PROMPT_SOURCE_TOOLS_SUITE,
-        PROMPT_SOURCE_USER_MESSAGE,
+        PromptSource.PER_TURN,
+        PromptSource.ROLE,
+        PromptSource.BUNDLE_METHODOLOGY,
+        PromptSource.BUNDLE_PERSONALITY,
+        PromptSource.PARENT_CONTEXT,
+        PromptSource.TOOLS_SUITE,
+        PromptSource.USER_MESSAGE,
     }
     assert PROMPT_SOURCES == expected
     for source in expected:
@@ -131,14 +126,36 @@ def test_prompt_source_enum_has_the_seven_v02_values() -> None:
 
 
 def test_prompt_source_string_values_are_the_documented_values() -> None:
-    """The wire representation of a PromptSource is the string itself,
-    not an enum ordinal. Session-vocabulary.md § I documents each string;
-    a drift here would silently rename the source on the wire and break
-    every downstream reader keying on the value."""
-    assert PROMPT_SOURCE_PER_TURN == "per_turn"
-    assert PROMPT_SOURCE_ROLE == "role"
-    assert PROMPT_SOURCE_BUNDLE_METHODOLOGY == "bundle_methodology"
-    assert PROMPT_SOURCE_BUNDLE_PERSONALITY == "bundle_personality"
-    assert PROMPT_SOURCE_PARENT_CONTEXT == "parent_context"
-    assert PROMPT_SOURCE_TOOLS_SUITE == "tools_suite"
-    assert PROMPT_SOURCE_USER_MESSAGE == "user_message"
+    """The wire representation of a PromptSource member is the string,
+    not an enum ordinal. Session-vocabulary.md § I documents each
+    string; a drift here would silently rename the source on the wire
+    and break every downstream reader keying on the value."""
+    assert PromptSource.PER_TURN == "per_turn"
+    assert PromptSource.ROLE == "role"
+    assert PromptSource.BUNDLE_METHODOLOGY == "bundle_methodology"
+    assert PromptSource.BUNDLE_PERSONALITY == "bundle_personality"
+    assert PromptSource.PARENT_CONTEXT == "parent_context"
+    assert PromptSource.TOOLS_SUITE == "tools_suite"
+    assert PromptSource.USER_MESSAGE == "user_message"
+
+
+def test_session_open_and_turn_scoped_partition_prompt_sources() -> None:
+    """SESSION_OPEN_SOURCES and TURN_SCOPED_SOURCES together cover every
+    PromptSource member exactly once — the split FragmentCohort enforces.
+    role, bundle_methodology, bundle_personality, tools_suite,
+    parent_context fire once at RunStarted and appear in every turn's
+    PromptComposed. per_turn and user_message fire per turn and appear
+    only in that turn's PromptComposed."""
+    assert SESSION_OPEN_SOURCES == {
+        PromptSource.ROLE,
+        PromptSource.BUNDLE_METHODOLOGY,
+        PromptSource.BUNDLE_PERSONALITY,
+        PromptSource.TOOLS_SUITE,
+        PromptSource.PARENT_CONTEXT,
+    }
+    assert TURN_SCOPED_SOURCES == {
+        PromptSource.PER_TURN,
+        PromptSource.USER_MESSAGE,
+    }
+    assert SESSION_OPEN_SOURCES.isdisjoint(TURN_SCOPED_SOURCES)
+    assert SESSION_OPEN_SOURCES | TURN_SCOPED_SOURCES == PROMPT_SOURCES

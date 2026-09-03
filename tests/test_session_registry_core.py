@@ -61,7 +61,7 @@ def test_registry_creates_manifest_on_disk(tmp_path: Path) -> None:
         workspace=str(tmp_path / "ws"),
         workspace_shape="flat",
         bundle=None,
-        seed="hi",
+        seed="",
     )
     assert manifest.session_id == "s_alpha"
     assert manifest.name == "alpha"

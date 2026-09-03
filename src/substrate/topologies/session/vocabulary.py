@@ -94,30 +94,56 @@ SESSION_KINDS: frozenset[str] = frozenset(
 )
 
 
-# v0.2 additions — `PromptSource` enum values for `PromptFragment.source`.
-# String enum (not `enum.Enum`) so the wire representation is the string itself;
-# msgspec serializes without extra glue. Extending the enum bumps the session
-# vocabulary version (v0.2 → v0.2.1 → v0.3 as sources land).
-PROMPT_SOURCE_PER_TURN = "per_turn"
-PROMPT_SOURCE_ROLE = "role"
-PROMPT_SOURCE_BUNDLE_METHODOLOGY = "bundle_methodology"
-PROMPT_SOURCE_BUNDLE_PERSONALITY = "bundle_personality"
-PROMPT_SOURCE_PARENT_CONTEXT = "parent_context"
-PROMPT_SOURCE_TOOLS_SUITE = "tools_suite"
-PROMPT_SOURCE_USER_MESSAGE = "user_message"
+# v0.2 additions — `PromptSource` StrEnum for `PromptFragment.source`.
+# msgspec serialises StrEnum members as their string value on encode and
+# accepts the string on decode; in-memory the value is the enum member,
+# so equality with a raw string is True and downstream code can compare
+# either shape. Extending the enum bumps the session vocabulary version
+# (v0.2 → v0.2.1 → v0.3 as sources land).
 
 
-PROMPT_SOURCES: frozenset[str] = frozenset(
+class PromptSource(StrEnum):
+    """PromptFragment.source — every fragment-source Producer yields a
+    fragment whose `source` is one of these members. Two disjoint sets:
+    SESSION_OPEN_SOURCES fire once at RunStarted and appear in every
+    turn's PromptComposed; TURN_SCOPED_SOURCES fire per turn and appear
+    only in that turn's PromptComposed. FragmentCohort (views.py)
+    enforces the split."""
+
+    PER_TURN = "per_turn"
+    ROLE = "role"
+    BUNDLE_METHODOLOGY = "bundle_methodology"
+    BUNDLE_PERSONALITY = "bundle_personality"
+    PARENT_CONTEXT = "parent_context"
+    TOOLS_SUITE = "tools_suite"
+    USER_MESSAGE = "user_message"
+
+
+# Session-open sources: fire once at RunStarted, appear in every turn's
+# PromptComposed. FragmentCohort keeps one slot per source (latest wins).
+SESSION_OPEN_SOURCES: Final[frozenset[PromptSource]] = frozenset(
     {
-        PROMPT_SOURCE_PER_TURN,
-        PROMPT_SOURCE_ROLE,
-        PROMPT_SOURCE_BUNDLE_METHODOLOGY,
-        PROMPT_SOURCE_BUNDLE_PERSONALITY,
-        PROMPT_SOURCE_PARENT_CONTEXT,
-        PROMPT_SOURCE_TOOLS_SUITE,
-        PROMPT_SOURCE_USER_MESSAGE,
+        PromptSource.ROLE,
+        PromptSource.BUNDLE_METHODOLOGY,
+        PromptSource.BUNDLE_PERSONALITY,
+        PromptSource.TOOLS_SUITE,
+        PromptSource.PARENT_CONTEXT,
     }
 )
+
+# Turn-scoped sources: fire on the per-turn chain (UserMessage →
+# per_turn_fragment → user_message_fragment → composer). FragmentCohort
+# clears these on every PromptComposed emission so turn N's composed
+# prompt does not carry turn N-1's user message.
+TURN_SCOPED_SOURCES: Final[frozenset[PromptSource]] = frozenset(
+    {
+        PromptSource.PER_TURN,
+        PromptSource.USER_MESSAGE,
+    }
+)
+
+
+PROMPT_SOURCES: Final[frozenset[PromptSource]] = frozenset(PromptSource)
 
 
 # Sprint 071 (2026-09-02): every session-topology producer_kind name
@@ -229,7 +255,11 @@ def is_prompt_source(source: str) -> bool:
     """Whether `source` is one of the seven v0.2 PromptSource enum values.
     Callers use this the way `is_session_kind` gates kind names — at the
     fragment producer's yield seam, not deep in the composer body."""
-    return source in PROMPT_SOURCES
+    try:
+        PromptSource(source)
+    except ValueError:
+        return False
+    return True
 
 
 def is_session_kind(kind: str) -> bool:
@@ -242,6 +272,7 @@ def is_session_kind(kind: str) -> bool:
 __all__ = [
     "FRAGMENT_SOURCE_KINDS",
     "ParkReason",
+    "PromptSource",
     "SessionEndReason",
     "SessionWarningKind",
     "MODEL_REPLY",
@@ -249,19 +280,14 @@ __all__ = [
     "PROMPT_COMPOSED",
     "PROMPT_FRAGMENT",
     "PROMPT_SOURCES",
-    "PROMPT_SOURCE_BUNDLE_METHODOLOGY",
-    "PROMPT_SOURCE_BUNDLE_PERSONALITY",
-    "PROMPT_SOURCE_PARENT_CONTEXT",
-    "PROMPT_SOURCE_PER_TURN",
-    "PROMPT_SOURCE_ROLE",
-    "PROMPT_SOURCE_TOOLS_SUITE",
-    "PROMPT_SOURCE_USER_MESSAGE",
     "SESSION_ENDED",
     "SESSION_END_REQUESTED",
     "SESSION_KINDS",
+    "SESSION_OPEN_SOURCES",
     "SESSION_STARTED",
     "SESSION_WARNING",
     "TRANSCRIPT_COMPACTED",
+    "TURN_SCOPED_SOURCES",
     "USER_MESSAGE",
     "is_prompt_source",
     "is_session_kind",

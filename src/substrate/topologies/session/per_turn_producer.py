@@ -23,7 +23,7 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from . import PromptFragment
-from .vocabulary import PROMPT_SOURCE_PER_TURN
+from .vocabulary import PromptSource
 
 
 _PRECEDENCE = 10  # reserved band from session-vocabulary.md § I
@@ -45,7 +45,7 @@ def per_turn_producer_factory(per_turn: str) -> Callable[[], Any]:
         if not per_turn:
             return
         yield PromptFragment(
-            source=PROMPT_SOURCE_PER_TURN,
+            source=PromptSource.PER_TURN,
             text=per_turn,
             precedence=_PRECEDENCE,
             provenance={},

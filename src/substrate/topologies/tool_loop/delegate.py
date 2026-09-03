@@ -282,7 +282,16 @@ def _prefix_context_slice(
     task: str,
     context: dict[str, Any],
 ) -> str:
-    """Build a child task string prefixed with the extracted parent-record slice."""
+    """Build a child task string prefixed with the extracted parent-record slice.
+
+    Today's delegate drives tool_loop children; tool_loop has no PromptFragment
+    surface, so path-3 context rides on the task string. The substrate-native
+    alternative is `parent_context_producer` on a session-shaped child — the
+    producer factory exists at `topologies/session/parent_context_producer.py`
+    and `session_topology(parent_context=...)` binds it. When a caller passes
+    a session-shaped ChildFactory, they can bind parent_context themselves and
+    skip this string-prefix path. The two paths coexist; this one is not drift
+    against tool_loop children."""
     seq_range_raw = context.get("parent_seq_range")
     if isinstance(seq_range_raw, (list, tuple)) and len(seq_range_raw) == 2:
         seq_range: tuple[int, int] = (int(seq_range_raw[0]), int(seq_range_raw[1]))

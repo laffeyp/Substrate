@@ -17,13 +17,13 @@ explainer.md, default.md) were read at validation-time only. Sprint 061
 puts each one on the record as a typed fragment for every session that
 names it.
 
-Deferred to sprint 064: the composer's cohort-scoping fix (session-open
-sources need to appear in every turn's `PromptComposed` — today the
-composer reads the entire `KindBuffer("PromptFragment")` so they do
-appear, but for the wrong reason; sprint 064 pins the invariant with a
-proper session-open filter). Also deferred to sprint 064: the live-model
-assertion that a role fragment reaches the driver — `_model_factory` does
-not yet consume `PromptComposed.text`.
+The composer's `FragmentCohort` View (session/views.py) owns the split.
+Session-open sources (role, bundle_*, tools_suite, parent_context) land
+in a per-source slot and appear in every turn's `PromptComposed`.
+Turn-scoped sources (per_turn, user_message) live in a list the View
+clears on every `PromptComposed` emission, so turn N cannot carry
+turn N-1's user message. `_model_factory` reads `composed_prompt`
+from PromptComposed on the resume-on-composed trigger.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from typing import Any
 
 from . import PromptFragment
 from .roles import resolve_role_prompt_with_source
-from .vocabulary import PROMPT_SOURCE_ROLE
+from .vocabulary import PromptSource
 
 
 _PRECEDENCE = 0  # reserved band from session-vocabulary.md § I
@@ -60,7 +60,7 @@ def role_producer_factory(role: str, *, repo_root: Path | None = None) -> Callab
         if not text:
             return
         yield PromptFragment(
-            source=PROMPT_SOURCE_ROLE,
+            source=PromptSource.ROLE,
             text=text,
             precedence=_PRECEDENCE,
             provenance={"role_name": role, "resolved_from": str(source_path)},

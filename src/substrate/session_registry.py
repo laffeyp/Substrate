@@ -425,6 +425,17 @@ class SessionRegistry:
         If `name` is set and already in the index, raises `NameCollision` with
         the existing session_id. The caller shapes the 409 response.
         """
+        if seed:
+            import warnings
+
+            warnings.warn(
+                "SessionManifest.seed is deprecated. The prompt-composition arc "
+                "(sprints 058-067) moved every real prompt source to a "
+                "PromptFragment producer; seed has no consumer inside the "
+                "topology. Pass empty string; a future sprint drops the field.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         manifest = SessionManifest(
             session_id=session_id,
             name=name,
