@@ -82,11 +82,19 @@ def test_missing_required_keys_raise_policy(tmp_path: Path) -> None:
 
 
 def test_bad_runs_value_raises(tmp_path: Path) -> None:
+    """Drift-grooming 2026-09-02: the parse-time validator resolves `runs`
+    through ApplicationRuns(raw); an unknown value raises ManifestError
+    naming the valid enum members. The daemon's _topology_run dispatches
+    on ApplicationRuns members, so a bad value never reaches the runner."""
     (tmp_path / "bad.manifest.toml").write_text(
         'name = "x"\ndescription = "d"\nruns = "forever"\n', encoding="utf-8"
     )
-    with pytest.raises(ManifestError, match="runs"):
+    with pytest.raises(ManifestError) as excinfo:
         load_manifests(root=tmp_path, on_error="raise")
+    message = str(excinfo.value)
+    assert "'forever'" in message
+    for valid in ("one-shot", "session", "session_composite"):
+        assert valid in message, f"error must list valid value {valid!r}: {message}"
 
 
 def test_spec_to_wire_shape_matches_spec(tmp_path: Path) -> None:

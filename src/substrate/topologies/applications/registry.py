@@ -41,6 +41,27 @@ class SlotKind(StrEnum):
     CHOICE = "choice"
 
 
+class ApplicationRuns(StrEnum):
+    """ApplicationSpec.runs — the three application-shape values a manifest
+    declares. Drift-grooming 2026-09-02: `_parse_one` validates the raw
+    manifest string via `ApplicationRuns(raw)`; the daemon's
+    `_topology_run` compares against enum members instead of the three
+    raw literals sprint 225a inlined.
+
+    - `ONE_SHOT`: launches through POST /api/topology/<name>/run,
+      terminates on its own signal (Verdict, Solved, Synthesis).
+    - `SESSION`: opens through POST /api/session; the /run endpoint
+      refuses with a 400 pointing at the right seam.
+    - `SESSION_COMPOSITE`: sprint 225c — two or more related sessions
+      opened together (e.g. pair_coding); sprint 225b's cascade
+      lifecycle ties them via SessionManifest.composite_of.
+    """
+
+    ONE_SHOT = "one-shot"
+    SESSION = "session"
+    SESSION_COMPOSITE = "session_composite"
+
+
 class ManifestError(Exception):
     """A manifest file exists but does not parse or does not carry the
     required fields. Carries the file path and the underlying cause."""
@@ -135,15 +156,13 @@ def _parse_one(path: Path) -> ApplicationSpec:
     if not isinstance(name, str) or not name:
         raise ManifestError(path, "`name` must be a non-empty string")
     runs = raw["runs"]
-    # Sprint 225c added `session_composite` for apps that open two or more
-    # related sessions together (e.g. pair_coding — a builder + a
-    # standing reviewer sub-agent). Sprint 225b's cascade lifecycle ties
-    # them together via SessionManifest.composite_of.
-    if runs not in ("one-shot", "session", "session_composite"):
+    try:
+        ApplicationRuns(runs)
+    except ValueError as exc:
         raise ManifestError(
             path,
-            f"`runs` must be 'one-shot' | 'session' | 'session_composite'; got {runs!r}",
-        )
+            f"`runs` must be one of {[r.value for r in ApplicationRuns]}; got {runs!r}",
+        ) from exc
     inputs_schema = raw.get("inputs", {})
     if not isinstance(inputs_schema, dict):
         raise ManifestError(path, "`[inputs]` must be a table")
@@ -223,8 +242,10 @@ def spec_to_wire(spec: ApplicationSpec) -> dict[str, Any]:
 
 
 __all__ = [
+    "ApplicationRuns",
     "ApplicationSpec",
     "ManifestError",
+    "SlotKind",
     "SlotSpec",
     "load_manifests",
     "spec_to_wire",
