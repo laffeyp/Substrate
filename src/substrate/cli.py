@@ -41,6 +41,27 @@ class ListTarget(StrEnum):
     APPLICATIONS = "applications"
 
 
+class SlashCommand(StrEnum):
+    """The nine slash names the REPL router accepts. Drift-grooming
+    2026-09-02: each `if slash == "/..."` comparison in `_slash_route`
+    now references a member instead of a raw string literal, matching
+    the closed-set-of-strings pattern sprints 070–073 established for
+    session vocabulary, workspace shape, and driver family. `/exit` is
+    the only slash the router does NOT swallow — it returns False so the
+    REPL sends the literal `"/exit"` string as a UserMessage; the
+    daemon's end-on-exit trigger routes it to SessionEnded{user_exit}."""
+
+    EXIT = "/exit"
+    HELP = "/help"
+    MODEL = "/model"
+    TOOLS = "/tools"
+    CONTEXT = "/context"
+    INSPECT = "/inspect"
+    LIST = "/list"
+    REPLAY = "/replay"
+    RUN = "/run"
+
+
 # ── exit codes (design §5.1) ───────────────────────────────────────────────────
 EXIT_OK = 0  # run finalised normally
 EXIT_FAILED = 1  # run failed (view raised, writer crashed)
@@ -1094,17 +1115,17 @@ def _slash_route(
     args = parts[1:]
     sid = str(session["session_id"])
 
-    if slash == "/exit":
+    if slash == SlashCommand.EXIT:
         # Only slash the model observes: return False so the REPL sends it
         # as a UserMessage. The daemon's `end-on-exit` trigger routes it
         # to SessionEnded{user_exit}.
         return False
 
-    if slash == "/help":
+    if slash == SlashCommand.HELP:
         _err.print(_SLASH_HELP)
         return True
 
-    if slash == "/model":
+    if slash == SlashCommand.MODEL:
         if len(args) != 1:
             _err.print("[repl] /model requires exactly one driver name")
             return True
@@ -1115,7 +1136,7 @@ def _slash_route(
             _err.print(f"[repl] /model failed: HTTP {exc.status}: {exc.body}")
         return True
 
-    if slash == "/tools":
+    if slash == SlashCommand.TOOLS:
         if len(args) != 1:
             _err.print(
                 "[repl] /tools requires a comma-separated list, e.g. `/tools read_file,grep`"
@@ -1129,7 +1150,7 @@ def _slash_route(
             _err.print(f"[repl] /tools failed: HTTP {exc.status}: {exc.body}")
         return True
 
-    if slash == "/context":
+    if slash == SlashCommand.CONTEXT:
         if not args:
             _err.print("[repl] /context <lo-hi> [--kind K]")
             return True
@@ -1153,7 +1174,7 @@ def _slash_route(
         _err.print(f"[repl] context pending: seq {lo}..{hi}" + (f" kinds={kinds}" if kinds else ""))
         return True
 
-    if slash == "/inspect":
+    if slash == SlashCommand.INSPECT:
         if not args:
             _err.print("[repl] /inspect <record-path>")
             return True
@@ -1165,7 +1186,7 @@ def _slash_route(
             _err.print(f"[repl] /inspect failed: {type(exc).__name__}: {exc}")
         return True
 
-    if slash == "/list":
+    if slash == SlashCommand.LIST:
         raw_target = args[0] if args else ListTarget.SESSIONS.value
         try:
             target = ListTarget(raw_target)
@@ -1204,8 +1225,6 @@ def _slash_route(
         elif target is ListTarget.RECORDS:
             _err.print("[repl] /list records — reads the record dir; not implemented yet")
         elif target is ListTarget.APPLICATIONS:
-            # Typed marker (sprint 224f): see /run above.
-            pending_context["_deferred"] = "list_applications"
             _err.print(
                 "[repl] /list applications — GET /api/applications is a piece-E endpoint; "
                 "not yet shipped"
@@ -1214,7 +1233,7 @@ def _slash_route(
         # above rejects any other argv value at the boundary.
         return True
 
-    if slash == "/replay":
+    if slash == SlashCommand.REPLAY:
         if not args:
             _err.print("[repl] /replay <record-path>")
             return True
@@ -1225,14 +1244,18 @@ def _slash_route(
             _err.print(f"[repl] /replay failed: {type(exc).__name__}: {exc}")
         return True
 
-    if slash == "/run":
-        # Typed marker (sprint 224f): the deferral is the wire contract, the
-        # stderr line is UI. Tests assert on the marker so a spelling drift
-        # in the hint text cannot fool a substring-in-body match.
-        pending_context["_deferred"] = "run"
+    if slash == SlashCommand.RUN:
+        # Drift-grooming 2026-09-02: the earlier "typed marker" pattern set
+        # pending_context["_deferred"] = "run"; no downstream reader consumed
+        # it, but the next real turn's context body carried the marker into
+        # `_daemon.turn(..., context={"_deferred": "run"})`, which
+        # substrate-ui's `_session_turn` refused with 400 for the missing
+        # parent_seq_range. The marker + refusal reached the user as a
+        # cryptic HTTP 400 on the next unrelated message. The stderr hint
+        # is the whole feature until piece E's POST /api/topology/<name>/run
+        # ships a real endpoint.
         _err.print(
-            "[repl] /run — POST /api/topology/<name>/run is a piece-E endpoint; "
-            "not yet shipped. Sprint 221's card notes this deferral."
+            "[repl] /run — POST /api/topology/<name>/run is a piece-E endpoint; not yet shipped."
         )
         return True
 

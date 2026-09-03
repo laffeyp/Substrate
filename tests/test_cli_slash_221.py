@@ -94,21 +94,17 @@ def _route(
 def test_help_prints_slash_list_and_returns_true(
     session: dict[str, Any], _capture_err: list[str]
 ) -> None:
+    """Every SlashCommand member appears in the /help body. Iterating the
+    enum instead of a hardcoded tuple means a new slash added to
+    SlashCommand without updating _SLASH_HELP trips this test — no drift
+    between the router's dispatch set and the help text."""
+    from substrate.cli import SlashCommand
+
     handled, _ = _route("/help", session)
     assert handled is True
     body = "\n".join(_capture_err)
-    for slash in (
-        "/exit",
-        "/model",
-        "/tools",
-        "/context",
-        "/inspect",
-        "/list",
-        "/replay",
-        "/run",
-        "/help",
-    ):
-        assert slash in body, f"/help output missing {slash}"
+    for cmd in SlashCommand:
+        assert cmd.value in body, f"/help output missing {cmd.value}"
 
 
 def test_exit_returns_false_so_repl_sends_as_user_message(session: dict[str, Any]) -> None:
@@ -144,20 +140,36 @@ def test_model_missing_arg_prints_error(session: dict[str, Any], _capture_err: l
     assert "exactly one" in body
 
 
-def test_run_sets_typed_deferred_marker(session: dict[str, Any]) -> None:
-    """Sprint 224f: `/run` sets `pending_context["_deferred"] = "run"`.
-    The marker is the wire contract; the stderr hint is UI. A rename of
-    "piece-E" to "piece-e" in the hint text does NOT break this test.
+def test_run_prints_hint_and_does_not_pollute_pending_context(
+    session: dict[str, Any], _capture_err: list[str]
+) -> None:
+    """Drift-grooming 2026-09-02 regression: the earlier "typed marker"
+    pattern set pending_context["_deferred"] = "run"; no consumer read
+    it, but the marker rode into the next real turn's context body,
+    which the daemon refused with HTTP 400 for the missing
+    parent_seq_range. `/run` now returns True (handled), pending stays
+    empty, and the stderr hint names the endpoint that will ship it.
     """
     handled, pending = _route("/run coding_flow", session)
     assert handled is True
-    assert pending["_deferred"] == "run"
+    assert pending == {}, (
+        f"/run leaked into pending_context: {pending!r}; a next turn would 400 on it"
+    )
+    body = "\n".join(_capture_err)
+    assert "/run" in body and "not yet shipped" in body
 
 
-def test_list_applications_sets_typed_deferred_marker(session: dict[str, Any]) -> None:
+def test_list_applications_prints_hint_and_does_not_pollute_pending_context(
+    session: dict[str, Any], _capture_err: list[str]
+) -> None:
+    """Same class as test_run_prints_hint_and_does_not_pollute_pending_context."""
     handled, pending = _route("/list applications", session)
     assert handled is True
-    assert pending["_deferred"] == "list_applications"
+    assert pending == {}, (
+        f"/list applications leaked into pending_context: {pending!r}; a next turn would 400 on it"
+    )
+    body = "\n".join(_capture_err)
+    assert "/list applications" in body and "not yet shipped" in body
 
 
 # ── daemon round-trip slashes (dual contract) ─────────────────────────────
