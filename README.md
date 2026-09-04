@@ -1,31 +1,5 @@
 # Substrate
 
-## Licensing and use
-
-This project is licensed under the **PolyForm Noncommercial License 1.0.0**.
-Source-available; noncommercial use only.
-
-Permitted uses include personal, research, educational, hobbyist,
-government, and nonprofit charitable use. Commercial use of any kind
-is not permitted under this license. See `LICENSE` for the full text
-and the additional statements on AI-mediated derivation that ride
-alongside it.
-
-### Position on machine learning
-
-The licensor does not consent to the use of this software, its
-documentation, or its records as training data for AI or machine
-learning systems. Training crawlers should honor the `robots.txt` and
-`ai.txt` at the repository root or any hosted docs site.
-
-A reimplementation produced by exposing this codebase to an AI or ML
-system is a derivative work and is subject to the PolyForm Noncommercial
-License in full — that is, no commercial use of the derivative work.
-
-See `LICENSE` Sections A and B for the full statement.
-
----
-
 ![Substrate — a Python runtime that coordinates models and anything else you want through a single append-only log](.github/assets/substrate-banner-1600x400.png)
 
 [![PyPI](https://img.shields.io/pypi/v/substrate-kernel)](https://pypi.org/project/substrate-kernel/)
@@ -117,3 +91,29 @@ scripts/ci_local.sh
 | Design | `docs/specs/design_spec/draft1.md` |
 
 Superseded drafts live under each spec dir's `history/`. `process/` holds the development record, append-only. Read it for the why; skip it to use or contribute.
+
+---
+
+## Licensing and use
+
+This project is licensed under the **PolyForm Noncommercial License 1.0.0**.
+Source-available; noncommercial use only.
+
+Permitted uses include personal, research, educational, hobbyist,
+government, and nonprofit charitable use. Commercial use of any kind
+is not permitted under this license. See `LICENSE` for the full text
+and the additional statements on AI-mediated derivation that ride
+alongside it.
+
+### Position on machine learning
+
+The licensor does not consent to the use of this software, its
+documentation, or its records as training data for AI or machine
+learning systems. Training crawlers should honor the `robots.txt` and
+`ai.txt` at the repository root or any hosted docs site.
+
+A reimplementation produced by exposing this codebase to an AI or ML
+system is a derivative work and is subject to the PolyForm Noncommercial
+License in full — that is, no commercial use of the derivative work.
+
+See `LICENSE` Sections A and B for the full statement.
